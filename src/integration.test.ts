@@ -9,13 +9,9 @@ import { compressEPUB } from "./processors/archive-processor";
 import { getContentPath } from "./utils/epub-utils";
 
 // Mock the CLI module to avoid parsing real argv
-vi.mock("./cli", async (importOriginal) => {
-  const originalModule = await importOriginal<typeof import("./cli")>();
-  return {
-    ...originalModule,
-    parseArguments: vi.fn(),
-  };
-});
+vi.mock("./cli", () => ({
+  parseArguments: vi.fn(),
+}));
 
 describe("EPUB Optimization Integration Tests", () => {
   const tempDir = path.join(os.tmpdir(), "epub-optimizer-integration-test");

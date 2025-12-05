@@ -34,13 +34,15 @@ function fixXml(originalContent: string) {
   // Remove any text nodes that are direct children of <html>
   $("html")
     .contents()
-    .filter((_, node: any) => node.type === "text")
+    .filter((_, node) => (node as { type?: string }).type === "text")
     .remove();
 
   // Remove any text nodes that are direct children of <body>
   $("body")
     .contents()
-    .filter((_, node: any) => node.type === "text" && $(node).text().trim().length > 0)
+    .filter(
+      (_, node) => (node as { type?: string }).type === "text" && $(node).text().trim().length > 0
+    )
     .remove();
 
   // Serialize back to XML
