@@ -15,6 +15,7 @@ describe("pipeline.ts", () => {
   });
 
   afterEach(() => {
+    vi.clearAllMocks();
     vi.restoreAllMocks();
   });
 

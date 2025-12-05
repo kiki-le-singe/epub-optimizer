@@ -24,7 +24,7 @@ function fixXml(originalContent: string) {
   $("script").remove();
 
   // Only keep <meta> tags that are direct children of <head>
-  $("meta").each(function (this: any, _: number, el: any) {
+  $("meta").each((_, el) => {
     const parent = $(el).parent();
     if (!parent.is("head")) {
       $(el).remove();
@@ -34,17 +34,13 @@ function fixXml(originalContent: string) {
   // Remove any text nodes that are direct children of <html>
   $("html")
     .contents()
-    .filter(function (this: any) {
-      return this.type === "text";
-    })
+    .filter((_, node: any) => node.type === "text")
     .remove();
 
   // Remove any text nodes that are direct children of <body>
   $("body")
     .contents()
-    .filter(function (this: any) {
-      return this.type === "text" && $(this).text().trim().length > 0;
-    })
+    .filter((_, node: any) => node.type === "text" && $(node).text().trim().length > 0)
     .remove();
 
   // Serialize back to XML

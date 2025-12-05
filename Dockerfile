@@ -23,10 +23,10 @@ COPY . .
 RUN pnpm build
 
 # Download and setup EPUBCheck, then clean up
-RUN wget https://github.com/w3c/epubcheck/releases/download/v5.2.1/epubcheck-5.2.1.zip \
-    && unzip epubcheck-5.2.1.zip \
-    && mv epubcheck-5.2.1 epubcheck \
-    && rm epubcheck-5.2.1.zip \
+RUN wget https://github.com/w3c/epubcheck/releases/download/v5.3.0/epubcheck-5.3.0.zip \
+    && unzip epubcheck-5.3.0.zip \
+    && mv epubcheck-5.3.0 epubcheck \
+    && rm epubcheck-5.3.0.zip \
     && apt-get remove -y wget unzip \
     && apt-get autoremove -y \
     && apt-get clean
