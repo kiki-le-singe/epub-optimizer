@@ -1,15 +1,15 @@
 import fs from "fs-extra";
 import path from "node:path";
 import * as cheerio from "cheerio";
-import config from "../../utils/config.js";
 import { getCoverLabel } from "../../utils/i18n.js";
 import { getContentPath } from "../../utils/epub-utils.js";
+import { getTempDir } from "../utils.js";
 
 // Get the localized cover label
 const COVER_LABEL = getCoverLabel();
 
 // Define file paths
-const extractedDir = path.join(process.cwd(), config.tempDir);
+const extractedDir = getTempDir();
 const contentDir = await getContentPath(extractedDir);
 const summaryFile = path.join(contentDir, "chapter-2.xhtml");
 

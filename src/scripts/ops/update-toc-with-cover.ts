@@ -1,9 +1,8 @@
 import fs from "fs-extra";
-import path from "node:path";
 import * as cheerio from "cheerio";
-import config from "../../utils/config.js";
 import { getCoverLabel } from "../../utils/i18n.js";
 import { getTOCFiles } from "../../utils/epub-utils.js";
+import { getTempDir } from "../utils.js";
 
 /**
  * Updates EPUB3 navigation file to include cover link
@@ -121,7 +120,7 @@ async function updateEPUB2NCX(ncxFilePath: string, coverLabel: string): Promise<
  */
 async function updateTOCWithCover(): Promise<void> {
   try {
-    const extractedDir = path.join(process.cwd(), config.tempDir);
+    const extractedDir = getTempDir();
     const coverLabel = getCoverLabel();
 
     console.log("Discovering TOC files from OPF manifest...");

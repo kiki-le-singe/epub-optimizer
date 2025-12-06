@@ -31,8 +31,15 @@ RUN wget https://github.com/w3c/epubcheck/releases/download/v5.3.0/epubcheck-5.3
     && apt-get autoremove -y \
     && apt-get clean
 
+# Copy and setup entrypoint wrapper
+COPY docker-entrypoint.sh /usr/local/bin/
+# Ensure Unix line endings and make executable (handles Windows/Mac/Linux compatibility)
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && \
+    chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # Create a volume mount point for EPUB files
 VOLUME ["/epub-files"]
 
-# Set the entrypoint to your pipeline script
-ENTRYPOINT ["node", "dist/src/pipeline.js"]
+# Set the entrypoint to the wrapper script
+# This ensures temp files are created in the mounted volume for debugging
+ENTRYPOINT ["docker-entrypoint.sh"]

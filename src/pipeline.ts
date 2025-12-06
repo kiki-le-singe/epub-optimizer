@@ -18,6 +18,21 @@ const rawArgs = process.argv.slice(2);
 const hasClean = rawArgs.includes("--clean");
 const filteredArgs = rawArgs.filter((arg) => arg !== "--clean");
 
+// Extract temp directory from arguments (defaults to "temp_epub")
+let tempDir = "temp_epub";
+for (let i = 0; i < rawArgs.length; i++) {
+  const arg = rawArgs[i];
+  if (arg === "-t" || arg === "--temp") {
+    // Next argument is the temp directory
+    if (i + 1 < rawArgs.length) {
+      tempDir = rawArgs[i + 1];
+    }
+  } else if (arg.startsWith("-t=") || arg.startsWith("--temp=")) {
+    // Extract value after =
+    tempDir = arg.split("=")[1];
+  }
+}
+
 // Step 1: Optimize EPUB (main logic)
 runScript("../../optimize-epub.js", filteredArgs, "Optimize EPUB");
 
@@ -36,7 +51,7 @@ runScript("validate-epub.js", filteredArgs, "Validate EPUB");
 // Step 6: Cleanup if --clean
 if (hasClean) {
   console.log("\n=== Cleanup ===");
-  const cleanupResult = spawnSync("rm", ["-rf", "temp_epub"], { stdio: "inherit" });
+  const cleanupResult = spawnSync("rm", ["-rf", tempDir], { stdio: "inherit" });
   if (cleanupResult.status !== 0) {
     console.error("✗ Cleanup failed.");
     process.exit(cleanupResult.status || 1);
@@ -44,6 +59,6 @@ if (hasClean) {
   console.log("All done!\n");
 } else {
   console.log(
-    "\nBuild completed successfully!\nNote: Temporary files have been kept. Use --clean to remove them.\n"
+    `\nBuild completed successfully!\nNote: Temporary files have been kept in '${tempDir}'. Use --clean to remove them.\n`
   );
 }

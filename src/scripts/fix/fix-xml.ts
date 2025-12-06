@@ -5,7 +5,7 @@
 import fs from "fs-extra";
 import path from "node:path";
 import * as cheerio from "cheerio";
-import config from "../../utils/config.js";
+import { getTempDir } from "../utils.js";
 
 // Properly format self-closing tags in XML/XHTML files
 function fixXml(originalContent: string) {
@@ -53,9 +53,8 @@ import { getContentPath } from "../../utils/epub-utils.js";
 
 // Main async function to handle the process
 async function main() {
-  // Get the extraction directory from config
-  const projectRoot = process.cwd();
-  const extractedDir = path.join(projectRoot, config.tempDir);
+  // Get the extraction directory from CLI args or config
+  const extractedDir = getTempDir();
 
   // Verify the directory exists
   if (!fs.existsSync(extractedDir)) {

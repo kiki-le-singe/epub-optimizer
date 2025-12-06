@@ -93,3 +93,32 @@ export function runCommand(command: string, options = { stdio: "inherit" as cons
     handleError(error);
   }
 }
+
+/**
+ * Get the temp directory from CLI args or config
+ * Reads the --temp or -t argument, falls back to config.tempDir
+ * @returns Absolute path to temp directory
+ */
+export function getTempDir(): string {
+  const args = process.argv.slice(2);
+
+  // Look for --temp or -t in the arguments array
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    // Check for --temp=value or -t=value
+    if (arg.startsWith("--temp=") || arg.startsWith("-t=")) {
+      const tempPath = arg.split("=")[1];
+      return path.isAbsolute(tempPath) ? tempPath : path.join(process.cwd(), tempPath);
+    }
+
+    // Check for --temp value or -t value (next arg is the value)
+    if ((arg === "--temp" || arg === "-t") && i + 1 < args.length) {
+      const tempPath = args[i + 1];
+      return path.isAbsolute(tempPath) ? tempPath : path.join(process.cwd(), tempPath);
+    }
+  }
+
+  // Fallback to config default
+  return path.join(process.cwd(), config.tempDir);
+}

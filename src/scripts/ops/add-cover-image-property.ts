@@ -1,13 +1,12 @@
 import fs from "fs-extra";
-import path from "node:path";
 import * as cheerio from "cheerio";
-import config from "../../utils/config.js";
 import { getOPFPath } from "../../utils/epub-utils.js";
+import { getTempDir } from "../utils.js";
 
 async function addCoverImageProperty() {
   try {
     // Define paths clearly
-    const extractedDir = path.join(process.cwd(), config.tempDir);
+    const extractedDir = getTempDir();
 
     // Get the OPF file path from container.xml
     const opfFile = await getOPFPath(extractedDir);

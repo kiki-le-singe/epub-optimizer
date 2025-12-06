@@ -2,15 +2,14 @@
 // When linear="yes", the cover will be displayed in the reading order (on the first page)
 
 import fs from "fs-extra";
-import path from "node:path";
 import * as cheerio from "cheerio";
-import config from "../../utils/config.js";
 import { getOPFPath } from "../../utils/epub-utils.js";
+import { getTempDir } from "../utils.js";
 
 async function updateCoverLinear() {
   try {
     // Define file paths
-    const extractedDir = path.join(process.cwd(), config.tempDir);
+    const extractedDir = getTempDir();
 
     // Get the OPF file path from container.xml
     const opfFile = await getOPFPath(extractedDir);

@@ -27,6 +27,7 @@ A Node.js utility to optimize EPUB files by compressing HTML, CSS, images and re
   - [Modern Workflow](#modern-workflow)
   - [Command Line Options](#command-line-options)
   - [Docker Usage](#docker-usage)
+  - [Debugging with Temporary Files](#debugging-with-temporary-files)
 - [Project Structure](#project-structure)
 - [Development Information](#development-information)
   - [Source and Build Separation](#source-and-build-separation)
@@ -77,7 +78,7 @@ git clone https://github.com/kiki-le-singe/epub-optimizer.git
 cd epub-optimizer
 docker build -t epub-optimizer .
 docker run --rm -v $(pwd):/epub-files epub-optimizer \
-  -i /epub-files/YourBook.epub -o /epub-files/YourBook-optimized.epub
+  -i YourBook.epub -o YourBook-optimized.epub
 ```
 
 ## Features
@@ -167,7 +168,7 @@ docker build -t epub-optimizer .
 ```bash
 # Optimize an EPUB file
 docker run --rm -v $(pwd):/epub-files epub-optimizer \
-  -i /epub-files/your-book.epub -o /epub-files/your-book-optimized.epub
+  -i your-book.epub -o your-book-optimized.epub
 ```
 
 **Benefits of Docker approach:**
@@ -226,6 +227,7 @@ Usage: pnpm optimize [options]
 Options:
   -i, --input       Input EPUB file path                    [string] [default: "mybook.epub"]
   -o, --output      Output EPUB file path                   [string] [default: "mybook_opt.epub"]
+  -t, --temp        Temporary directory for processing      [string] [default: "temp_epub"]
   --jpg-quality     JPEG compression quality (0-100)        [number] [default: 70]
   --png-quality     PNG compression quality (0-1 scale)     [number] [default: 0.6]
   --clean           Clean temporary files after processing  [boolean] [default: false]
@@ -256,14 +258,14 @@ If you're using the Docker alternative, here are additional usage examples:
 
 ```bash
 docker run --rm -v $(pwd):/epub-files epub-optimizer \
-  -i /epub-files/book.epub -o /epub-files/book-optimized.epub
+  -i book.epub -o book-optimized.epub
 ```
 
 **Docker with custom image quality:**
 
 ```bash
 docker run --rm -v $(pwd):/epub-files epub-optimizer \
-  -i /epub-files/book.epub -o /epub-files/book-optimized.epub \
+  -i book.epub -o book-optimized.epub \
   --jpg-quality 50 --png-quality 0.4
 ```
 
@@ -274,7 +276,52 @@ docker run --rm -v $(pwd):/epub-files epub-optimizer \
 - `epub-optimizer` - The Docker image name
 - Arguments after the image name are passed to the EPUB optimizer
 
-> **Docker Note:** Temporary files are automatically handled inside the container and don't affect your host system.
+> **Docker Note:** Temporary files are automatically created in the mounted directory (visible on your host) for easy debugging. By default, they're kept in `temp_epub/` unless you use `--clean`. Use `-t` to specify a custom temp directory location.
+
+### Debugging with Temporary Files
+
+**Traditional usage:**
+
+```bash
+# Keep temp files for inspection (default behavior)
+pnpm optimize -i book.epub -o book-opt.epub
+# Inspect temp_epub/ directory
+
+# Custom temp location
+pnpm optimize -i book.epub -o book-opt.epub -t my-debug-folder
+
+# Clean up when done
+pnpm cleanup
+```
+
+**Docker usage:**
+
+```bash
+# Temp files automatically appear in your current directory
+docker run --rm -v $(pwd):/epub-files epub-optimizer \
+  -i book.epub -o book-optimized.epub
+# Inspect temp_epub/ directory on your host
+
+# Custom temp location (still visible on host)
+docker run --rm -v $(pwd):/epub-files epub-optimizer \
+  -i book.epub -o book-optimized.epub \
+  -t my-debug-folder
+
+# Clean temp files after processing
+docker run --rm -v $(pwd):/epub-files epub-optimizer \
+  -i book.epub -o book-optimized.epub \
+  --clean
+```
+
+**What's in the temp directory?**
+
+- Extracted EPUB structure
+- Processed HTML/CSS/JavaScript files
+- Optimized images
+- Modified fonts
+- All intermediate processing artifacts
+
+This is invaluable for debugging optimization issues or understanding what the tool does to your EPUB.
 
 ## Project Structure
 

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 // import { fileURLToPath } from "node:url"; // Unused, remove
 import config from "../utils/config.js";
-import { parseArgs, handleError } from "./utils.js";
+import { parseArgs, handleError, getTempDir } from "./utils.js";
 import { compressEPUB } from "../processors/archive-processor.js";
 
 // Parse command line arguments
@@ -11,14 +11,13 @@ const argv = parseArgs(true, true);
 // Get the output file path from arguments or default config
 const outputEpub = argv.output || config.outputEPUB;
 
-// Use the project root directory for file paths (not the compiled dist location)
-const projectRoot = process.cwd();
-const extractedDir = path.join(projectRoot, config.tempDir);
+// Get temp directory from CLI args or config
+const extractedDir = getTempDir();
 
-// If output path is absolute, use it as-is; otherwise join with project root
+// If output path is absolute, use it as-is; otherwise join with current directory
 const outputEpubPath = path.isAbsolute(outputEpub)
   ? outputEpub
-  : path.join(projectRoot, outputEpub);
+  : path.join(process.cwd(), outputEpub);
 
 // Verify the directory exists
 if (!fs.existsSync(extractedDir)) {
