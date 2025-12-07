@@ -18,6 +18,7 @@ A Node.js utility to optimize EPUB files by compressing HTML, CSS, images and re
 - [Quick Start](#quick-start)
 - [Features](#features)
 - [About This Project](#about-this-project)
+  - [Important Note for Apple Pages Users](#️-important-note-for-apple-pages-users)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [EPUBCheck Setup](#epubcheck-setup)
@@ -58,6 +59,31 @@ After exporting, my original EPUB file is about 24.4MB. I use this script to opt
 
 This script is designed for this workflow (I don't use any other tools), but anyone who wants to optimize their EPUB file is welcome to try it! If you have customization needs different from mine, check the [Modular Fix Scripts](#modular-fix-scripts) section to learn how to enable/disable specific features. If you have any questions or issues, let me know. Enjoy! :)
 
+### ⚠️ Important Note for Apple Pages Users
+
+**Apple Pages applies DRM encryption to embedded fonts** for copyright protection. This means:
+
+- ✅ **Font optimization works** on EPUBs from most other sources
+- ❌ **Font optimization WILL NOT work** on Pages EPUBs if you check "Embed fonts"
+- 🔒 **Why?** Apple encrypts fonts to protect font vendors from piracy (this is intentional and legal)
+
+**Your Options:**
+
+1. **Keep "Embed fonts" checked** (Preserve design)
+   - ✅ Your book's design is preserved perfectly
+   - ✅ Consistent appearance across all e-readers
+   - ✅ Full control over typography
+   - ❌ Fonts remain at their original size (typically 1-3 MB total, can't be optimized)
+   - 📊 Still achieve 85-90% total file size reduction from image/HTML/CSS optimization
+
+2. **Uncheck "Embed fonts"** (Smaller file size)
+   - ✅ Minimal additional file size savings (fonts are usually a small portion of the total)
+   - ❌ You lose control over typography - readers will see their default fonts
+   - ❌ Your book's appearance becomes unpredictable across devices
+   - ❌ Design integrity may be compromised
+
+**Choose based on your priority:** Design consistency vs. maximum file size reduction. For professional publications where typography matters, embedding fonts is typically preferred despite the file size overhead.
+
 ## Quick Start
 
 > **Note:**
@@ -89,7 +115,7 @@ docker run --rm -v $(pwd):/epub-files epub-optimizer \
 - Image compression (JPEG, PNG, WebP, GIF, AVIF, SVG optimization without significant quality loss)
 - PNG to JPEG conversion for non-transparent images (significantly reduces file size)
 - JavaScript minification (reduces script size)
-- **Font subsetting** (reduces font file sizes by including only used characters; may not work on encrypted or unsupported fonts)
+- **Font subsetting** (reduces font file sizes by including only used characters; **Note:** Does not work on Apple Pages EPUBs with embedded fonts due to DRM encryption)
 - **SVG optimization** (minifies SVG files using SVGO)
 - **Image downscaling** (optionally resizes large images to a max dimension for e-reader compatibility)
 - **Lazy loading for images** (adds `loading="lazy"` to all `<img>` tags in XHTML for EPUB3 readers)
@@ -104,7 +130,7 @@ docker run --rm -v $(pwd):/epub-files epub-optimizer \
 
 > **Note:**
 >
-> - Font subsetting is attempted on all fonts, but some fonts (e.g., encrypted or certain OTF/TTF formats) may not be supported by the subsetting library and will be skipped.
+> - **Font subsetting limitation:** Apple Pages EPUBs with embedded fonts are encrypted by Apple for DRM protection, preventing font optimization. See the [Important Note for Apple Pages Users](#️-important-note-for-apple-pages-users) above. Font subsetting works fine on unencrypted fonts from other sources.
 > - SVG optimization, image downscaling, and lazy loading are fully automated and require no manual intervention.
 
 ## Requirements
