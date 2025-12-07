@@ -2,13 +2,15 @@ import fs from "fs-extra";
 import path from "node:path";
 import * as cheerio from "cheerio";
 import * as glob from "glob";
-import * as fontkit from "fontkit";
-import subsetFont from "subset-font";
+import { createRequire } from "node:module";
 import { getContentPath } from "../utils/epub-utils.js";
+
+// fontmin is a CommonJS module, so we need to use require
+const require = createRequire(import.meta.url);
 
 /**
  * Subset font files to include only characters used in the EPUB content
- * This significantly reduces font file sizes
+ * This significantly reduces font file sizes using fontmin
  * @param epubDir Directory containing the extracted EPUB
  * @throws Error if font subsetting fails
  */
@@ -59,52 +61,91 @@ async function subsetFonts(epubDir: string): Promise<void> {
 
     console.log(`Found ${fontFiles.length} font files to process`);
 
-    // Minimal interface for font objects with hasGlyphForCodePoint
-    interface FontLike {
-      hasGlyphForCodePoint: (codePoint: number) => boolean;
-    }
+    // Load fontmin as CommonJS module
+    const Fontmin = require("fontmin");
 
-    function isFontLike(obj: unknown): obj is FontLike {
-      return (
-        typeof obj === "object" &&
-        obj !== null &&
-        typeof (obj as { hasGlyphForCodePoint?: unknown }).hasGlyphForCodePoint === "function"
-      );
-    }
-
-    // Process each font file
+    // Process each font file with fontmin
     for (const fontFile of fontFiles) {
       try {
-        const fontBuffer = await fs.readFile(fontFile);
-        let font: unknown = fontkit.create(fontBuffer);
-        // If it's a collection, use the first font
-        if (Array.isArray((font as { fonts?: unknown[] }).fonts)) {
-          font = (font as { fonts: unknown[] }).fonts[0];
+        const originalSize = (await fs.stat(fontFile)).size;
+        const fileName = path.basename(fontFile);
+        const fileExt = path.extname(fontFile).toLowerCase();
+
+        // Skip OTF files - fontmin's OTF support is unreliable
+        if (fileExt === ".otf") {
+          console.log(`Skipping OTF file (conversion not reliable): ${fileName}`);
+          continue;
         }
-        // Only keep characters that are present in the font
-        const charsToKeep = Array.from(uniqueCharsString)
-          .filter((char) => {
-            return isFontLike(font) && font.hasGlyphForCodePoint(char.codePointAt(0) ?? 0);
-          })
-          .join("");
-        // Subset the font
-        const subsetBuffer = await subsetFont(fontBuffer, charsToKeep);
-        const originalSize = fontBuffer.length;
-        const newSize = subsetBuffer.length;
-        await fs.writeFile(fontFile, subsetBuffer);
-        console.log(
-          `Subset font ${path.basename(fontFile)}: ${formatBytes(originalSize)} → ${formatBytes(newSize)} (${Math.round((1 - newSize / originalSize) * 100)}% smaller)`
+
+        // Try to subset the font
+        await new Promise<void>((resolve, reject) => {
+          const fontmin = new Fontmin()
+            .src(fontFile)
+            .use(
+              Fontmin.glyph({
+                text: uniqueCharsString,
+                hinting: false, // Remove hinting to reduce size further
+              })
+            )
+            .dest(fontsDir);
+
+          fontmin.run((err: Error | null, files: unknown) => {
+            if (err) {
+              reject(err);
+            } else {
+              // Check if files were generated
+              if (Array.isArray(files) && files.length > 0) {
+                resolve();
+              } else {
+                reject(new Error("No output files generated"));
+              }
+            }
+          });
+        });
+
+        // Check if output exists and replace original
+        const outputFiles = await fs.readdir(fontsDir);
+        const subsetFile = outputFiles.find(
+          (f) => f.includes(path.basename(fontFile, fileExt)) && f !== fileName
         );
+
+        if (subsetFile) {
+          const subsetPath = path.join(fontsDir, subsetFile);
+          const newSize = (await fs.stat(subsetPath)).size;
+
+          // Only replace if the subset is actually smaller
+          if (newSize < originalSize) {
+            await fs.remove(fontFile);
+            await fs.rename(subsetPath, fontFile);
+
+            const reduction = Math.round((1 - newSize / originalSize) * 100);
+            console.log(
+              `Subset font ${fileName}: ${formatBytes(originalSize)} → ${formatBytes(
+                newSize
+              )} (${reduction}% smaller)`
+            );
+          } else {
+            // Subset is larger, keep original
+            await fs.remove(subsetPath);
+            console.log(`Kept original ${fileName} (subset was larger)`);
+          }
+        } else {
+          console.log(`No subset created for ${fileName} (likely encrypted or unsupported format)`);
+        }
       } catch (error) {
         console.warn(
-          `Skipping font ${path.basename(fontFile)}: ${error instanceof Error ? error.message : String(error)}`
+          `Skipping font ${path.basename(fontFile)}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
         );
       }
     }
   } catch (error) {
-    throw new Error(
-      `Failed to subset fonts: ${error instanceof Error ? error.message : String(error)}`
+    // Don't throw error, just warn - font subsetting is optional
+    console.warn(
+      `Font subsetting failed: ${error instanceof Error ? error.message : String(error)}`
     );
+    console.warn("Continuing without font optimization...");
   }
 }
 
