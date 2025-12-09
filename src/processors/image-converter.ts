@@ -112,7 +112,8 @@ async function convertPngToJpeg(epubDir: string, quality = 85): Promise<void> {
             });
 
             if (changed) {
-              await fs.writeFile(xhtmlFile, $.html());
+              // Use .xml() to preserve XML structure (self-closing tags, etc.)
+              await fs.writeFile(xhtmlFile, $.xml());
               console.log(`Updated references in ${path.basename(xhtmlFile)}`);
             }
           }

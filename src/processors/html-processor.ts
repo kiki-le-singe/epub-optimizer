@@ -45,8 +45,10 @@ async function minifyHTML(filePath: string): Promise<void> {
   try {
     const content = await fs.readFile(filePath, "utf8");
     // Use cheerio for DOM manipulation with appropriate XML mode for XHTML
-    const $ = cheerio.load(content, { xmlMode: filePath.endsWith(".xhtml") });
-    const domContent = $.html();
+    const isXHTML = filePath.endsWith(".xhtml");
+    const $ = cheerio.load(content, { xmlMode: isXHTML });
+    // Use .xml() for XHTML to preserve XML structure (self-closing tags, etc.)
+    const domContent = isXHTML ? $.xml() : $.html();
     const minified = await minify(domContent, config.htmlOptions);
     await fs.writeFile(filePath, minified);
   } catch (error) {

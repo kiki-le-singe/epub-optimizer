@@ -24,6 +24,9 @@ try {
   // update_summary_page: Add the cover to the summary page and remove the self-reference
   runCommand(`node dist/src/scripts/ops/update-summary-page.js ${args}`);
 
+  // add_chapter_sections_to_toc: Synchronize chapter subsections from manual sommaire to system TOC files
+  runCommand(`node dist/src/scripts/ops/add-chapter-sections-to-toc.js ${args}`);
+
   console.log("All structure updates completed.");
 } catch (error) {
   handleError(error);

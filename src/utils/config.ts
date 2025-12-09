@@ -14,6 +14,9 @@ const config = {
     removeComments: true,
     minifyCSS: true,
     minifyJS: true,
+    caseSensitive: true, // Preserve XML case sensitivity
+    keepClosingSlash: true, // Preserve self-closing tags like <img /> and <span />
+    minifyURLs: false, // Don't modify URLs in XML
   },
 
   // CSS optimization options

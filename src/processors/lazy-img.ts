@@ -1,7 +1,6 @@
 import fs from "fs-extra";
 import path from "node:path";
 import * as glob from "glob";
-import * as cheerio from "cheerio";
 import { getContentPath } from "../utils/epub-utils.js";
 
 /**
@@ -18,17 +17,26 @@ export async function addLazyLoadingToImages(epubDir: string): Promise<void> {
     }
     for (const file of xhtmlFiles) {
       try {
-        const content = await fs.readFile(file, "utf8");
-        const $ = cheerio.load(content, { xmlMode: true });
+        let content = await fs.readFile(file, "utf8");
         let changed = false;
-        $("img").each((_, el) => {
-          if (!$(el).attr("loading")) {
-            $(el).attr("loading", "lazy");
+
+        // Use regex to add loading="lazy" to <img> tags without it
+        // This preserves the exact XML structure unlike Cheerio which can corrupt self-closing tags
+        content = content.replace(
+          /<img\s+([^>]*?)(?:\s+loading="[^"]*")?(\s*\/?>)/gi,
+          (match, attrs, closing) => {
+            // Check if loading attribute already exists in the matched attributes
+            if (/loading\s*=\s*["'][^"']*["']/i.test(match)) {
+              return match; // Already has loading attribute
+            }
             changed = true;
+            // Add loading="lazy" before the closing tag
+            return `<img ${attrs} loading="lazy"${closing}`;
           }
-        });
+        );
+
         if (changed) {
-          await fs.writeFile(file, $.xml());
+          await fs.writeFile(file, content);
           console.log(`Added loading="lazy" to images in ${path.basename(file)}`);
         }
       } catch (error) {

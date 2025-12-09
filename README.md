@@ -49,11 +49,11 @@ A Node.js utility to optimize EPUB files by compressing HTML, CSS, images and re
 I use this project to optimize EPUB files that I create using Pages on Mac. My workflow is:
 
 - Write (text and images) in Pages.
-- Insert a TOC page via the menu: "Insert > Table of Contents > Document". (In the script, I update the EPUB structure files with customizations, adding the cover title as a clickable item in both the book's internal summary page and the navigation table of contents.)
+- Create a manual summary page with bookmark links to chapters and sections. (The script automatically synchronizes these subsections from the manual summary page to the system navigation files - both EPUB3 toc.xhtml and EPUB2 NCX - so they appear in e-reader navigation menus.)
 - Export my work as an EPUB file.
 - Fill in the required information.
 - For "Cover": check the option "Use the first page as the book cover image".
-- For "Layout": check the reflowable option, and check both "Use table of contents" and "Embed fonts".
+- For "Layout": check the reflowable option and "Use table of contents". For "Embed fonts", see the [Important Note for Apple Pages Users](#️-important-note-for-apple-pages-users) section below to decide based on whether preserving your typography/design is important to you.
 
 After exporting, my original EPUB file is about 24.4MB. I use this script to optimize it (resulting in about 7.3MB). Then I test the result in Apple Books, Kindle Previewer, etc.
 
@@ -470,6 +470,7 @@ The production build process includes:
 If you don't need all the features I've implemented for my own workflow, you can easily customize the process. Here are some examples:
 
 - **Example: Skip adding cover to TOC** - To do this, you'd comment out the line with `update-toc-with-cover.js` in `src/scripts/ops/update-structure.ts`
+- **Example: Skip adding cover to TOC** - Comment out the line with `update-toc-with-cover.js` in `src/scripts/ops/update-structure.ts`
 - **Example: Skip adding cover to summary page** - Comment out the line with `update-summary-page.js` in `src/scripts/ops/update-structure.ts`
 - **Example: Skip setting cover as first page** - Comment out the line with `update-cover-linear.js` in `src/scripts/ops/update-structure.ts`
 - **Example: Disable specific XML/HTML fixes** - Comment out relevant script calls in `src/scripts/fix/index.ts`
