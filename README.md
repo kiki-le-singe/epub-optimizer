@@ -123,6 +123,7 @@ docker run --rm -v $(pwd):/epub-files epub-optimizer \
 - Archive recompression (EPUB-compliant ZIP packaging with proper compression settings)
 - EPUB validation against the EPUB specification
 - XML/XHTML validation fixing (automatically repairs common validation issues)
+- **Chapter sections synchronization** (automatically syncs subsections from manual summary page to system TOC files - both EPUB3 toc.xhtml and EPUB2 NCX)
 - Modular fix scripts for EPUB and OPF structure
 - Command-line interface with customizable options
 - File size comparison reporting
@@ -469,10 +470,10 @@ The production build process includes:
 
 If you don't need all the features I've implemented for my own workflow, you can easily customize the process. Here are some examples:
 
-- **Example: Skip adding cover to TOC** - To do this, you'd comment out the line with `update-toc-with-cover.js` in `src/scripts/ops/update-structure.ts`
 - **Example: Skip adding cover to TOC** - Comment out the line with `update-toc-with-cover.js` in `src/scripts/ops/update-structure.ts`
 - **Example: Skip adding cover to summary page** - Comment out the line with `update-summary-page.js` in `src/scripts/ops/update-structure.ts`
 - **Example: Skip setting cover as first page** - Comment out the line with `update-cover-linear.js` in `src/scripts/ops/update-structure.ts`
+- **Example: Skip chapter sections synchronization** - Comment out the line with `add-chapter-sections-to-toc.js` in `src/scripts/ops/update-structure.ts` (useful if you don't have subsections in your manual summary page)
 - **Example: Disable specific XML/HTML fixes** - Comment out relevant script calls in `src/scripts/fix/index.ts`
 
 After making any customizations, rebuild the project with `pnpm build` to apply your changes.
