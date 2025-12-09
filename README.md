@@ -67,22 +67,32 @@ This script is designed for this workflow (I don't use any other tools), but any
 - ❌ **Font optimization WILL NOT work** on Pages EPUBs if you check "Embed fonts"
 - 🔒 **Why?** Apple encrypts fonts to protect font vendors from piracy (this is intentional and legal)
 
-**Your Options:**
+**Your Decision: To Embed Fonts or Not?**
 
-1. **Keep "Embed fonts" checked** (Preserve design)
-   - ✅ Your book's design is preserved perfectly
-   - ✅ Consistent appearance across all e-readers
-   - ✅ Full control over typography
-   - ❌ Fonts remain at their original size (typically 1-3 MB total, can't be optimized)
-   - 📊 Still achieve 85-90% total file size reduction from image/HTML/CSS optimization
+This depends on whether preserving your book's design and typography is important to you.
 
-2. **Uncheck "Embed fonts"** (Smaller file size)
-   - ✅ Minimal additional file size savings (fonts are usually a small portion of the total)
-   - ❌ You lose control over typography - readers will see their default fonts
-   - ❌ Your book's appearance becomes unpredictable across devices
-   - ❌ Design integrity may be compromised
+**Option 1: Keep "Embed fonts" checked** (Preserve design - recommended if typography matters)
 
-**Choose based on your priority:** Design consistency vs. maximum file size reduction. For professional publications where typography matters, embedding fonts is typically preferred despite the file size overhead.
+- ✅ Your book's design is preserved perfectly
+- ✅ Consistent appearance across all e-readers
+- ✅ Full control over typography
+- ❌ Fonts remain at their original size (typically 1-3 MB total, can't be optimized due to DRM encryption)
+- 📊 Still achieve 85-90% total file size reduction from image/HTML/CSS optimization
+
+**Option 2: Uncheck "Embed fonts"** (Maximum optimization - recommended if design is not critical)
+
+- ✅ **Maximum file size reduction** - optimize everything including images/HTML/CSS
+- ✅ **Better performance** - smaller files load faster
+- ✅ **More compatible** - readers' preferred fonts are used (better accessibility)
+- ✅ **Cleaner output** - no encrypted font files that can't be processed
+- ❌ You lose control over typography - readers will see their default fonts
+- ❌ Your book's appearance becomes unpredictable across devices
+- ❌ Design integrity may be compromised
+
+**Choose based on your priority:**
+
+- **Professional publications where typography matters** → Embed fonts (accept 1-3 MB overhead)
+- **Maximum file size and performance** → Don't embed fonts (lose design control)
 
 ## Quick Start
 
