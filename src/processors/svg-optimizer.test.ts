@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs-extra";
 import path from "node:path";
 import os from "node:os";
-import { optimizeSVGs } from "./svg-optimizer";
+import { optimizeSVGs } from "./svg-optimizer.js";
 
 const tempDir = path.join(os.tmpdir(), "epub-optimizer-test-svg-opt");
 

@@ -114,7 +114,7 @@ git clone https://github.com/kiki-le-singe/epub-optimizer.git
 cd epub-optimizer
 docker build -t epub-optimizer .
 docker run --rm -v $(pwd):/epub-files epub-optimizer \
-  -i YourBook.epub -o YourBook-optimized.epub
+  -i /epub-files/YourBook.epub -o /epub-files/YourBook-optimized.epub
 ```
 
 ## Features
@@ -148,9 +148,9 @@ docker run --rm -v $(pwd):/epub-files epub-optimizer \
 
 **Only required for traditional installation** (skip if using Docker):
 
-- Node.js 14 or higher (my version: v23.11.0)
+- Node.js 22 or higher (my version: v25.6.1)
 - Java Runtime Environment (JRE) 1.7 or higher (my version: openjdk 23.0.2)
-- pnpm (my version: 9.5.0)
+- pnpm (my version: 10.30.3)
 - npm or pnpm for package management
 
 Note: All the examples below use pnpm, but you can substitute with npm if preferred.
@@ -205,7 +205,7 @@ docker build -t epub-optimizer .
 ```bash
 # Optimize an EPUB file
 docker run --rm -v $(pwd):/epub-files epub-optimizer \
-  -i your-book.epub -o your-book-optimized.epub
+  -i /epub-files/your-book.epub -o /epub-files/your-book-optimized.epub
 ```
 
 **Benefits of Docker approach:**
@@ -219,22 +219,22 @@ docker run --rm -v $(pwd):/epub-files epub-optimizer \
 
 ### Available Scripts
 
-| Script           | Description                                                                       |
-| ---------------- | --------------------------------------------------------------------------------- |
-| `build`          | Build TypeScript for production (with minification)                               |
-| `build:dev`      | Build TypeScript for development (no minification)                                |
-| `build:prod`     | Build TypeScript with minification for production                                 |
-| `minify:safe`    | Safely minify JavaScript in dist/ directory using TypeScript source (via ts-node) |
-| `optimize`       | Run optimizer, keeping temp files                                                 |
-| `optimize:clean` | Run optimizer, removing temp files afterward                                      |
-| `cleanup`        | Remove temporary files                                                            |
-| `test`           | Run tests in watch mode                                                           |
-| `test:run`       | Run tests once and exit                                                           |
-| `test:coverage`  | Run tests with coverage report                                                    |
-| `lint`           | Lint TypeScript files in src and scripts directories                              |
-| `lint:fix`       | Lint and auto-fix TypeScript files in src and scripts                             |
-| `format`         | Auto-format all .ts, .json, and .md files with Prettier                           |
-| `format:check`   | Check formatting of all .ts, .json, and .md files with Prettier                   |
+| Script           | Description                                                                                       |
+| ---------------- | ------------------------------------------------------------------------------------------------- |
+| `build`          | Build TypeScript for production (with minification)                                               |
+| `build:dev`      | Build TypeScript for development (no minification)                                                |
+| `build:prod`     | Build TypeScript with minification for production                                                 |
+| `minify:safe`    | Safely minify JavaScript in dist/ directory (runs the TS source via Node's native type-stripping) |
+| `optimize`       | Run optimizer, keeping temp files                                                                 |
+| `optimize:clean` | Run optimizer, removing temp files afterward                                                      |
+| `cleanup`        | Remove temporary files                                                                            |
+| `test`           | Run tests in watch mode                                                                           |
+| `test:run`       | Run tests once and exit                                                                           |
+| `test:coverage`  | Run tests with coverage report                                                                    |
+| `lint`           | Lint TypeScript files in src and scripts directories                                              |
+| `lint:fix`       | Lint and auto-fix TypeScript files in src and scripts                                             |
+| `format`         | Auto-format all .ts, .json, and .md files with Prettier                                           |
+| `format:check`   | Check formatting of all .ts, .json, and .md files with Prettier                                   |
 
 ### Modern Workflow
 
@@ -295,14 +295,14 @@ If you're using the Docker alternative, here are additional usage examples:
 
 ```bash
 docker run --rm -v $(pwd):/epub-files epub-optimizer \
-  -i book.epub -o book-optimized.epub
+  -i /epub-files/book.epub -o /epub-files/book-optimized.epub
 ```
 
 **Docker with custom image quality:**
 
 ```bash
 docker run --rm -v $(pwd):/epub-files epub-optimizer \
-  -i book.epub -o book-optimized.epub \
+  -i /epub-files/book.epub -o /epub-files/book-optimized.epub \
   --jpg-quality 50 --png-quality 0.4
 ```
 
@@ -312,6 +312,8 @@ docker run --rm -v $(pwd):/epub-files epub-optimizer \
 - `-v $(pwd):/epub-files` - Mount current directory to `/epub-files` in container
 - `epub-optimizer` - The Docker image name
 - Arguments after the image name are passed to the EPUB optimizer
+
+> **Paths inside the container:** The optimizer runs from `/app` inside the container, so input/output paths must point to the mount — prefix them with `/epub-files/` (e.g. `-i /epub-files/book.epub`). Your host's current directory maps to `/epub-files`, so any file written there (or into a custom `-t /epub-files/...` temp dir) appears on your host.
 
 > **Docker Note:** Temporary files are automatically created in the mounted directory (visible on your host) for easy debugging. By default, they're kept in `temp_epub/` unless you use `--clean`. Use `-t` to specify a custom temp directory location.
 
@@ -336,17 +338,17 @@ pnpm cleanup
 ```bash
 # Temp files automatically appear in your current directory
 docker run --rm -v $(pwd):/epub-files epub-optimizer \
-  -i book.epub -o book-optimized.epub
+  -i /epub-files/book.epub -o /epub-files/book-optimized.epub
 # Inspect temp_epub/ directory on your host
 
 # Custom temp location (still visible on host)
 docker run --rm -v $(pwd):/epub-files epub-optimizer \
-  -i book.epub -o book-optimized.epub \
-  -t my-debug-folder
+  -i /epub-files/book.epub -o /epub-files/book-optimized.epub \
+  -t /epub-files/my-debug-folder
 
 # Clean temp files after processing
 docker run --rm -v $(pwd):/epub-files epub-optimizer \
-  -i book.epub -o book-optimized.epub \
+  -i /epub-files/book.epub -o /epub-files/book-optimized.epub \
   --clean
 ```
 
@@ -422,8 +424,9 @@ This project is built with TypeScript and uses modern ESM modules. Here's how th
 
 ### Import Structure
 
-- Source files use extensionless imports (e.g., `import { foo } from './foo'`)
-- The build process adds `.js` extensions to imports in the compiled output for Node.js compatibility
+- The project uses TypeScript's `NodeNext` module resolution, which mirrors Node.js ESM semantics exactly
+- Relative imports must include the explicit `.js` extension in source files (e.g., `import { foo } from './foo.js'`), matching what Node.js resolves at runtime
+- Type-only imports use `import type` (enforced by `verbatimModuleSyntax`) so they are fully erased at build time
 
 ### Testing
 
@@ -467,7 +470,7 @@ The production build process includes:
 - Source maps for debugging
 - Comment removal
 
-> **Note:** The minification script (`minify:safe`) is run using `ts-node` directly on the TypeScript source (`scripts/minify-dist.ts`), not on compiled JavaScript. This ensures the latest TypeScript logic is always used for minification.
+> **Note:** The minification script (`minify:safe`) runs `scripts/minify-dist.ts` directly via Node's native TypeScript stripping (`node --experimental-strip-types`), not on compiled JavaScript. This keeps the build toolchain dependency-free (no `ts-node`/`tsx`) while always using the latest TypeScript logic for minification.
 
 ## Modular Fix Scripts
 
@@ -542,7 +545,7 @@ This project uses the following dependencies:
 
 ### System Requirements
 
-- Node.js 14 or higher
+- Node.js 22 or higher
 - Java Runtime Environment (JRE) 1.7 or higher (for EPUBCheck validation)
 - pnpm or npm for package management
 

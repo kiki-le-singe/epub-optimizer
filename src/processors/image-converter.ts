@@ -169,7 +169,8 @@ async function convertPngToJpeg(epubDir: string, quality = 85): Promise<void> {
     }
   } catch (error) {
     throw new Error(
-      `Failed to convert PNG to JPEG: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to convert PNG to JPEG: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
     );
   }
 }

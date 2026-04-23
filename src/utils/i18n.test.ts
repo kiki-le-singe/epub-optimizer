@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
-import { getCoverLabel } from "./i18n";
+import { getCoverLabel } from "./i18n.js";
 
 // Create a proper mock for the config
-vi.mock("./config", () => {
+vi.mock("./config.js", () => {
   return {
     default: {
       lang: "fr",

@@ -9,7 +9,7 @@ import {
   getTOCFiles,
   getEPUB3NavPath,
   getEPUB2NCXPath,
-} from "./epub-utils";
+} from "./epub-utils.js";
 
 describe("epub-utils", () => {
   const testDir = path.join(__dirname, "..", "..", "test-temp");
