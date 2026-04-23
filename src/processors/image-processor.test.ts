@@ -3,7 +3,7 @@ import fs from "fs-extra";
 import path from "node:path";
 import os from "node:os";
 import sharp from "sharp";
-import { compressImage } from "./image-processor";
+import { compressImage } from "./image-processor.js";
 
 const tempDir = path.join(os.tmpdir(), "epub-optimizer-test-images");
 

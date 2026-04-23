@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs-extra";
 import path from "node:path";
 import os from "node:os";
-import { minifyHTML } from "./html-processor";
+import { minifyHTML } from "./html-processor.js";
 
 const sampleHTML = `<!DOCTYPE html>
 <html>

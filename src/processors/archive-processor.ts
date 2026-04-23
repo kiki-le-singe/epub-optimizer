@@ -22,7 +22,8 @@ async function extractEPUB(epubPath: string, extractDir: string): Promise<void> 
       .promise();
   } catch (error) {
     throw new Error(
-      `Failed to extract EPUB: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to extract EPUB: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
     );
   }
 }
@@ -108,7 +109,8 @@ async function compressEPUB(outputPath: string, sourceDir: string): Promise<bool
     });
   } catch (error) {
     throw new Error(
-      `Failed to compress EPUB: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to compress EPUB: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
     );
   }
 }

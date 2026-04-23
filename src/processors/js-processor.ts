@@ -63,7 +63,8 @@ async function minifyJavaScript(dir: string): Promise<void> {
     }
   } catch (error) {
     throw new Error(
-      `Failed to minify JavaScript: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to minify JavaScript: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
     );
   }
 }

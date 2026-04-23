@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs-extra";
 import path from "node:path";
 import os from "node:os";
-import { addLazyLoadingToImages } from "./lazy-img";
+import { addLazyLoadingToImages } from "./lazy-img.js";
 
 const tempDir = path.join(os.tmpdir(), "epub-optimizer-test-lazy-img");
 

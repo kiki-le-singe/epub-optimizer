@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "fs-extra";
 import path from "node:path";
 import os from "node:os";
-import { extractEPUB, compressEPUB } from "./archive-processor";
+import { extractEPUB, compressEPUB } from "./archive-processor.js";
 
 const tempDir = path.join(os.tmpdir(), "epub-optimizer-test-archive");
 const sampleEpubDir = path.join(tempDir, "sample-epub");

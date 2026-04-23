@@ -35,7 +35,7 @@ export async function getOPFPath(epubDir: string): Promise<string> {
 
     return opfPath;
   } catch (error) {
-    throw new Error(`Failed to parse container.xml: ${error}`);
+    throw new Error(`Failed to parse container.xml: ${error}`, { cause: error });
   }
 }
 
@@ -108,7 +108,7 @@ export async function parseOPF(opfPath: string): Promise<cheerio.CheerioAPI> {
     const content = await fs.readFile(opfPath, "utf-8");
     return cheerio.load(content, { xmlMode: true });
   } catch (error) {
-    throw new Error(`Failed to parse OPF file ${opfPath}: ${error}`);
+    throw new Error(`Failed to parse OPF file ${opfPath}: ${error}`, { cause: error });
   }
 }
 
@@ -164,7 +164,8 @@ export async function getTOCFiles(epubDir: string): Promise<TOCFiles> {
     return tocFiles;
   } catch (error) {
     throw new Error(
-      `Failed to discover TOC files: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to discover TOC files: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
     );
   }
 }

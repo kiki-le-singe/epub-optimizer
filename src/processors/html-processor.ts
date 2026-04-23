@@ -31,7 +31,8 @@ async function processHTML(dir: string): Promise<void> {
     throw new Error(
       `Failed to process HTML/CSS in ${dir}: ${
         error instanceof Error ? error.message : String(error)
-      }`
+      }`,
+      { cause: error }
     );
   }
 }
@@ -55,7 +56,8 @@ async function minifyHTML(filePath: string): Promise<void> {
     throw new Error(
       `Failed to minify HTML file ${path.basename(filePath)}: ${
         error instanceof Error ? error.message : String(error)
-      }`
+      }`,
+      { cause: error }
     );
   }
 }
@@ -74,7 +76,8 @@ async function minifyCSS(filePath: string): Promise<void> {
     throw new Error(
       `Failed to minify CSS file ${path.basename(filePath)}: ${
         error instanceof Error ? error.message : String(error)
-      }`
+      }`,
+      { cause: error }
     );
   }
 }

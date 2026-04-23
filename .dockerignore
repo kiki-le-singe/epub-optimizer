@@ -20,4 +20,11 @@ coverage/
 .eslintcache
 .git
 .gitignore
+.github/
 README.md
+Dockerfile
+.dockerignore
+memory/
+**/*.test.ts
+**/*.spec.ts
+**/__tests__/
