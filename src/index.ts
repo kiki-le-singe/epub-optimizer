@@ -57,7 +57,10 @@ async function optimizeEPUB(): Promise<{ success: boolean; input: string; output
     console.log("🖼️  Downscaled large images");
 
     // 7. Optimize images
-    await optimizeImages(args.temp);
+    await optimizeImages(args.temp, {
+      jpegQuality: args.jpgQuality,
+      pngQuality: args.pngQuality,
+    });
     console.log("🖼️  Optimized image files");
 
     // 8. Add lazy loading to images

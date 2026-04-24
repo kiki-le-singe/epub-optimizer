@@ -1,35 +1,21 @@
 import fs from "fs-extra";
 import path from "node:path";
 import sharp from "sharp";
-// Using dynamic imports for all imagemin-related modules
 import config from "../utils/config.js";
-import { parseArguments } from "../cli.js";
 
-// Store quality values from command line or config
-let jpegQuality = config.jpegOptions.quality; // Default value
-let pngQuality = config.pngOptions.quality; // Default value
+export interface ImageOpts {
+  /** JPEG quality 0-100 */
+  jpegQuality?: number;
+  /** PNG quality 0-1 scale */
+  pngQuality?: number;
+}
 
 /**
- * Optimize images in a directory recursively
- * @param dir Directory containing images
+ * Optimize images in a directory recursively.
+ * @param opts Quality overrides; falls back to config defaults.
  */
-async function optimizeImages(dir: string): Promise<void> {
+async function optimizeImages(dir: string, opts: ImageOpts = {}): Promise<void> {
   try {
-    // Get command line arguments to check for custom quality settings
-    const args = await parseArguments();
-
-    // If jpg-quality parameter was provided, use it
-    if (args["jpg-quality"] && typeof args["jpg-quality"] === "number") {
-      jpegQuality = args["jpg-quality"];
-      console.log(`Using custom JPEG quality: ${jpegQuality}`);
-    }
-
-    // If png-quality parameter was provided, use it
-    if (args["png-quality"] && typeof args["png-quality"] === "number") {
-      pngQuality = args["png-quality"];
-      console.log(`Using custom PNG quality: ${pngQuality}`);
-    }
-
     const entries = await fs.readdir(dir);
 
     for (const entry of entries) {
@@ -37,9 +23,9 @@ async function optimizeImages(dir: string): Promise<void> {
       const stat = await fs.stat(fullPath);
 
       if (stat.isDirectory()) {
-        await optimizeImages(fullPath);
+        await optimizeImages(fullPath, opts);
       } else if (/\.(jpe?g|png|webp|gif|avif|svg)$/i.test(entry)) {
-        await compressImage(fullPath);
+        await compressImage(fullPath, opts);
       }
     }
   } catch (error) {
@@ -50,11 +36,13 @@ async function optimizeImages(dir: string): Promise<void> {
 }
 
 /**
- * Compress a single image using Sharp
- * @param imagePath Path to image file
+ * Compress a single image using Sharp.
+ * @param opts Quality overrides; falls back to config defaults.
  */
-async function compressImage(imagePath: string): Promise<void> {
+async function compressImage(imagePath: string, opts: ImageOpts = {}): Promise<void> {
   const filename = path.basename(imagePath);
+  const jpegQuality = opts.jpegQuality ?? config.jpegOptions.quality;
+  const pngQuality = opts.pngQuality ?? config.pngOptions.quality;
 
   try {
     const extension = path.extname(imagePath).toLowerCase();

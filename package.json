@@ -2,8 +2,16 @@
   "name": "epub-optimizer",
   "version": "2.0.0",
   "description": "Optimize EPUB files by compressing HTML, CSS, images, fonts and recompressing the archive",
-  "main": "dist/optimize-epub.js",
+  "main": "dist/src/index.js",
   "type": "module",
+  "bin": {
+    "epub-optimizer": "dist/src/pipeline.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "packageManager": "pnpm@10.30.3",
   "scripts": {
     "# Build commands": "# Complete pipeline processes",

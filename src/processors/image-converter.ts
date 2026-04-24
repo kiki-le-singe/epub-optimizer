@@ -121,22 +121,21 @@ async function convertPngToJpeg(epubDir: string, quality = 85): Promise<void> {
           // Update OPF file
           try {
             const opfFile = await getOPFPath(epubDir);
-            let opfContent = await fs.readFile(opfFile, "utf8");
+            const opfContent = await fs.readFile(opfFile, "utf8");
 
-            // Replace PNG with JPEG in OPF
             const pngPath = `images/${pngBasename}`;
             const jpegPath = `images/${jpegBasename}`;
 
-            // Use regex to be careful not to break XML
-            const pngPattern = new RegExp(
-              `(href=["'])${escapeRegExp(pngPath)}(["']\\s+media-type=["'])image\\/png(["'])`,
-              "g"
-            );
+            // Parse the OPF as XML so attribute order doesn't matter
+            const $opf = cheerio.load(opfContent, { xmlMode: true });
+            const items = $opf(`item[href="${pngPath}"][media-type="image/png"]`);
 
-            opfContent = opfContent.replace(pngPattern, `$1${jpegPath}$2image/jpeg$3`);
-
-            await fs.writeFile(opfFile, opfContent);
-            console.log(`Updated OPF file with new JPEG reference`);
+            if (items.length > 0) {
+              items.attr("href", jpegPath);
+              items.attr("media-type", "image/jpeg");
+              await fs.writeFile(opfFile, $opf.xml());
+              console.log(`Updated OPF file with new JPEG reference`);
+            }
 
             // Remove the original PNG file since we've replaced all references
             await fs.remove(pngFile);
@@ -188,13 +187,6 @@ function formatBytes(bytes: number, decimals = 2): string {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
 
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
-}
-
-/**
- * Escape string for use in regex
- */
-function escapeRegExp(string: string): string {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export { convertPngToJpeg };

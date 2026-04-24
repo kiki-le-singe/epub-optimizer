@@ -4,22 +4,40 @@ import unzipper from "unzipper";
 import yazl from "yazl";
 
 /**
- * Extract EPUB file contents to a temporary directory
- * @param epubPath Path to EPUB file
- * @param extractDir Directory to extract contents to
- * @throws Error if extraction fails
+ * Extract EPUB file contents to a temporary directory.
+ * Validates each entry against zip-slip: any entry whose resolved target
+ * escapes `extractDir` aborts the extraction.
+ * @throws Error if extraction fails or an entry tries to escape extractDir
  */
 async function extractEPUB(epubPath: string, extractDir: string): Promise<void> {
   try {
-    // Ensure extract directory exists and is empty
     await fs.remove(extractDir);
     await fs.mkdir(extractDir);
 
-    // Extract EPUB contents
-    await fs
-      .createReadStream(epubPath)
-      .pipe(unzipper.Extract({ path: extractDir }))
-      .promise();
+    const absExtract = path.resolve(extractDir);
+    const directory = await unzipper.Open.file(epubPath);
+
+    for (const entry of directory.files) {
+      const target = path.resolve(absExtract, entry.path);
+      const rel = path.relative(absExtract, target);
+      if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+        throw new Error(`Refusing entry outside extract dir: ${entry.path}`);
+      }
+
+      if (entry.type === "Directory") {
+        await fs.ensureDir(target);
+        continue;
+      }
+
+      await fs.ensureDir(path.dirname(target));
+      await new Promise<void>((resolve, reject) => {
+        entry
+          .stream()
+          .pipe(fs.createWriteStream(target))
+          .on("close", () => resolve())
+          .on("error", reject);
+      });
+    }
   } catch (error) {
     throw new Error(
       `Failed to extract EPUB: ${error instanceof Error ? error.message : String(error)}`,

@@ -1,10 +1,15 @@
+#!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
-// Helper to run a node script in dist/src/scripts with args
-function runScript(script: string, args: string[], label: string) {
-  const scriptPath = path.join("dist", "src", "scripts", ...script.split("/"));
+// Resolve paths relative to this file (dist/src/pipeline.js) so the CLI works
+// whether invoked via `pnpm optimize` from the repo or `epub-optimizer` when
+// installed globally via the `bin` field.
+const here = path.dirname(fileURLToPath(import.meta.url));
+
+function runScript(scriptPath: string, args: string[], label: string) {
   console.log(`\n=== ${label} ===`);
   const result = spawnSync("node", [scriptPath, ...args], { stdio: "inherit" });
   if (result.status !== 0) {
@@ -34,19 +39,23 @@ for (let i = 0; i < rawArgs.length; i++) {
 }
 
 // Step 1: Optimize EPUB (main logic)
-runScript("../../optimize-epub.js", filteredArgs, "Optimize EPUB");
+runScript(path.resolve(here, "..", "optimize-epub.js"), filteredArgs, "Optimize EPUB");
 
 // Step 2: General Fixes
-runScript("fix/index.js", filteredArgs, "General Fixes");
+runScript(path.join(here, "scripts", "fix", "index.js"), filteredArgs, "General Fixes");
 
 // Step 3: OPF Fixes
-runScript("ops/update-structure.js", filteredArgs, "EPUB Structure Updates");
+runScript(
+  path.join(here, "scripts", "ops", "update-structure.js"),
+  filteredArgs,
+  "EPUB Structure Updates"
+);
 
 // Step 4: Create EPUB
-runScript("create-epub.js", filteredArgs, "Create EPUB");
+runScript(path.join(here, "scripts", "create-epub.js"), filteredArgs, "Create EPUB");
 
 // Step 5: Validate EPUB
-runScript("validate-epub.js", filteredArgs, "Validate EPUB");
+runScript(path.join(here, "scripts", "validate-epub.js"), filteredArgs, "Validate EPUB");
 
 // Step 6: Cleanup if --clean
 if (hasClean) {
