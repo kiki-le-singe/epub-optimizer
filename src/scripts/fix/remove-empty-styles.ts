@@ -5,7 +5,7 @@ import fs from "fs-extra";
 import path from "node:path";
 import * as cheerio from "cheerio";
 import { getContentPath } from "../../utils/epub-utils.js";
-import { getTempDir } from "../utils.js";
+import { getTempDir, isEntryPoint, type RunOpts } from "../utils.js";
 
 /**
  * Remove all empty `style=""` attributes from an XHTML string.
@@ -39,20 +39,16 @@ async function fixFile(file: string): Promise<number> {
   }
 }
 
-async function main() {
-  const extractedDir = getTempDir();
+export async function run(opts: RunOpts = {}): Promise<void> {
+  const extractedDir = opts.tempDir ?? getTempDir();
 
   if (!(await fs.pathExists(extractedDir))) {
-    console.error(`Error: Directory ${extractedDir} does not exist.`);
-    console.error("Please run the optimization script first to extract the EPUB.");
-    process.exit(1);
+    throw new Error(`Directory ${extractedDir} does not exist.`);
   }
 
   const contentDir = await getContentPath(extractedDir);
   if (!(await fs.pathExists(contentDir))) {
-    console.error(`Error: Content directory ${contentDir} does not exist.`);
-    console.error("Please make sure the extracted EPUB has a content directory (OPS or OEBPS).");
-    process.exit(1);
+    throw new Error(`Content directory ${contentDir} does not exist.`);
   }
 
   const files = (await fs.readdir(contentDir))
@@ -67,6 +63,9 @@ async function main() {
   console.log(`Removed ${totalRemoved} empty style attributes from ${files.length} files.`);
 }
 
-if (process.env.NODE_ENV !== "test") {
-  void main();
+if (isEntryPoint(import.meta.url)) {
+  run().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
 }

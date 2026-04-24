@@ -2,7 +2,7 @@ import fs from "fs-extra";
 import * as cheerio from "cheerio";
 import path from "node:path";
 import { getTOCFiles, getContentPath } from "../../utils/epub-utils.js";
-import { getTempDir } from "../utils.js";
+import { getTempDir, isEntryPoint, type RunOpts } from "../utils.js";
 
 /**
  * Interface for a chapter section
@@ -242,67 +242,57 @@ async function updateEPUB2NCXWithSections(ncxFilePath: string, chapters: Chapter
 /**
  * Main function to add chapter sections to TOC files
  */
-async function addChapterSectionsToTOC(): Promise<void> {
-  try {
-    const extractedDir = getTempDir();
+export async function run(opts: RunOpts = {}): Promise<void> {
+  const extractedDir = opts.tempDir ?? getTempDir();
 
-    console.log("Discovering TOC files and content directory...");
+  console.log("Discovering TOC files and content directory...");
 
-    // Get content directory and TOC files
-    const contentPath = await getContentPath(extractedDir);
-    const tocFiles = await getTOCFiles(extractedDir);
+  const contentPath = await getContentPath(extractedDir);
+  const tocFiles = await getTOCFiles(extractedDir);
 
-    if (!tocFiles.epub3Nav && !tocFiles.epub2Ncx) {
-      console.log("No TOC files found. Skipping chapter section updates.");
-      return;
-    }
-
-    // Look for the manual sommaire file (chapter-2.xhtml)
-    const sommaireFilePath = path.join(contentPath, "chapter-2.xhtml");
-
-    if (!(await fs.pathExists(sommaireFilePath))) {
-      console.log(`Manual sommaire file not found at: ${sommaireFilePath}`);
-      console.log("Skipping chapter section updates.");
-      return;
-    }
-
-    // Extract chapter structure from the manual sommaire
-    const chapters = await extractChapterStructure(sommaireFilePath);
-
-    if (chapters.length === 0) {
-      console.log("No chapters found in manual sommaire. Skipping updates.");
-      return;
-    }
-
-    // Filter chapters that have subsections
-    const chaptersWithSections = chapters.filter((ch) => ch.sections.length > 0);
-
-    if (chaptersWithSections.length === 0) {
-      console.log("No chapters with subsections found. Skipping updates.");
-      return;
-    }
-
-    // Update EPUB3 navigation file if it exists
-    if (tocFiles.epub3Nav) {
-      await updateEPUB3NavigationWithSections(tocFiles.epub3Nav, chaptersWithSections);
-    } else {
-      console.log("No EPUB3 navigation file found");
-    }
-
-    // Update EPUB2 NCX file if it exists
-    if (tocFiles.epub2Ncx) {
-      await updateEPUB2NCXWithSections(tocFiles.epub2Ncx, chaptersWithSections);
-    } else {
-      console.log("No EPUB2 NCX file found");
-    }
-
-    console.log("Chapter section updates completed successfully");
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`Error adding chapter sections to TOC files: ${errorMessage}`);
-    process.exit(1);
+  if (!tocFiles.epub3Nav && !tocFiles.epub2Ncx) {
+    console.log("No TOC files found. Skipping chapter section updates.");
+    return;
   }
+
+  const sommaireFilePath = path.join(contentPath, "chapter-2.xhtml");
+
+  if (!(await fs.pathExists(sommaireFilePath))) {
+    console.log(`Manual sommaire file not found at: ${sommaireFilePath}`);
+    console.log("Skipping chapter section updates.");
+    return;
+  }
+
+  const chapters = await extractChapterStructure(sommaireFilePath);
+  if (chapters.length === 0) {
+    console.log("No chapters found in manual sommaire. Skipping updates.");
+    return;
+  }
+
+  const chaptersWithSections = chapters.filter((ch) => ch.sections.length > 0);
+  if (chaptersWithSections.length === 0) {
+    console.log("No chapters with subsections found. Skipping updates.");
+    return;
+  }
+
+  if (tocFiles.epub3Nav) {
+    await updateEPUB3NavigationWithSections(tocFiles.epub3Nav, chaptersWithSections);
+  } else {
+    console.log("No EPUB3 navigation file found");
+  }
+
+  if (tocFiles.epub2Ncx) {
+    await updateEPUB2NCXWithSections(tocFiles.epub2Ncx, chaptersWithSections);
+  } else {
+    console.log("No EPUB2 NCX file found");
+  }
+
+  console.log("Chapter section updates completed successfully");
 }
 
-// Run the main function
-addChapterSectionsToTOC();
+if (isEntryPoint(import.meta.url)) {
+  run().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

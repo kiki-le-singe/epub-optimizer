@@ -5,27 +5,33 @@ import fs from "fs-extra";
 import path from "node:path";
 import * as cheerio from "cheerio";
 import { getContentPath } from "../../utils/epub-utils.js";
-import { getTempDir } from "../utils.js";
+import { getTempDir, isEntryPoint, type RunOpts } from "../utils.js";
 
-// Get temp directory from CLI args or config
-const extractedDir = getTempDir();
+async function fixFile(file: string) {
+  try {
+    console.log(`Processing ${file}`);
+    const content = await fs.readFile(file, "utf8");
+    const $ = cheerio.load(content, { xmlMode: true });
+    // Cheerio auto-closes tags on serialization
+    await fs.writeFile(file, $.xml());
+    console.log(`Fixed ${path.basename(file)}`);
+  } catch (error) {
+    console.error(`Error processing ${file}:`, error);
+  }
+}
 
-async function main() {
-  // Verify the directories exist
+export async function run(opts: RunOpts = {}): Promise<void> {
+  const extractedDir = opts.tempDir ?? getTempDir();
+
   if (!(await fs.pathExists(extractedDir))) {
-    console.error(`Error: Directory ${extractedDir} does not exist.`);
-    console.error("Please run the optimization script first to extract the EPUB.");
-    process.exit(1);
+    throw new Error(`Directory ${extractedDir} does not exist.`);
   }
 
   const contentDir = await getContentPath(extractedDir);
   if (!(await fs.pathExists(contentDir))) {
-    console.error(`Error: Content directory ${contentDir} does not exist.`);
-    console.error("Please make sure the extracted EPUB has a content directory (OPS or OEBPS).");
-    process.exit(1);
+    throw new Error(`Content directory ${contentDir} does not exist.`);
   }
 
-  // Get all chapter XHTML files
   const files = (await fs.readdir(contentDir))
     .filter((file) => file.endsWith(".xhtml"))
     .map((file) => path.join(contentDir, file));
@@ -37,19 +43,9 @@ async function main() {
   console.log("All XHTML files fixed.");
 }
 
-async function fixFile(file: string) {
-  try {
-    console.log(`Processing ${file}`);
-    const content = await fs.readFile(file, "utf8");
-    const $ = cheerio.load(content, { xmlMode: true });
-    // Cheerio auto-closes tags on serialization
-    const fixed = $.xml();
-    await fs.writeFile(file, fixed);
-    console.log(`Fixed ${path.basename(file)}`);
-  } catch (error) {
-    console.error(`Error processing ${file}:`, error);
-  }
+if (isEntryPoint(import.meta.url)) {
+  run().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
 }
-
-// Use void operator to explicitly mark the promise as intentionally not awaited
-void main();

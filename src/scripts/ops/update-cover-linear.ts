@@ -4,7 +4,7 @@
 import fs from "fs-extra";
 import * as cheerio from "cheerio";
 import { getOPFPath } from "../../utils/epub-utils.js";
-import { getTempDir } from "../utils.js";
+import { getTempDir, isEntryPoint, type RunOpts } from "../utils.js";
 
 /**
  * Mark the cover item in an OPF manifest's spine as `linear="yes"` so readers
@@ -21,31 +21,25 @@ export function setCoverLinear(opfXml: string): { xml: string; updated: boolean 
   return { xml: $.xml(), updated: true };
 }
 
-async function updateCoverLinear() {
-  try {
-    const extractedDir = getTempDir();
-    const opfFile = await getOPFPath(extractedDir);
-    console.log(`Updating cover in OPF file: ${opfFile}`);
+export async function run(opts: RunOpts = {}): Promise<void> {
+  const extractedDir = opts.tempDir ?? getTempDir();
+  const opfFile = await getOPFPath(extractedDir);
+  console.log(`Updating cover in OPF file: ${opfFile}`);
 
-    const content = fs.readFileSync(opfFile, "utf8");
-    const { xml, updated } = setCoverLinear(content);
+  const content = fs.readFileSync(opfFile, "utf8");
+  const { xml, updated } = setCoverLinear(content);
 
-    if (updated) {
-      fs.writeFileSync(opfFile, xml);
-      console.log('Successfully set cover to linear: <itemref idref="cover" linear="yes"/>');
-    } else {
-      console.log("Warning: No cover reference found in spine section of OPF file");
-    }
-  } catch (error) {
-    if (error instanceof Error) {
-      console.error(`Error updating cover reference: ${error.message}`);
-    } else {
-      console.error("Unknown error updating cover reference", error);
-    }
-    process.exit(1);
+  if (updated) {
+    fs.writeFileSync(opfFile, xml);
+    console.log('Successfully set cover to linear: <itemref idref="cover" linear="yes"/>');
+  } else {
+    console.log("Warning: No cover reference found in spine section of OPF file");
   }
 }
 
-if (process.env.NODE_ENV !== "test") {
-  void updateCoverLinear();
+if (isEntryPoint(import.meta.url)) {
+  run().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
 }

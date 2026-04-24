@@ -1,13 +1,21 @@
-import { runCommand, handleError } from "../utils.js";
+import { isEntryPoint, type RunOpts } from "../utils.js";
+import { run as fixSpanTags } from "./fix-span-tags.js";
+import { run as fixXml } from "./fix-xml.js";
+import { run as removeEmptyStyles } from "./remove-empty-styles.js";
 
-// Get CLI arguments to forward to child scripts
-const args = process.argv.slice(2).join(" ");
-
-try {
-  runCommand(`node dist/src/scripts/fix/fix-span-tags.js ${args}`);
-  runCommand(`node dist/src/scripts/fix/fix-xml.js ${args}`);
-  runCommand(`node dist/src/scripts/fix/remove-empty-styles.js ${args}`);
+/**
+ * Run all general XHTML fixes in sequence, in-process.
+ */
+export async function runFixes(opts: RunOpts = {}): Promise<void> {
+  await fixSpanTags(opts);
+  await fixXml(opts);
+  await removeEmptyStyles(opts);
   console.log("All general fixes applied.");
-} catch (error) {
-  handleError(error);
+}
+
+if (isEntryPoint(import.meta.url)) {
+  runFixes().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
 }

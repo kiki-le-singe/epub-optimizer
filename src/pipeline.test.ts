@@ -1,14 +1,44 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { spawnSync } from "node:child_process";
-import type { SpawnSyncReturns } from "node:child_process";
 
-// Mock child_process
+vi.mock("./cli.js", () => ({
+  parseArguments: vi.fn().mockResolvedValue({
+    input: "in.epub",
+    output: "out.epub",
+    temp: "/tmp/ep",
+    clean: false,
+    "jpg-quality": 70,
+    jpgQuality: 70,
+    "png-quality": 0.6,
+    pngQuality: 0.6,
+    lang: "fr",
+    _: [],
+    $0: "epub-optimizer",
+  }),
+}));
+vi.mock("./index.js", () => ({
+  optimizeEPUB: vi.fn().mockResolvedValue({ success: true, input: "in.epub", output: "out.epub" }),
+  reportFileSizeComparison: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("./scripts/fix/index.js", () => ({
+  runFixes: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("./scripts/ops/update-structure.js", () => ({
+  runStructureUpdates: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("./scripts/create-epub.js", () => ({
+  run: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("./scripts/validate-epub.js", () => ({
+  run: vi.fn(),
+}));
+vi.mock("fs-extra", () => ({
+  default: { pathExists: vi.fn().mockResolvedValue(false) },
+}));
 vi.mock("node:child_process", () => ({
   spawnSync: vi.fn().mockReturnValue({ status: 0 }),
 }));
 
-describe("pipeline.ts", () => {
-  // Mock console methods
+describe("pipeline orchestration", () => {
   beforeEach(() => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -19,79 +49,47 @@ describe("pipeline.ts", () => {
     vi.restoreAllMocks();
   });
 
-  describe("runScript", () => {
-    it("calls spawnSync with correct arguments", async () => {
-      // Extract runScript function using regex on the module source code
-      const runScriptFn = new Function(
-        "script",
-        "args",
-        "label",
-        "spawnSync",
-        "path",
-        "process",
-        "console",
-        `
-        const scriptPath = path.join("dist", "src", "scripts", ...script.split("/"));
-        console.log(\`\\n=== \${label} ===\`);
-        const result = spawnSync("node", [scriptPath, ...args], { stdio: "inherit" });
-        if (result.status !== 0) {
-          console.error(\`\\n✗ \${label} failed.\`);
-          process.exit(result.status || 1);
-        }
-        `
-      );
+  it("runs each step in order and forwards the shared temp/lang/output", async () => {
+    const { main } = await import("./pipeline.js");
+    const { optimizeEPUB } = await import("./index.js");
+    const { runFixes } = await import("./scripts/fix/index.js");
+    const { runStructureUpdates } = await import("./scripts/ops/update-structure.js");
+    const { run: createEPUBFile } = await import("./scripts/create-epub.js");
+    const { run: validateEPUB } = await import("./scripts/validate-epub.js");
 
-      // Setup mock implementation
-      vi.mocked(spawnSync).mockReturnValue({ status: 0 } as unknown as SpawnSyncReturns<Buffer>);
+    await main();
 
-      // Call the function with the mocked dependencies
-      runScriptFn(
-        "fix/index.js",
-        ["--input", "test.epub"],
-        "Fix Files",
-        spawnSync,
-        { join: (...parts: string[]) => parts.join("/") },
-        process,
-        console
-      );
-
-      // Check that spawnSync was called with correct arguments
-      expect(spawnSync).toHaveBeenCalledWith(
-        "node",
-        [expect.stringContaining("fix/index.js"), "--input", "test.epub"],
-        expect.anything()
-      );
+    expect(optimizeEPUB).toHaveBeenCalledTimes(1);
+    expect(optimizeEPUB).toHaveBeenCalledWith(expect.objectContaining({ temp: "/tmp/ep" }), {
+      skipPackaging: true,
     });
-
-    // Note: We're not testing the error case that calls process.exit
-    // because Vitest doesn't handle process.exit well in tests
-    // In a real-world scenario, we would use a custom exit handler for testability
+    expect(runFixes).toHaveBeenCalledWith({ tempDir: "/tmp/ep" });
+    expect(runStructureUpdates).toHaveBeenCalledWith({ tempDir: "/tmp/ep", lang: "fr" });
+    expect(createEPUBFile).toHaveBeenCalledWith({ tempDir: "/tmp/ep", output: "out.epub" });
+    expect(validateEPUB).toHaveBeenCalledWith({ output: "out.epub" });
   });
 
-  describe("pipeline flow", () => {
-    it("processes arguments correctly", async () => {
-      // Mock spawnSync to return valid result for all calls
-      vi.mocked(spawnSync).mockImplementation(
-        () => ({ status: 0 }) as unknown as SpawnSyncReturns<Buffer>
-      );
-
-      // Setup process.argv
-      const originalArgv = process.argv;
-      process.argv = ["node", "pipeline.js", "--clean", "--input", "test.epub"];
-
-      try {
-        // Import the module to trigger the pipeline flow
-        await import("./pipeline.js");
-
-        // Check that spawnSync was called for each step
-        expect(spawnSync).toHaveBeenCalledTimes(6); // 5 scripts + cleanup
-
-        // Verify cleanup is called with --clean flag
-        expect(spawnSync).toHaveBeenCalledWith("rm", ["-rf", "temp_epub"], expect.anything());
-      } finally {
-        // Restore original argv
-        process.argv = originalArgv;
-      }
+  it("invokes cleanup when --clean is set", async () => {
+    const { parseArguments } = await import("./cli.js");
+    vi.mocked(parseArguments).mockResolvedValueOnce({
+      input: "in.epub",
+      output: "out.epub",
+      temp: "/tmp/ep",
+      clean: true,
+      "jpg-quality": 70,
+      jpgQuality: 70,
+      "png-quality": 0.6,
+      pngQuality: 0.6,
+      lang: "fr",
+      _: [],
+      $0: "epub-optimizer",
     });
+
+    const { main } = await import("./pipeline.js");
+    const { spawnSync } = await import("node:child_process");
+
+    await main();
+
+    expect(spawnSync).toHaveBeenCalledWith("rm", ["-rf", "/tmp/ep"], expect.anything());
   });
 });

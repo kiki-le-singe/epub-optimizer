@@ -1,8 +1,39 @@
-import { execSync } from "node:child_process";
 import path from "node:path";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import yargs from "yargs/yargs";
 import { hideBin } from "yargs/helpers";
 import config from "../utils/config.js";
+
+/**
+ * Returns true when a module is being executed directly (e.g.
+ * `node dist/src/scripts/fix/fix-xml.js`) rather than imported by another
+ * module. Callers should pass `import.meta.url`. We realpath both sides so
+ * symlinks, pnpm `.bin` shims, and relative invocations all line up.
+ */
+export function isEntryPoint(metaUrl: string): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return realpathSync(fileURLToPath(metaUrl)) === realpathSync(entry);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Options passed when running a script programmatically (in-process, via
+ * `run(opts)`). When invoked as a standalone CLI the script falls back to
+ * reading the same values from argv / config.
+ */
+export interface RunOpts {
+  /** Absolute path to the extracted EPUB directory. */
+  tempDir?: string;
+  /** UI language code (e.g. "fr", "en"). */
+  lang?: string;
+  /** Output EPUB path (for create-epub / validate-epub). */
+  output?: string;
+}
 
 /**
  * Defines the shape of args returned by parseArgs
@@ -11,15 +42,6 @@ export interface CommandArgs {
   input?: string;
   output?: string;
   [key: string]: unknown;
-}
-
-/**
- * Info about the input file
- */
-export interface InputFileInfo {
-  inputFile: string;
-  inputBasename: string;
-  args: string;
 }
 
 /**
@@ -50,48 +72,6 @@ export function parseArgs(includeInputOption = true, includeOutputOption = true)
   }
 
   return parser.help(false).version(false).argv as unknown as CommandArgs;
-}
-
-/**
- * Get input file name from command line args
- * @returns Input file name and basename
- */
-export function getInputFileInfo(): InputFileInfo {
-  const args = process.argv.slice(2).join(" ");
-  let inputFile = config.inputEPUB; // Default value
-  const inputArg = args.match(/-i\s+([^\s]+)/);
-  if (inputArg?.[1]) {
-    inputFile = inputArg[1];
-  }
-  const inputBasename = path.basename(inputFile, ".epub");
-
-  return { inputFile, inputBasename, args };
-}
-
-/**
- * Standard error handler for scripts
- * @param error The error to handle
- */
-export function handleError(error: unknown): never {
-  if (error instanceof Error) {
-    console.error(`Error: ${error.message}`);
-  } else {
-    console.error("Unknown error", error);
-  }
-  process.exit(1);
-}
-
-/**
- * Run a command with proper error handling
- * @param command The command to run
- * @param options Options for the command
- */
-export function runCommand(command: string, options = { stdio: "inherit" as const }): void {
-  try {
-    execSync(command, options);
-  } catch (error) {
-    handleError(error);
-  }
 }
 
 /**
