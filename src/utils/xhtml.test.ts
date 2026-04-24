@@ -36,9 +36,7 @@ describe("normalizeVoidElements", () => {
 
   it("handles attribute values containing slashes", () => {
     const input = `<img src="images/photo.jpg" alt="ok">`;
-    expect(normalizeVoidElements(input)).toBe(
-      `<img src="images/photo.jpg" alt="ok" />`
-    );
+    expect(normalizeVoidElements(input)).toBe(`<img src="images/photo.jpg" alt="ok" />`);
   });
 
   it("does not match tags whose name merely starts with a void name", () => {
@@ -54,9 +52,9 @@ describe("isXHTMLContent", () => {
   });
 
   it("recognises content with the XHTML namespace", () => {
-    expect(
-      isXHTMLContent(`<html xmlns="http://www.w3.org/1999/xhtml"><head></head></html>`)
-    ).toBe(true);
+    expect(isXHTMLContent(`<html xmlns="http://www.w3.org/1999/xhtml"><head></head></html>`)).toBe(
+      true
+    );
   });
 
   it("recognises an XHTML PUBLIC DOCTYPE", () => {
