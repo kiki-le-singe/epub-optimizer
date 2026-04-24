@@ -5,10 +5,10 @@
 import fs from "fs-extra";
 import path from "node:path";
 import * as cheerio from "cheerio";
-import { getTempDir } from "../utils.js";
+import { getTempDir, isEntryPoint, type RunOpts } from "../utils.js";
 
 // Properly format self-closing tags in XML/XHTML files
-function fixXml(originalContent: string) {
+export function fixXml(originalContent: string): string {
   // Remove all </br> tags (invalid in XHTML)
   let processedContent = originalContent.replace(/<\/br>/gi, "");
   // Convert all <br> to <br/> (self-closing)
@@ -51,38 +51,28 @@ function fixXml(originalContent: string) {
 
 import { getContentPath } from "../../utils/epub-utils.js";
 
-// Main async function to handle the process
-async function main() {
-  // Get the extraction directory from CLI args or config
-  const extractedDir = getTempDir();
+export async function run(opts: RunOpts = {}): Promise<void> {
+  const extractedDir = opts.tempDir ?? getTempDir();
 
-  // Verify the directory exists
   if (!fs.existsSync(extractedDir)) {
-    console.error(`Error: Directory ${extractedDir} does not exist.`);
-    console.error("Please run the optimization script first to extract the EPUB.");
-    process.exit(1);
+    throw new Error(`Directory ${extractedDir} does not exist.`);
   }
 
   const contentDir = await getContentPath(extractedDir);
   if (!fs.existsSync(contentDir)) {
-    console.error(`Error: Content directory ${contentDir} does not exist.`);
-    console.error("Please make sure the extracted EPUB has a content directory (OPS or OEBPS).");
-    process.exit(1);
+    throw new Error(`Content directory ${contentDir} does not exist.`);
   }
 
-  // Get all XHTML files
   const xhtmlFiles = fs
     .readdirSync(contentDir)
     .filter((file) => file.endsWith(".xhtml"))
     .map((file) => path.join(contentDir, file));
 
-  // Fix each file
   for (const file of xhtmlFiles) {
     try {
       console.log(`Processing ${file}`);
       const content = fs.readFileSync(file, "utf8");
-      const fixed = fixXml(content);
-      fs.writeFileSync(file, fixed);
+      fs.writeFileSync(file, fixXml(content));
     } catch (error) {
       console.error(`Error processing ${file}:`, error);
     }
@@ -91,5 +81,9 @@ async function main() {
   console.log("All files processed.");
 }
 
-// Use void operator to explicitly mark the promise as intentionally not awaited
-void main();
+if (isEntryPoint(import.meta.url)) {
+  run().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

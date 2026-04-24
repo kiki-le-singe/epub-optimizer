@@ -3,170 +3,202 @@ import path from "node:path";
 import sharp from "sharp";
 import * as glob from "glob";
 import * as cheerio from "cheerio";
+import pLimit from "p-limit";
 import { getOPFPath, getContentPath } from "../utils/epub-utils.js";
 
+interface Conversion {
+  pngFile: string;
+  jpegFile: string;
+  pngBasename: string;
+  jpegBasename: string;
+  originalSize: number;
+  newSize: number;
+}
+
+async function maybeConvertOne(
+  pngFile: string,
+  quality: number,
+  maxDim?: number
+): Promise<Conversion | null> {
+  try {
+    const originalSize = (await fs.stat(pngFile)).size;
+    if (originalSize < 200 * 1024) {
+      console.log(`Skipping small PNG: ${path.basename(pngFile)} (${formatBytes(originalSize)})`);
+      return null;
+    }
+
+    const metadata = await sharp(pngFile).metadata();
+    if (metadata.hasAlpha) {
+      console.log(`Skipping PNG with transparency: ${path.basename(pngFile)}`);
+      return null;
+    }
+
+    const jpegFile = pngFile.replace(/\.png$/i, ".jpg");
+    // Chain resize + encode into the single sharp pass — avoids a follow-up
+    // downscale step on the freshly-written JPEG (which would otherwise be
+    // skipped by optimizeImages and stay at its original dimensions).
+    let pipeline = sharp(pngFile);
+    if (maxDim) {
+      pipeline = pipeline.resize({
+        width: maxDim,
+        height: maxDim,
+        fit: "inside",
+        withoutEnlargement: true,
+      });
+    }
+    await pipeline.jpeg({ quality, mozjpeg: true }).toFile(jpegFile);
+    const newSize = (await fs.stat(jpegFile)).size;
+
+    if (newSize >= originalSize) {
+      console.log(`Keeping PNG ${path.basename(pngFile)}: JPEG conversion would increase size`);
+      await fs.remove(jpegFile);
+      return null;
+    }
+
+    console.log(
+      `Converted ${path.basename(pngFile)}: ${formatBytes(originalSize)} → ${formatBytes(
+        newSize
+      )} (${Math.round(((originalSize - newSize) / originalSize) * 100)}% smaller)`
+    );
+    return {
+      pngFile,
+      jpegFile,
+      pngBasename: path.basename(pngFile),
+      jpegBasename: path.basename(jpegFile),
+      originalSize,
+      newSize,
+    };
+  } catch (error) {
+    console.warn(
+      `Skipping conversion for ${path.basename(pngFile)}: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return null;
+  }
+}
+
+async function rewriteXhtmlReferences(
+  contentDir: string,
+  conversions: Conversion[]
+): Promise<void> {
+  const xhtmlFiles = glob.sync(path.join(contentDir, "*.xhtml"));
+  const byPng = new Map(conversions.map((c) => [c.pngBasename, c.jpegBasename]));
+
+  await Promise.all(
+    xhtmlFiles.map(async (xhtmlFile) => {
+      const content = await fs.readFile(xhtmlFile, "utf8");
+      if (!conversions.some((c) => content.includes(c.pngBasename))) return;
+
+      const $ = cheerio.load(content, { xmlMode: true });
+      let changed = false;
+      $("img[src]").each((_, elem) => {
+        const src = $(elem).attr("src");
+        if (!src) return;
+        for (const [pngBasename, jpegBasename] of byPng) {
+          if (src.includes(pngBasename)) {
+            $(elem).attr("src", src.replace(pngBasename, jpegBasename));
+            changed = true;
+            break;
+          }
+        }
+      });
+      if (changed) {
+        await fs.writeFile(xhtmlFile, $.xml());
+        console.log(`Updated references in ${path.basename(xhtmlFile)}`);
+      }
+    })
+  );
+}
+
+async function rewriteOpfManifest(epubDir: string, conversions: Conversion[]): Promise<void> {
+  try {
+    const opfFile = await getOPFPath(epubDir);
+    const opfContent = await fs.readFile(opfFile, "utf8");
+    const $opf = cheerio.load(opfContent, { xmlMode: true });
+    let changed = false;
+    for (const c of conversions) {
+      const items = $opf(`item[href="images/${c.pngBasename}"][media-type="image/png"]`);
+      if (items.length > 0) {
+        items.attr("href", `images/${c.jpegBasename}`);
+        items.attr("media-type", "image/jpeg");
+        changed = true;
+      }
+    }
+    if (changed) {
+      await fs.writeFile(opfFile, $opf.xml());
+      console.log(`Updated OPF file with ${conversions.length} new JPEG reference(s)`);
+    }
+  } catch (opfError) {
+    console.warn(
+      `Failed to update OPF file: ${opfError instanceof Error ? opfError.message : String(opfError)}`
+    );
+  }
+}
+
 /**
- * Convert large PNG files to JPEG for better compression
- * Skips PNG files that use transparency
- * @param epubDir Directory containing the extracted EPUB
- * @param quality JPEG quality (0-100)
- * @throws Error if conversion fails
+ * Convert large opaque PNG files to JPEG for better compression.
+ * Runs conversions in parallel, then updates XHTML and OPF references
+ * in a single batched pass.
+ * @param maxDim Optional max width/height in px — resize is chained into
+ *   the same sharp pass so converted JPEGs don't need a follow-up downscale
+ *   (optimizeImages skips them).
+ * @returns Absolute paths of the newly-written JPEG files — callers pass
+ *   this to optimizeImages as `skip` so the freshly-encoded JPEGs aren't
+ *   re-encoded a second time.
+ * @throws Error if conversion fails catastrophically (per-file errors are logged).
  */
-async function convertPngToJpeg(epubDir: string, quality = 85): Promise<void> {
+async function convertPngToJpeg(
+  epubDir: string,
+  quality = 85,
+  concurrency = 8,
+  maxDim?: number
+): Promise<Set<string>> {
   try {
     console.log("Converting large PNG files to JPEG for better compression...");
 
-    // Get content directory (OPS, OEBPS, or root)
     const contentDir = await getContentPath(epubDir);
     if (!(await fs.pathExists(contentDir))) {
       console.log("Content directory not found, skipping PNG to JPEG conversion");
-      return;
+      return new Set();
     }
 
-    // Check if images directory exists
     const imagesDir = path.join(contentDir, "images");
     if (!(await fs.pathExists(imagesDir))) {
       console.log("No images directory found, skipping PNG to JPEG conversion");
-      return;
+      return new Set();
     }
 
-    // Get all PNG files
     const pngFiles = glob.sync(path.join(imagesDir, "*.png"));
     if (pngFiles.length === 0) {
       console.log("No PNG files found");
-      return;
+      return new Set();
     }
 
     console.log(`Found ${pngFiles.length} PNG files to analyze`);
-    let convertedCount = 0;
-    let totalSaved = 0;
 
-    // Process each PNG file
-    for (const pngFile of pngFiles) {
-      try {
-        // Get file size
-        const stats = await fs.stat(pngFile);
-        const originalSize = stats.size;
+    // Phase 1: convert in parallel — each task writes its own .jpg side-by-side.
+    const limit = pLimit(concurrency);
+    const results = await Promise.all(
+      pngFiles.map((png) => limit(() => maybeConvertOne(png, quality, maxDim)))
+    );
+    const conversions = results.filter((r): r is Conversion => r !== null);
 
-        // Skip small PNG files (likely icons, logos, etc.)
-        if (originalSize < 200 * 1024) {
-          // Skip files smaller than 200KB
-          console.log(
-            `Skipping small PNG: ${path.basename(pngFile)} (${formatBytes(originalSize)})`
-          );
-          continue;
-        }
-
-        // Check if the PNG has transparency
-        const metadata = await sharp(pngFile).metadata();
-        const hasAlpha = metadata.hasAlpha;
-
-        if (hasAlpha) {
-          console.log(`Skipping PNG with transparency: ${path.basename(pngFile)}`);
-          continue;
-        }
-
-        // Define the JPEG output path
-        const jpegFile = pngFile.replace(/\.png$/i, ".jpg");
-
-        // Convert PNG to JPEG with high quality
-        await sharp(pngFile).jpeg({ quality: quality, mozjpeg: true }).toFile(jpegFile);
-
-        // Get the new file size
-        const newStats = await fs.stat(jpegFile);
-        const newSize = newStats.size;
-
-        // Calculate savings
-        const savedBytes = originalSize - newSize;
-        const savedPercent = Math.round((savedBytes / originalSize) * 100);
-
-        if (savedBytes > 0) {
-          convertedCount++;
-          totalSaved += savedBytes;
-
-          console.log(
-            `Converted ${path.basename(pngFile)}: ${formatBytes(originalSize)} → ${formatBytes(newSize)} (${savedPercent}% smaller)`
-          );
-
-          // Now update references in all XHTML files
-          const xhtmlFiles = glob.sync(path.join(contentDir, "*.xhtml"));
-          const pngBasename = path.basename(pngFile);
-          const jpegBasename = path.basename(jpegFile);
-
-          for (const xhtmlFile of xhtmlFiles) {
-            const content = await fs.readFile(xhtmlFile, "utf8");
-
-            // Skip if no references to this PNG
-            if (!content.includes(pngBasename)) continue;
-
-            // Replace references
-            const $ = cheerio.load(content, { xmlMode: true });
-            let changed = false;
-
-            $(`img[src*="${pngBasename}"]`).each((_, elem) => {
-              const src = $(elem).attr("src");
-              if (src) {
-                $(elem).attr("src", src.replace(pngBasename, jpegBasename));
-                changed = true;
-              }
-            });
-
-            if (changed) {
-              // Use .xml() to preserve XML structure (self-closing tags, etc.)
-              await fs.writeFile(xhtmlFile, $.xml());
-              console.log(`Updated references in ${path.basename(xhtmlFile)}`);
-            }
-          }
-
-          // Update OPF file
-          try {
-            const opfFile = await getOPFPath(epubDir);
-            let opfContent = await fs.readFile(opfFile, "utf8");
-
-            // Replace PNG with JPEG in OPF
-            const pngPath = `images/${pngBasename}`;
-            const jpegPath = `images/${jpegBasename}`;
-
-            // Use regex to be careful not to break XML
-            const pngPattern = new RegExp(
-              `(href=["'])${escapeRegExp(pngPath)}(["']\\s+media-type=["'])image\\/png(["'])`,
-              "g"
-            );
-
-            opfContent = opfContent.replace(pngPattern, `$1${jpegPath}$2image/jpeg$3`);
-
-            await fs.writeFile(opfFile, opfContent);
-            console.log(`Updated OPF file with new JPEG reference`);
-
-            // Remove the original PNG file since we've replaced all references
-            await fs.remove(pngFile);
-          } catch (opfError) {
-            console.warn(
-              `Failed to update OPF file: ${opfError instanceof Error ? opfError.message : String(opfError)}`
-            );
-            // Don't fail the whole process if OPF update fails
-          }
-        } else {
-          // JPEG is larger, keep the PNG
-          console.log(`Keeping PNG ${path.basename(pngFile)}: JPEG conversion would increase size`);
-          await fs.remove(jpegFile); // Remove the temp JPEG file
-        }
-      } catch (error) {
-        console.warn(
-          `Skipping conversion for ${path.basename(pngFile)}: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-      }
-    }
-
-    if (convertedCount > 0) {
-      console.log(
-        `Converted ${convertedCount} PNG files to JPEG, saving ${formatBytes(totalSaved)}`
-      );
-    } else {
+    if (conversions.length === 0) {
       console.log("No PNG files were converted to JPEG");
+      return new Set();
     }
+
+    // Phase 2: rewrite XHTML + OPF references once, then drop the PNG originals.
+    await rewriteXhtmlReferences(contentDir, conversions);
+    await rewriteOpfManifest(epubDir, conversions);
+    await Promise.all(conversions.map((c) => fs.remove(c.pngFile)));
+
+    const totalSaved = conversions.reduce((sum, c) => sum + (c.originalSize - c.newSize), 0);
+    console.log(
+      `Converted ${conversions.length} PNG files to JPEG, saving ${formatBytes(totalSaved)}`
+    );
+    return new Set(conversions.map((c) => c.jpegFile));
   } catch (error) {
     throw new Error(
       `Failed to convert PNG to JPEG: ${error instanceof Error ? error.message : String(error)}`,
@@ -175,26 +207,13 @@ async function convertPngToJpeg(epubDir: string, quality = 85): Promise<void> {
   }
 }
 
-/**
- * Format bytes as human-readable file size
- */
 function formatBytes(bytes: number, decimals = 2): string {
   if (bytes === 0) return "0 Bytes";
-
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;
   const sizes = ["Bytes", "KB", "MB", "GB"];
-
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
-}
-
-/**
- * Escape string for use in regex
- */
-function escapeRegExp(string: string): string {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export { convertPngToJpeg };

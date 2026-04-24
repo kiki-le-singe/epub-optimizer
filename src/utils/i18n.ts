@@ -2,10 +2,10 @@ import config from "./config.js";
 
 /**
  * Gets a localized label for the cover
- * @returns The localized string for "cover" in the current language or default language
+ * @param lang Optional language override (e.g. from CLI); falls back to config
  */
-export function getCoverLabel(): string {
-  const lang = config.lang || config.defaultLang;
+export function getCoverLabel(lang?: string): string {
+  const resolved = lang || config.lang || config.defaultLang;
 
-  return config.labels?.[lang as keyof typeof config.labels]?.cover;
+  return config.labels?.[resolved as keyof typeof config.labels]?.cover;
 }

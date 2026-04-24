@@ -2,7 +2,7 @@ import fs from "fs-extra";
 import * as cheerio from "cheerio";
 import { getCoverLabel } from "../../utils/i18n.js";
 import { getTOCFiles } from "../../utils/epub-utils.js";
-import { getTempDir } from "../utils.js";
+import { getLang, getTempDir, isEntryPoint, type RunOpts } from "../utils.js";
 
 /**
  * Updates EPUB3 navigation file to include cover link
@@ -115,45 +115,37 @@ async function updateEPUB2NCX(ncxFilePath: string, coverLabel: string): Promise<
   }
 }
 
-/**
- * Main function to update TOC files with cover link
- */
-async function updateTOCWithCover(): Promise<void> {
-  try {
-    const extractedDir = getTempDir();
-    const coverLabel = getCoverLabel();
+export async function run(opts: RunOpts = {}): Promise<void> {
+  const extractedDir = opts.tempDir ?? getTempDir();
+  const coverLabel = getCoverLabel(opts.lang ?? getLang());
 
-    console.log("Discovering TOC files from OPF manifest...");
+  console.log("Discovering TOC files from OPF manifest...");
 
-    // Dynamically discover TOC files from OPF manifest
-    const tocFiles = await getTOCFiles(extractedDir);
+  const tocFiles = await getTOCFiles(extractedDir);
 
-    if (!tocFiles.epub3Nav && !tocFiles.epub2Ncx) {
-      console.log("No TOC files found in OPF manifest. Skipping TOC updates.");
-      return;
-    }
-
-    // Update EPUB3 navigation file if it exists
-    if (tocFiles.epub3Nav) {
-      await updateEPUB3Navigation(tocFiles.epub3Nav, coverLabel);
-    } else {
-      console.log("No EPUB3 navigation file found");
-    }
-
-    // Update EPUB2 NCX file if it exists
-    if (tocFiles.epub2Ncx) {
-      await updateEPUB2NCX(tocFiles.epub2Ncx, coverLabel);
-    } else {
-      console.log("No EPUB2 NCX file found");
-    }
-
-    console.log("TOC updates completed successfully");
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`Error updating TOC files: ${errorMessage}`);
-    process.exit(1);
+  if (!tocFiles.epub3Nav && !tocFiles.epub2Ncx) {
+    console.log("No TOC files found in OPF manifest. Skipping TOC updates.");
+    return;
   }
+
+  if (tocFiles.epub3Nav) {
+    await updateEPUB3Navigation(tocFiles.epub3Nav, coverLabel);
+  } else {
+    console.log("No EPUB3 navigation file found");
+  }
+
+  if (tocFiles.epub2Ncx) {
+    await updateEPUB2NCX(tocFiles.epub2Ncx, coverLabel);
+  } else {
+    console.log("No EPUB2 NCX file found");
+  }
+
+  console.log("TOC updates completed successfully");
 }
 
-// Run the main function
-updateTOCWithCover();
+if (isEntryPoint(import.meta.url)) {
+  run().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

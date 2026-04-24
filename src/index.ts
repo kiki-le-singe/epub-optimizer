@@ -8,82 +8,102 @@ import { subsetFonts } from "./processors/font-processor.js";
 import { convertPngToJpeg } from "./processors/image-converter.js";
 import { minifyJavaScript } from "./processors/js-processor.js";
 import { optimizeSVGs } from "./processors/svg-optimizer.js";
-import { downscaleImages } from "./processors/image-downscale.js";
 import { addLazyLoadingToImages } from "./processors/lazy-img.js";
 
+interface OptimizeOptions {
+  /** If true, skip the final zip + cleanup. The pipeline uses this so the
+   *  fix/structure steps can still operate on the extracted directory and the
+   *  final zip is done by create-epub in one go. */
+  skipPackaging?: boolean;
+}
+
 /**
- * Main function to optimize an EPUB file
- * Extracts the EPUB, processes its contents, and repackages it
- * @returns Promise resolving to an object containing the operation result
+ * Extract the EPUB, run all content processors on the temp directory, and
+ * (unless `skipPackaging` is set) zip the result back to resolvedArgs.output.
+ * @param args Parsed CLI args. If omitted, argv is parsed.
+ * @returns Metadata about the run.
  */
-async function optimizeEPUB(): Promise<{ success: boolean; input: string; output: string }> {
-  // Parse command line arguments
-  const args = (await parseArguments()) as Args;
+async function optimizeEPUB(
+  args?: Args,
+  options: OptimizeOptions = {}
+): Promise<{ success: boolean; input: string; output: string }> {
+  const resolvedArgs: Args = args ?? ((await parseArguments()) as Args);
 
   try {
     // Validate inputs
-    if (!(await fs.pathExists(args.input))) {
-      throw new Error(`Input file not found: ${args.input}`);
+    if (!(await fs.pathExists(resolvedArgs.input))) {
+      throw new Error(`Input file not found: ${resolvedArgs.input}`);
     }
 
     // Create parent directory for output if it doesn't exist
-    const outputDir = args.output.split("/").slice(0, -1).join("/");
+    const outputDir = resolvedArgs.output.split("/").slice(0, -1).join("/");
     if (outputDir) {
       await fs.ensureDir(outputDir);
     }
 
     // 1. Extract EPUB file
-    await extractEPUB(args.input, args.temp);
-    console.log(`📦 Extracted ${args.input} to ${args.temp}`);
+    await extractEPUB(resolvedArgs.input, resolvedArgs.temp);
+    console.log(`📦 Extracted ${resolvedArgs.input} to ${resolvedArgs.temp}`);
 
     // 2. Process HTML and CSS files
-    await processHTML(args.temp);
+    await processHTML(resolvedArgs.temp);
     console.log("🔄 Optimized HTML/CSS files");
 
     // 3. Minify JavaScript
-    await minifyJavaScript(args.temp);
+    await minifyJavaScript(resolvedArgs.temp);
     console.log("🔄 Minified JavaScript files");
 
-    // 4. Convert PNG to JPEG where appropriate
-    await convertPngToJpeg(args.temp, args.jpgQuality);
+    // 4. Convert large opaque PNGs to JPEG. Resize is chained into the same
+    //    sharp pass so converted JPEGs don't need a follow-up downscale — step
+    //    5 skips them to avoid a double recompression.
+    const MAX_IMAGE_DIM = 1600;
+    const convertedJpegs = await convertPngToJpeg(
+      resolvedArgs.temp,
+      resolvedArgs.jpgQuality,
+      undefined,
+      MAX_IMAGE_DIM
+    );
     console.log("🖼️  Converted PNG to JPEG");
 
-    // 5. Optimize SVGs
-    await optimizeSVGs(args.temp);
-    console.log("🖼️  Optimized SVG files");
-
-    // 6. Downscale large images
-    await downscaleImages(args.temp, 1600);
-    console.log("🖼️  Downscaled large images");
-
-    // 7. Optimize images
-    await optimizeImages(args.temp);
+    // 5. Single-pass image optimization: resize + re-encode in one sharp
+    //    pipeline (replaces the old downscale + optimize split).
+    await optimizeImages(resolvedArgs.temp, {
+      jpegQuality: resolvedArgs.jpgQuality,
+      pngQuality: resolvedArgs.pngQuality,
+      maxDim: MAX_IMAGE_DIM,
+      skip: convertedJpegs,
+    });
     console.log("🖼️  Optimized image files");
 
-    // 8. Add lazy loading to images
-    await addLazyLoadingToImages(args.temp);
+    // 6. Optimize SVGs
+    await optimizeSVGs(resolvedArgs.temp);
+    console.log("🖼️  Optimized SVG files");
+
+    // 7. Add lazy loading to images
+    await addLazyLoadingToImages(resolvedArgs.temp);
     console.log("🖼️  Added lazy loading to images");
 
-    // 9. Subset fonts
-    await subsetFonts(args.temp);
+    // 8. Subset fonts
+    await subsetFonts(resolvedArgs.temp);
     console.log("🔤 Subset fonts");
 
-    // 10. Recompress as EPUB
-    await compressEPUB(args.output, args.temp);
-    console.log(`✅ Created optimized EPUB: ${args.output}`);
+    if (!options.skipPackaging) {
+      // 9. Recompress as EPUB
+      await compressEPUB(resolvedArgs.output, resolvedArgs.temp);
+      console.log(`✅ Created optimized EPUB: ${resolvedArgs.output}`);
 
-    // 11. Clean up temporary files if needed
-    if (args.clean) {
-      await fs.remove(args.temp);
-      console.log(`🧹 Removed temporary directory: ${args.temp}`);
-    } else {
-      console.log(`📁 Kept temporary directory: ${args.temp} for inspection`);
+      // 10. Clean up temporary files if needed
+      if (resolvedArgs.clean) {
+        await fs.remove(resolvedArgs.temp);
+        console.log(`🧹 Removed temporary directory: ${resolvedArgs.temp}`);
+      } else {
+        console.log(`📁 Kept temporary directory: ${resolvedArgs.temp} for inspection`);
+      }
+
+      await reportFileSizeComparison(resolvedArgs.input, resolvedArgs.output);
     }
 
-    // Report file size comparison
-    await reportFileSizeComparison(args.input, args.output);
-
-    return { success: true, input: args.input, output: args.output };
+    return { success: true, input: resolvedArgs.input, output: resolvedArgs.output };
   } catch (error) {
     if (error instanceof Error) {
       console.error(`❌ Error: ${error.message}`);
@@ -142,18 +162,6 @@ function formatFileSize(bytes: number): string {
   }
 
   return `${size.toFixed(2)} ${units[unitIndex]}`;
-}
-
-// Run the optimizer only if this file is executed directly (not imported in tests)
-if (process.env.NODE_ENV !== "test") {
-  optimizeEPUB().catch((error) => {
-    if (error instanceof Error) {
-      console.error(`❌ Unhandled error: ${error.message}`);
-    } else {
-      console.error("❌ Unhandled unknown error", error);
-    }
-    process.exit(1);
-  });
 }
 
 export { formatFileSize, reportFileSizeComparison, optimizeEPUB };

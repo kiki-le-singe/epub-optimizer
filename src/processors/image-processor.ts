@@ -1,51 +1,53 @@
 import fs from "fs-extra";
 import path from "node:path";
 import sharp from "sharp";
-// Using dynamic imports for all imagemin-related modules
+import pLimit from "p-limit";
 import config from "../utils/config.js";
-import { parseArguments } from "../cli.js";
 
-// Store quality values from command line or config
-let jpegQuality = config.jpegOptions.quality; // Default value
-let pngQuality = config.pngOptions.quality; // Default value
+export interface ImageOpts {
+  /** JPEG quality 0-100 */
+  jpegQuality?: number;
+  /** PNG quality 0-1 scale */
+  pngQuality?: number;
+  /** Max concurrent image encodes. Default 8 — libvips is thread-safe. */
+  concurrency?: number;
+  /** Max width/height in px; larger images are shrunk. Skip when unset. */
+  maxDim?: number;
+  /** Absolute paths that should be skipped (e.g. freshly converted elsewhere). */
+  skip?: ReadonlySet<string>;
+}
 
-/**
- * Optimize images in a directory recursively
- * @param dir Directory containing images
- */
-async function optimizeImages(dir: string): Promise<void> {
-  try {
-    // Get command line arguments to check for custom quality settings
-    const args = await parseArguments();
+const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif|avif|svg)$/i;
 
-    // If jpg-quality parameter was provided, use it
-    if (args["jpg-quality"] && typeof args["jpg-quality"] === "number") {
-      jpegQuality = args["jpg-quality"];
-      console.log(`Using custom JPEG quality: ${jpegQuality}`);
-    }
-
-    // If png-quality parameter was provided, use it
-    if (
-      args["png-quality"] &&
-      Array.isArray(args["png-quality"]) &&
-      args["png-quality"].length > 0
-    ) {
-      pngQuality = args["png-quality"].map((val) => parseFloat(val.toString()));
-      console.log(`Using custom PNG quality: ${pngQuality.join(", ")}`);
-    }
-
-    const entries = await fs.readdir(dir);
-
-    for (const entry of entries) {
+async function collectImages(dir: string): Promise<string[]> {
+  const out: string[] = [];
+  const entries = await fs.readdir(dir);
+  await Promise.all(
+    entries.map(async (entry) => {
       const fullPath = path.join(dir, entry);
       const stat = await fs.stat(fullPath);
-
       if (stat.isDirectory()) {
-        await optimizeImages(fullPath);
-      } else if (/\.(jpe?g|png|webp|gif|avif|svg)$/i.test(entry)) {
-        await compressImage(fullPath);
+        out.push(...(await collectImages(fullPath)));
+      } else if (IMAGE_EXT_RE.test(entry)) {
+        out.push(fullPath);
       }
-    }
+    })
+  );
+  return out;
+}
+
+/**
+ * Optimize images in a directory recursively, in parallel.
+ * Combines resize (if `maxDim` is set) and re-encode into a single sharp pass.
+ * @param opts Quality overrides; falls back to config defaults.
+ */
+async function optimizeImages(dir: string, opts: ImageOpts = {}): Promise<void> {
+  try {
+    const files = await collectImages(dir);
+    const skip = opts.skip;
+    const targets = skip ? files.filter((f) => !skip.has(f)) : files;
+    const limit = pLimit(opts.concurrency ?? 8);
+    await Promise.all(targets.map((file) => limit(() => compressImage(file, opts))));
   } catch (error) {
     console.error(
       `Error processing directory ${dir}: ${error instanceof Error ? error.message : String(error)}`
@@ -54,11 +56,13 @@ async function optimizeImages(dir: string): Promise<void> {
 }
 
 /**
- * Compress a single image using Sharp
- * @param imagePath Path to image file
+ * Compress a single image using Sharp.
+ * @param opts Quality overrides; falls back to config defaults.
  */
-async function compressImage(imagePath: string): Promise<void> {
+async function compressImage(imagePath: string, opts: ImageOpts = {}): Promise<void> {
   const filename = path.basename(imagePath);
+  const jpegQuality = opts.jpegQuality ?? config.jpegOptions.quality;
+  const pngQuality = opts.pngQuality ?? config.pngOptions.quality;
 
   try {
     const extension = path.extname(imagePath).toLowerCase();
@@ -76,8 +80,21 @@ async function compressImage(imagePath: string): Promise<void> {
     }
 
     let processedImage = sharp(imageBuffer);
-    // Use the first value from the PNG quality array (0-1 scale) and convert to 0-100 scale
-    const pngQualityValue = Math.round(pngQuality[0] * 100);
+
+    // Resize step (merged from the old image-downscale pass). Sharp with
+    // `fit: inside, withoutEnlargement: true` is a no-op for already-small
+    // images, so we can apply it unconditionally — saves a separate pass.
+    if (opts.maxDim && extension !== ".gif") {
+      processedImage = processedImage.resize({
+        width: opts.maxDim,
+        height: opts.maxDim,
+        fit: "inside",
+        withoutEnlargement: true,
+      });
+    }
+
+    // Convert PNG quality from 0-1 scale to 0-100 scale for sharp
+    const pngQualityValue = Math.round(pngQuality * 100);
 
     // Configure compression based on file type
     switch (extension) {

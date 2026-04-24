@@ -4,42 +4,42 @@
 import fs from "fs-extra";
 import * as cheerio from "cheerio";
 import { getOPFPath } from "../../utils/epub-utils.js";
-import { getTempDir } from "../utils.js";
+import { getTempDir, isEntryPoint, type RunOpts } from "../utils.js";
 
-async function updateCoverLinear() {
-  try {
-    // Define file paths
-    const extractedDir = getTempDir();
+/**
+ * Mark the cover item in an OPF manifest's spine as `linear="yes"` so readers
+ * render it first. Returns the updated XML and whether a change was made.
+ * Pure function — no I/O.
+ */
+export function setCoverLinear(opfXml: string): { xml: string; updated: boolean } {
+  const $ = cheerio.load(opfXml, { xmlMode: true });
+  const coverRef = $('itemref[idref="cover"]');
+  if (!coverRef.length) {
+    return { xml: opfXml, updated: false };
+  }
+  coverRef.attr("linear", "yes");
+  return { xml: $.xml(), updated: true };
+}
 
-    // Get the OPF file path from container.xml
-    const opfFile = await getOPFPath(extractedDir);
+export async function run(opts: RunOpts = {}): Promise<void> {
+  const extractedDir = opts.tempDir ?? getTempDir();
+  const opfFile = await getOPFPath(extractedDir);
+  console.log(`Updating cover in OPF file: ${opfFile}`);
 
-    console.log(`Updating cover in OPF file: ${opfFile}`);
+  const content = fs.readFileSync(opfFile, "utf8");
+  const { xml, updated } = setCoverLinear(content);
 
-    // Read and parse OPF file
-    const content = fs.readFileSync(opfFile, "utf8");
-    const $ = cheerio.load(content, { xmlMode: true });
-
-    // Find cover reference in spine
-    const coverRef = $('itemref[idref="cover"]');
-
-    if (coverRef.length) {
-      // Set cover as linear
-      coverRef.attr("linear", "yes");
-      fs.writeFileSync(opfFile, $.xml());
-      console.log('Successfully set cover to linear: <itemref idref="cover" linear="yes"/>');
-    } else {
-      console.log("Warning: No cover reference found in spine section of OPF file");
-    }
-  } catch (error) {
-    if (error instanceof Error) {
-      console.error(`Error updating cover reference: ${error.message}`);
-    } else {
-      console.error("Unknown error updating cover reference", error);
-    }
-    process.exit(1);
+  if (updated) {
+    fs.writeFileSync(opfFile, xml);
+    console.log('Successfully set cover to linear: <itemref idref="cover" linear="yes"/>');
+  } else {
+    console.log("Warning: No cover reference found in spine section of OPF file");
   }
 }
 
-// Run the function
-updateCoverLinear();
+if (isEntryPoint(import.meta.url)) {
+  run().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

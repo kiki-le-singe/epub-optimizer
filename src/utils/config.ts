@@ -30,7 +30,7 @@ const config = {
   },
 
   pngOptions: {
-    quality: [0.6, 0.8],
+    quality: 0.6,
   },
 
   // Archive options
