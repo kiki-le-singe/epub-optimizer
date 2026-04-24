@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
-import type { SpawnSyncReturns } from "child_process";
+import type { SpawnSyncReturns } from "node:child_process";
 
 // Mock child_process
 vi.mock("node:child_process", () => ({

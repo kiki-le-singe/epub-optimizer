@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "fs-extra";
-import path from "path";
+import path from "node:path";
 import os from "node:os";
 import { optimizeEPUB } from "./index";
 import { parseArguments } from "./cli";
@@ -27,8 +27,9 @@ describe("EPUB Optimization Integration Tests", () => {
     clean: true,
     "jpg-quality": 80,
     jpgQuality: 80,
-    "png-quality": [0.6, 0.8],
-    pngQuality: [0.6, 0.8],
+    "png-quality": 0.6,
+    pngQuality: 0.6,
+    lang: "fr",
     _: [],
     $0: "epub-optimizer",
   };
@@ -143,7 +144,7 @@ describe("EPUB Optimization Integration Tests", () => {
     vi.mocked(parseArguments).mockResolvedValue({
       ...mockArgs,
       jpgQuality: 90,
-      pngQuality: [0.7, 0.9],
+      pngQuality: 0.7,
     });
 
     // Run the optimization process

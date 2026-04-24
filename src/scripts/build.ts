@@ -4,8 +4,8 @@ import { getInputFileInfo, handleError, runCommand } from "./utils.js";
 import yargs from "yargs/yargs";
 import { hideBin } from "yargs/helpers";
 import fs from "fs-extra";
-import path from "path";
-import { fileURLToPath } from "url";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Get package.json information for version
 const __filename = fileURLToPath(import.meta.url);

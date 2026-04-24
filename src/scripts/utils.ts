@@ -95,6 +95,20 @@ export function runCommand(command: string, options = { stdio: "inherit" as cons
 }
 
 /**
+ * Get the UI language from CLI args or config.
+ * Reads --lang, falls back to config.lang.
+ */
+export function getLang(): string {
+  const args = process.argv.slice(2);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg.startsWith("--lang=")) return arg.split("=")[1];
+    if (arg === "--lang" && i + 1 < args.length) return args[i + 1];
+  }
+  return config.lang;
+}
+
+/**
  * Get the temp directory from CLI args or config
  * Reads the --temp or -t argument, falls back to config.tempDir
  * @returns Absolute path to temp directory

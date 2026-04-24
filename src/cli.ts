@@ -3,11 +3,22 @@ import { hideBin } from "yargs/helpers";
 import config from "./utils/config.js";
 import type { Args } from "./types.js";
 import fs from "fs-extra";
-import path from "path";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-// Get package.json information for version and description
-const packageJsonPath = path.join(process.cwd(), "package.json");
-const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+// Walk up from this file to find package.json — robust whether running from
+// src/ (vitest) or dist/src/ (compiled).
+function findPackageJson(): string {
+  let dir = path.dirname(fileURLToPath(import.meta.url));
+  const root = path.parse(dir).root;
+  while (dir !== root) {
+    const candidate = path.join(dir, "package.json");
+    if (fs.existsSync(candidate)) return candidate;
+    dir = path.dirname(dir);
+  }
+  throw new Error("package.json not found");
+}
+const packageJson = JSON.parse(fs.readFileSync(findPackageJson(), "utf8"));
 
 /**
  * Parse command line arguments
@@ -42,8 +53,13 @@ function parseArguments(): Promise<Args> {
       })
       .option("png-quality", {
         describe: "PNG compression quality (0-1 scale, use decimal)",
-        type: "array",
+        type: "number",
         default: config.pngOptions.quality,
+      })
+      .option("lang", {
+        describe: "UI language for labels (e.g. fr, en)",
+        type: "string",
+        default: config.lang,
       })
       .option("clean", {
         describe: "Clean temporary files after processing",

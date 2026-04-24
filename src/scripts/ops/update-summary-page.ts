@@ -3,10 +3,10 @@ import path from "node:path";
 import * as cheerio from "cheerio";
 import { getCoverLabel } from "../../utils/i18n.js";
 import { getContentPath } from "../../utils/epub-utils.js";
-import { getTempDir } from "../utils.js";
+import { getLang, getTempDir } from "../utils.js";
 
 // Get the localized cover label
-const COVER_LABEL = getCoverLabel();
+const COVER_LABEL = getCoverLabel(getLang());
 
 // Define file paths
 const extractedDir = getTempDir();

@@ -25,13 +25,9 @@ async function optimizeImages(dir: string): Promise<void> {
     }
 
     // If png-quality parameter was provided, use it
-    if (
-      args["png-quality"] &&
-      Array.isArray(args["png-quality"]) &&
-      args["png-quality"].length > 0
-    ) {
-      pngQuality = args["png-quality"].map((val) => parseFloat(val.toString()));
-      console.log(`Using custom PNG quality: ${pngQuality.join(", ")}`);
+    if (args["png-quality"] && typeof args["png-quality"] === "number") {
+      pngQuality = args["png-quality"];
+      console.log(`Using custom PNG quality: ${pngQuality}`);
     }
 
     const entries = await fs.readdir(dir);
@@ -76,8 +72,8 @@ async function compressImage(imagePath: string): Promise<void> {
     }
 
     let processedImage = sharp(imageBuffer);
-    // Use the first value from the PNG quality array (0-1 scale) and convert to 0-100 scale
-    const pngQualityValue = Math.round(pngQuality[0] * 100);
+    // Convert PNG quality from 0-1 scale to 0-100 scale for sharp
+    const pngQualityValue = Math.round(pngQuality * 100);
 
     // Configure compression based on file type
     switch (extension) {

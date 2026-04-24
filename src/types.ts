@@ -5,8 +5,9 @@ export interface Args {
   clean: boolean;
   "jpg-quality": number;
   jpgQuality: number;
-  "png-quality": number[] | (string | number)[];
-  pngQuality: number[] | (string | number)[];
+  "png-quality": number;
+  pngQuality: number;
+  lang: string;
   _: (string | number)[];
   $0: string;
 }
