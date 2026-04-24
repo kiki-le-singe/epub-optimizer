@@ -53,17 +53,24 @@ async function optimizeEPUB(
     await minifyJavaScript(resolvedArgs.temp);
     console.log("🔄 Minified JavaScript files");
 
-    // 4. Convert large opaque PNGs to JPEG (returns the set of freshly-encoded
-    //    JPEGs so step 5 can skip re-encoding them).
-    const convertedJpegs = await convertPngToJpeg(resolvedArgs.temp, resolvedArgs.jpgQuality);
+    // 4. Convert large opaque PNGs to JPEG. Resize is chained into the same
+    //    sharp pass so converted JPEGs don't need a follow-up downscale — step
+    //    5 skips them to avoid a double recompression.
+    const MAX_IMAGE_DIM = 1600;
+    const convertedJpegs = await convertPngToJpeg(
+      resolvedArgs.temp,
+      resolvedArgs.jpgQuality,
+      undefined,
+      MAX_IMAGE_DIM
+    );
     console.log("🖼️  Converted PNG to JPEG");
 
-    // 5. Single-pass image optimization: resize to max 1600px AND re-encode
-    //    in one sharp pipeline (replaces the old downscale + optimize split).
+    // 5. Single-pass image optimization: resize + re-encode in one sharp
+    //    pipeline (replaces the old downscale + optimize split).
     await optimizeImages(resolvedArgs.temp, {
       jpegQuality: resolvedArgs.jpgQuality,
       pngQuality: resolvedArgs.pngQuality,
-      maxDim: 1600,
+      maxDim: MAX_IMAGE_DIM,
       skip: convertedJpegs,
     });
     console.log("🖼️  Optimized image files");
