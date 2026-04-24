@@ -57,7 +57,7 @@ I use this project to optimize EPUB files that I create using Pages on Mac. My w
 
 After exporting, my original EPUB file is about 24.4MB. I use this script to optimize it (resulting in about 7.3MB). Then I test the result in Apple Books, Kindle Previewer, etc.
 
-This script is designed for this workflow (I don't use any other tools), but anyone who wants to optimize their EPUB file is welcome to try it! If you have customization needs different from mine, check the [Modular Fix Scripts](#modular-fix-scripts) section to learn how to enable/disable specific features. If you have any questions or issues, let me know. Enjoy! :)
+This script is designed for this workflow (I don't use any other tools), but anyone who wants to optimize their EPUB file is welcome to try it! If your workflow differs from mine, the [Customizing the Optimization Process](#customizing-the-optimization-process) section shows how to disable the steps that are specific to my setup. If you have any questions or issues, let me know. Enjoy! :)
 
 ### ⚠️ Important Note for Apple Pages Users
 
@@ -267,6 +267,7 @@ Options:
   -t, --temp        Temporary directory for processing      [string] [default: "temp_epub"]
   --jpg-quality     JPEG compression quality (0-100)        [number] [default: 70]
   --png-quality     PNG compression quality (0-1 scale)     [number] [default: 0.6]
+  --lang            UI language for labels (e.g. fr, en)    [string] [default: "fr"]
   --clean           Clean temporary files after processing  [boolean] [default: false]
   -h, --help        Show help message                       [boolean]
   -v, --version     Show version number                     [boolean]
@@ -367,7 +368,6 @@ This is invaluable for debugging optimization issues or understanding what the t
 ```
 epub-optimizer/
 ├── dist/                   # Compiled JavaScript (production code)
-├── optimize-epub.ts        # Main entry point (TypeScript)
 ├── package.json            # Package configuration
 ├── README.md               # Documentation
 ├── tsconfig.json           # TypeScript configuration
@@ -376,32 +376,40 @@ epub-optimizer/
 ├── scripts/                # Build and maintenance scripts
 │   └── minify-dist.ts      # Smart minification script for JavaScript files
 └── src/                    # Source code directory
-    ├── index.ts            # Main application logic
-    ├── cli.ts              # Command-line interface
-    ├── pipeline.ts         # Optimization pipeline
+    ├── index.ts            # optimizeEPUB(): extract + run every content processor
+    ├── pipeline.ts         # In-process CLI orchestrator (bin entry point)
+    ├── cli.ts              # yargs-based argument parser
     ├── types.ts            # TypeScript type definitions
     ├── types.d.ts          # Additional TypeScript declarations
-    ├── processors/         # Processing modules
-    │   ├── archive-processor.ts    # EPUB extraction/compression
+    ├── processors/         # Processing modules (called by index.ts)
+    │   ├── archive-processor.ts    # EPUB extraction/compression (zip-slip safe)
     │   ├── html-processor.ts       # HTML/CSS processing
-    │   └── image-processor.ts      # Image optimization
-    ├── scripts/            # Processing scripts
-    │   ├── build.ts        # Full optimization pipeline script
-    │   ├── create-epub.ts  # EPUB packaging script
-    │   ├── validate-epub.ts # EPUB validation script
-    │   ├── utils.ts        # Shared utilities for scripts
-    │   ├── fix/            # General fix scripts (modular)
+    │   ├── js-processor.ts         # JavaScript minification
+    │   ├── svg-optimizer.ts        # SVG optimization
+    │   ├── lazy-img.ts             # Add loading="lazy" to <img>
+    │   ├── font-processor.ts       # Font subsetting
+    │   ├── image-converter.ts      # PNG → JPEG conversion (parallel)
+    │   └── image-processor.ts      # Resize + re-encode (single-pass, parallel)
+    ├── scripts/            # Post-processing steps (exported run(opts) fns)
+    │   ├── create-epub.ts  # Package the final EPUB archive
+    │   ├── validate-epub.ts # Run EPUBCheck via java
+    │   ├── utils.ts        # Shared helpers (RunOpts, isEntryPoint, …)
+    │   ├── fix/            # General XHTML fix scripts (modular)
     │   │   ├── fix-span-tags.ts
     │   │   ├── fix-xml.ts
-    │   │   └── index.ts    # Entry point for all general fixes
+    │   │   ├── remove-empty-styles.ts
+    │   │   └── index.ts    # runFixes(): call every fix in sequence
     │   └── ops/            # EPUB structure modifications
     │       ├── add-cover-image-property.ts
     │       ├── update-cover-linear.ts
     │       ├── update-toc-with-cover.ts
     │       ├── update-summary-page.ts
-    │       └── update-structure.ts # Entry point for all structure updates
+    │       ├── add-chapter-sections-to-toc.ts
+    │       └── update-structure.ts # runStructureUpdates(): call every op
     └── utils/              # Utility modules
-        └── config.ts       # Application configuration
+        ├── config.ts       # Application configuration
+        ├── epub-utils.ts   # OPF / TOC file discovery
+        └── i18n.ts         # Localized label lookup
 ```
 
 Note: Test files are colocated with their respective source files but omitted from this structure for clarity.
@@ -474,20 +482,31 @@ The production build process includes:
 
 ## Modular Fix Scripts
 
-- **General fixes** (e.g. span tags, XML/XHTML) are managed in `src/scripts/fix/` and run via `src/scripts/fix/index.ts`.
-- **Structure modifications** (TOC, navigation, summary page) are managed in `src/scripts/ops/` and run via `src/scripts/ops/update-structure.ts`.
-- To enable/disable a fix, comment or uncomment the relevant `runCommand` line in the corresponding index/entry file.
-- To add a new fix, create a new script in the appropriate folder and add a `runCommand` call in the index/entry file.
+Every processing step is a plain async function. `pipeline.ts` runs them all in-process (no sub-process spawns), forwarding a shared `{ tempDir, lang, output }` down the chain.
+
+- **General fixes** (span tags, XML/XHTML sanity, empty styles) live in `src/scripts/fix/`. `src/scripts/fix/index.ts` exports `runFixes(opts)` which awaits each leaf `run(opts)` in sequence.
+- **Structure modifications** (cover linear, TOC, summary page, chapter sections) live in `src/scripts/ops/`. `src/scripts/ops/update-structure.ts` exports `runStructureUpdates(opts)`.
+- To enable/disable a step, comment or uncomment the corresponding `await …(opts)` call in the matching orchestrator file.
+- To add a new step, create a script that exports `async run(opts: RunOpts)` and add an `await run(opts)` line in the orchestrator.
+- Each leaf script also auto-runs when executed directly (`node dist/src/scripts/fix/fix-xml.js`); the `isEntryPoint()` guard keeps that from firing on import.
 
 ### Customizing the Optimization Process
 
-If you don't need all the features I've implemented for my own workflow, you can easily customize the process. Here are some examples:
+If you don't need all the features I've implemented for my own workflow, you can easily customize the process. There are two levels of granularity:
 
-- **Example: Skip adding cover to TOC** - Comment out the line with `update-toc-with-cover.js` in `src/scripts/ops/update-structure.ts`
-- **Example: Skip adding cover to summary page** - Comment out the line with `update-summary-page.js` in `src/scripts/ops/update-structure.ts`
-- **Example: Skip setting cover as first page** - Comment out the line with `update-cover-linear.js` in `src/scripts/ops/update-structure.ts`
-- **Example: Skip chapter sections synchronization** - Comment out the line with `add-chapter-sections-to-toc.js` in `src/scripts/ops/update-structure.ts` (useful if you don't have subsections in your manual summary page)
-- **Example: Disable specific XML/HTML fixes** - Comment out relevant script calls in `src/scripts/fix/index.ts`
+**Wholesale (in `src/pipeline.ts`)** — comment out an entire step to disable a whole group at once:
+
+- Comment `await runStructureUpdates(...)` to skip **all** structure updates (TOC, cover, summary, chapter sections) in one go.
+- Comment `await runFixes(...)` to skip **all** general XHTML fixes (span tags, XML sanity, empty styles).
+- Comment `await validateEPUB(...)` to skip EPUBCheck validation (useful for debugging without a Java install).
+
+**Granular (in the orchestrator files)** — keep some steps, skip others:
+
+- **Example: Skip adding cover to TOC** — comment out `await updateTocWithCover(opts)` in `src/scripts/ops/update-structure.ts`
+- **Example: Skip adding cover to summary page** — comment out `await updateSummaryPage(opts)` in the same file
+- **Example: Skip setting cover as first page** — comment out `await updateCoverLinear(opts)` in the same file
+- **Example: Skip chapter sections synchronization** — comment out `await addChapterSectionsToToc(opts)` in the same file (useful if you don't have subsections in your manual summary page)
+- **Example: Disable specific XML/HTML fixes** — comment out the relevant `await …(opts)` call in `src/scripts/fix/index.ts`
 
 After making any customizations, rebuild the project with `pnpm build` to apply your changes.
 

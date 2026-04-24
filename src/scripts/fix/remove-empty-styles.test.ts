@@ -11,7 +11,7 @@ describe("removeEmptyStyles", () => {
     expect(xml).toContain("<p>two</p>");
   });
 
-  it('leaves non-empty style attributes untouched', () => {
+  it("leaves non-empty style attributes untouched", () => {
     const input = `<?xml version="1.0"?><root><p style="color:red">a</p></root>`;
     const { xml, removed } = removeEmptyStyles(input);
     expect(removed).toBe(0);
