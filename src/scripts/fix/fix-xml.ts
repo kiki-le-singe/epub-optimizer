@@ -8,7 +8,7 @@ import * as cheerio from "cheerio";
 import { getTempDir } from "../utils.js";
 
 // Properly format self-closing tags in XML/XHTML files
-function fixXml(originalContent: string) {
+export function fixXml(originalContent: string): string {
   // Remove all </br> tags (invalid in XHTML)
   let processedContent = originalContent.replace(/<\/br>/gi, "");
   // Convert all <br> to <br/> (self-closing)
@@ -91,5 +91,6 @@ async function main() {
   console.log("All files processed.");
 }
 
-// Use void operator to explicitly mark the promise as intentionally not awaited
-void main();
+if (process.env.NODE_ENV !== "test") {
+  void main();
+}

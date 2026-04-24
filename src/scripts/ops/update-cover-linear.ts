@@ -6,27 +6,32 @@ import * as cheerio from "cheerio";
 import { getOPFPath } from "../../utils/epub-utils.js";
 import { getTempDir } from "../utils.js";
 
+/**
+ * Mark the cover item in an OPF manifest's spine as `linear="yes"` so readers
+ * render it first. Returns the updated XML and whether a change was made.
+ * Pure function — no I/O.
+ */
+export function setCoverLinear(opfXml: string): { xml: string; updated: boolean } {
+  const $ = cheerio.load(opfXml, { xmlMode: true });
+  const coverRef = $('itemref[idref="cover"]');
+  if (!coverRef.length) {
+    return { xml: opfXml, updated: false };
+  }
+  coverRef.attr("linear", "yes");
+  return { xml: $.xml(), updated: true };
+}
+
 async function updateCoverLinear() {
   try {
-    // Define file paths
     const extractedDir = getTempDir();
-
-    // Get the OPF file path from container.xml
     const opfFile = await getOPFPath(extractedDir);
-
     console.log(`Updating cover in OPF file: ${opfFile}`);
 
-    // Read and parse OPF file
     const content = fs.readFileSync(opfFile, "utf8");
-    const $ = cheerio.load(content, { xmlMode: true });
+    const { xml, updated } = setCoverLinear(content);
 
-    // Find cover reference in spine
-    const coverRef = $('itemref[idref="cover"]');
-
-    if (coverRef.length) {
-      // Set cover as linear
-      coverRef.attr("linear", "yes");
-      fs.writeFileSync(opfFile, $.xml());
+    if (updated) {
+      fs.writeFileSync(opfFile, xml);
       console.log('Successfully set cover to linear: <itemref idref="cover" linear="yes"/>');
     } else {
       console.log("Warning: No cover reference found in spine section of OPF file");
@@ -41,5 +46,6 @@ async function updateCoverLinear() {
   }
 }
 
-// Run the function
-updateCoverLinear();
+if (process.env.NODE_ENV !== "test") {
+  void updateCoverLinear();
+}
