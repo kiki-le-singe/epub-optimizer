@@ -6,13 +6,15 @@ import fs from "fs-extra";
 import path from "node:path";
 import * as cheerio from "cheerio";
 import { getTempDir, isEntryPoint, type RunOpts } from "../utils.js";
+import { normalizeVoidElements } from "../../utils/xhtml.js";
 
 // Properly format self-closing tags in XML/XHTML files
 export function fixXml(originalContent: string): string {
-  // Remove all </br> tags (invalid in XHTML)
+  // Strip invalid </br> closings that some editors emit
   let processedContent = originalContent.replace(/<\/br>/gi, "");
-  // Convert all <br> to <br/> (self-closing)
-  processedContent = processedContent.replace(/<br(?![a-zA-Z0-9/])/gi, "<br/");
+  // Self-close every HTML5 void element (link, meta, img, br, hr, input, …).
+  // Idempotent — already-closed tags like `<br />` are left alone.
+  processedContent = normalizeVoidElements(processedContent);
 
   // Ensure XML declaration is immediately followed by <html>
   processedContent = processedContent.replace(/(<\?xml[^>]+>)[\s\r\n]+<html/, "$1<html");

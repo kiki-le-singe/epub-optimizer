@@ -4,6 +4,7 @@ import { minify } from "html-minifier-terser";
 import CleanCSS from "clean-css";
 import * as cheerio from "cheerio";
 import config from "../utils/config.js";
+import { isXHTMLContent, normalizeVoidElements } from "../utils/xhtml.js";
 
 /**
  * Process HTML and CSS files in a directory recursively
@@ -45,9 +46,15 @@ async function processHTML(dir: string): Promise<void> {
 async function minifyHTML(filePath: string): Promise<void> {
   try {
     const content = await fs.readFile(filePath, "utf8");
-    // Use cheerio for DOM manipulation with appropriate XML mode for XHTML
-    const isXHTML = filePath.endsWith(".xhtml");
-    const $ = cheerio.load(content, { xmlMode: isXHTML });
+    // Detect XHTML by content first — the file extension may be `.html` even
+    // for true XHTML (the EPUB spec doesn't mandate `.xhtml`). Extension is
+    // kept as a fallback signal.
+    const isXHTML = isXHTMLContent(content) || filePath.endsWith(".xhtml");
+    // Pre-close HTML5-style void elements before the XML parser sees them.
+    // Otherwise cheerio xmlMode treats `<link …>` as an opening tag and nests
+    // subsequent siblings inside it, producing invalid XHTML.
+    const normalized = isXHTML ? normalizeVoidElements(content) : content;
+    const $ = cheerio.load(normalized, { xmlMode: isXHTML });
     // Use .xml() for XHTML to preserve XML structure (self-closing tags, etc.)
     const domContent = isXHTML ? $.xml() : $.html();
     const minified = await minify(domContent, config.htmlOptions);
