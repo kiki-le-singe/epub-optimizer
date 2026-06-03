@@ -60,6 +60,11 @@ async function parseArguments(): Promise<Args> {
       type: "string",
       default: config.lang,
     })
+    .option("fonts", {
+      describe: "Enable experimental font subsetting (requires installing fontmin separately)",
+      type: "boolean",
+      default: false,
+    })
     .option("clean", {
       describe: "Clean temporary files after processing",
       type: "boolean",
@@ -69,6 +74,7 @@ async function parseArguments(): Promise<Args> {
     .example("pnpm optimize -i book.epub -o book-opt.epub --clean", "Optimize and clean temp files")
     .example("pnpm optimize -i book.epub -o book-opt.epub --jpg-quality 85", "Higher JPEG quality")
     .example("pnpm optimize -i book.epub -o book-opt.epub --png-quality 0.9", "Higher PNG quality")
+    .example("pnpm optimize -i book.epub -o book-opt.epub --fonts", "Enable font subsetting")
     .example(
       "epub-optimizer -i input.epub -o output.epub --jpg-quality 85 --png-quality 0.8",
       "Custom image settings"

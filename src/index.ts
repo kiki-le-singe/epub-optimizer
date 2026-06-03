@@ -9,6 +9,7 @@ import { convertPngToJpeg } from "./processors/image-converter.js";
 import { minifyJavaScript } from "./processors/js-processor.js";
 import { optimizeSVGs } from "./processors/svg-optimizer.js";
 import { addLazyLoadingToImages } from "./processors/lazy-img.js";
+import { assertSafeTempDir, removeTempDir } from "./utils/temp-dir.js";
 
 interface OptimizeOptions {
   /** If true, skip the final zip + cleanup. The pipeline uses this so the
@@ -34,6 +35,10 @@ async function optimizeEPUB(
     if (!(await fs.pathExists(resolvedArgs.input))) {
       throw new Error(`Input file not found: ${resolvedArgs.input}`);
     }
+    resolvedArgs.temp = assertSafeTempDir(resolvedArgs.temp, {
+      inputPath: resolvedArgs.input,
+      outputPath: resolvedArgs.output,
+    });
 
     // Create parent directory for output if it doesn't exist
     const outputDir = resolvedArgs.output.split("/").slice(0, -1).join("/");
@@ -83,9 +88,10 @@ async function optimizeEPUB(
     await addLazyLoadingToImages(resolvedArgs.temp);
     console.log("🖼️  Added lazy loading to images");
 
-    // 8. Subset fonts
-    await subsetFonts(resolvedArgs.temp);
-    console.log("🔤 Subset fonts");
+    // 8. Optional font subsetting. Disabled by default because the legacy
+    // fontmin dependency tree is not suitable for the production install path.
+    await subsetFonts(resolvedArgs.temp, { enabled: resolvedArgs.fonts });
+    console.log("🔤 Font processing complete");
 
     if (!options.skipPackaging) {
       // 9. Recompress as EPUB
@@ -94,8 +100,11 @@ async function optimizeEPUB(
 
       // 10. Clean up temporary files if needed
       if (resolvedArgs.clean) {
-        await fs.remove(resolvedArgs.temp);
-        console.log(`🧹 Removed temporary directory: ${resolvedArgs.temp}`);
+        const removedTempDir = await removeTempDir(resolvedArgs.temp, {
+          inputPath: resolvedArgs.input,
+          outputPath: resolvedArgs.output,
+        });
+        console.log(`🧹 Removed temporary directory: ${removedTempDir}`);
       } else {
         console.log(`📁 Kept temporary directory: ${resolvedArgs.temp} for inspection`);
       }

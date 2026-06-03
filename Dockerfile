@@ -51,7 +51,7 @@ RUN wget -q "https://github.com/w3c/epubcheck/releases/download/v${EPUBCHECK_VER
 FROM node:24-slim AS runtime
 
 LABEL org.opencontainers.image.title="epub-optimizer" \
-      org.opencontainers.image.description="Optimize EPUB files by compressing HTML, CSS, images, fonts and recompressing the archive" \
+      org.opencontainers.image.description="Optimize EPUB files by compressing HTML, CSS, images and recompressing the archive" \
       org.opencontainers.image.source="https://github.com/kiki-le-singe/epub-optimizer" \
       org.opencontainers.image.licenses="MIT"
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
 import fs from "fs-extra";
 import { parseArguments } from "./cli.js";
 import { optimizeEPUB, reportFileSizeComparison } from "./index.js";
@@ -8,6 +7,7 @@ import { runStructureUpdates } from "./scripts/ops/update-structure.js";
 import { run as createEPUBFile } from "./scripts/create-epub.js";
 import { run as validateEPUB } from "./scripts/validate-epub.js";
 import { isEntryPoint } from "./scripts/utils.js";
+import { removeTempDir } from "./utils/temp-dir.js";
 
 export async function main(): Promise<void> {
   const args = await parseArguments();
@@ -42,11 +42,11 @@ export async function main(): Promise<void> {
   // Step 6: Cleanup if requested.
   if (args.clean) {
     console.log("\n=== Cleanup ===");
-    const cleanupResult = spawnSync("rm", ["-rf", args.temp], { stdio: "inherit" });
-    if (cleanupResult.status !== 0) {
-      console.error("✗ Cleanup failed.");
-      process.exit(cleanupResult.status || 1);
-    }
+    const removedTempDir = await removeTempDir(args.temp, {
+      inputPath: args.input,
+      outputPath: args.output,
+    });
+    console.log(`Removed temporary directory: ${removedTempDir}`);
   }
 
   // Size report after everything is settled.

@@ -9,7 +9,6 @@ const __dirname = path.dirname(__filename);
 
 const distDir = path.join(__dirname, "..", "dist");
 const srcDir = path.join(distDir, "src");
-const entryPoint = path.join(distDir, "optimize-epub.js");
 
 // Scripts to skip minification due to template literal variable name issues
 const skipFiles: string[] = [];
@@ -87,14 +86,6 @@ async function processDirectory(dir: string): Promise<void> {
 async function main() {
   console.log("Starting minification process...");
 
-  // Minify the entry point first
-  if (existsSync(entryPoint)) {
-    await minifyFile(entryPoint);
-  } else {
-    console.warn(`Entry point not found: ${entryPoint}`);
-  }
-
-  // Minify src/ directory
   if (existsSync(srcDir)) {
     console.log("Processing src/ directory...");
     await processDirectory(srcDir);

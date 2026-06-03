@@ -10,6 +10,7 @@ vi.mock("./cli.js", () => ({
     jpgQuality: 70,
     "png-quality": 0.6,
     pngQuality: 0.6,
+    fonts: false,
     lang: "fr",
     _: [],
     $0: "epub-optimizer",
@@ -34,8 +35,8 @@ vi.mock("./scripts/validate-epub.js", () => ({
 vi.mock("fs-extra", () => ({
   default: { pathExists: vi.fn().mockResolvedValue(false) },
 }));
-vi.mock("node:child_process", () => ({
-  spawnSync: vi.fn().mockReturnValue({ status: 0 }),
+vi.mock("./utils/temp-dir.js", () => ({
+  removeTempDir: vi.fn().mockResolvedValue("/tmp/ep"),
 }));
 
 describe("pipeline orchestration", () => {
@@ -80,16 +81,20 @@ describe("pipeline orchestration", () => {
       jpgQuality: 70,
       "png-quality": 0.6,
       pngQuality: 0.6,
+      fonts: false,
       lang: "fr",
       _: [],
       $0: "epub-optimizer",
     });
 
     const { main } = await import("./pipeline.js");
-    const { spawnSync } = await import("node:child_process");
+    const { removeTempDir } = await import("./utils/temp-dir.js");
 
     await main();
 
-    expect(spawnSync).toHaveBeenCalledWith("rm", ["-rf", "/tmp/ep"], expect.anything());
+    expect(removeTempDir).toHaveBeenCalledWith("/tmp/ep", {
+      inputPath: "in.epub",
+      outputPath: "out.epub",
+    });
   });
 });

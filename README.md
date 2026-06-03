@@ -125,7 +125,7 @@ docker run --rm -v $(pwd):/epub-files epub-optimizer \
 - Image compression (JPEG, PNG, WebP, GIF, AVIF, SVG optimization without significant quality loss)
 - PNG to JPEG conversion for non-transparent images (significantly reduces file size)
 - JavaScript minification (reduces script size)
-- **Font subsetting** (reduces font file sizes by including only used characters; **Note:** Does not work on Apple Pages EPUBs with embedded fonts due to DRM encryption)
+- **Optional font subsetting** via `--fonts` for trusted local workflows only; requires installing `fontmin` separately
 - **SVG optimization** (minifies SVG files using SVGO)
 - **Image downscaling** (optionally resizes large images to a max dimension for e-reader compatibility)
 - **Lazy loading for images** (adds `loading="lazy"` to all `<img>` tags in XHTML for EPUB3 readers)
@@ -141,7 +141,7 @@ docker run --rm -v $(pwd):/epub-files epub-optimizer \
 
 > **Note:**
 >
-> - **Font subsetting limitation:** Apple Pages EPUBs with embedded fonts are encrypted by Apple for DRM protection, preventing font optimization. See the [Important Note for Apple Pages Users](#️-important-note-for-apple-pages-users) above. Font subsetting works fine on unencrypted fonts from other sources.
+> - **Font subsetting limitation:** Apple Pages EPUBs with embedded fonts are encrypted by Apple for DRM protection, preventing font optimization. Font subsetting is disabled by default and `fontmin` is not installed as a runtime dependency because its legacy dependency tree currently produces production audit findings. Use `--fonts` only for trusted local workflows after installing `fontmin` yourself.
 > - SVG optimization, image downscaling, and lazy loading are fully automated and require no manual intervention.
 
 ## Requirements
@@ -231,6 +231,7 @@ docker run --rm -v $(pwd):/epub-files epub-optimizer \
 | `test`           | Run tests in watch mode                                                                           |
 | `test:run`       | Run tests once and exit                                                                           |
 | `test:coverage`  | Run tests with coverage report                                                                    |
+| `test:e2e`       | Run the compiled optimizer against a fixture EPUB and validate it with EPUBCheck                  |
 | `lint`           | Lint TypeScript files in src and scripts directories                                              |
 | `lint:fix`       | Lint and auto-fix TypeScript files in src and scripts                                             |
 | `format`         | Auto-format all .ts, .json, and .md files with Prettier                                           |
@@ -254,6 +255,8 @@ pnpm optimize -i YourBook.epub -o YourBook-optimized.epub
 pnpm test
 # or run tests once and exit
 pnpm test:run
+# run the EPUBCheck end-to-end fixture after pnpm build
+pnpm test:e2e
 ```
 
 ### Command Line Options
@@ -268,6 +271,7 @@ Options:
   --jpg-quality     JPEG compression quality (0-100)        [number] [default: 70]
   --png-quality     PNG compression quality (0-1 scale)     [number] [default: 0.6]
   --lang            UI language for labels (e.g. fr, en)    [string] [default: "fr"]
+  --fonts           Enable experimental font subsetting      [boolean] [default: false]
   --clean           Clean temporary files after processing  [boolean] [default: false]
   -h, --help        Show help message                       [boolean]
   -v, --version     Show version number                     [boolean]
@@ -277,6 +281,7 @@ Examples:
   pnpm optimize:clean -i book.epub -o book-opt.epub            Optimize and clean temp files
   pnpm optimize -i book.epub -o book-opt.epub --jpg-quality 85 Higher JPEG quality (less compression)
   pnpm optimize -i book.epub -o book-opt.epub --png-quality 0.9 Higher PNG quality (less compression)
+  pnpm optimize -i book.epub -o book-opt.epub --fonts          Enable font subsetting
   pnpm optimize -i input.epub -o output.epub --jpg-quality 85 --png-quality 0.8 Custom image settings
 ```
 
@@ -358,7 +363,7 @@ docker run --rm -v $(pwd):/epub-files epub-optimizer \
 - Extracted EPUB structure
 - Processed HTML/CSS/JavaScript files
 - Optimized images
-- Modified fonts
+- Modified fonts only when `--fonts` is enabled
 - All intermediate processing artifacts
 
 This is invaluable for debugging optimization issues or understanding what the tool does to your EPUB.
@@ -387,7 +392,7 @@ epub-optimizer/
     │   ├── js-processor.ts         # JavaScript minification
     │   ├── svg-optimizer.ts        # SVG optimization
     │   ├── lazy-img.ts             # Add loading="lazy" to <img>
-    │   ├── font-processor.ts       # Font subsetting
+    │   ├── font-processor.ts       # Optional font subsetting
     │   ├── image-converter.ts      # PNG → JPEG conversion (parallel)
     │   └── image-processor.ts      # Resize + re-encode (single-pass, parallel)
     ├── scripts/            # Post-processing steps (exported run(opts) fns)

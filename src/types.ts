@@ -7,6 +7,7 @@ export interface Args {
   jpgQuality: number;
   "png-quality": number;
   pngQuality: number;
+  fonts: boolean;
   lang: string;
   _: (string | number)[];
   $0: string;
