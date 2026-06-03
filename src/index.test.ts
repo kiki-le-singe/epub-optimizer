@@ -45,6 +45,10 @@ vi.mock("./processors/image-processor.js", () => ({
   optimizeImages: vi.fn().mockResolvedValue(10),
 }));
 
+vi.mock("./processors/image-converter.js", () => ({
+  convertPngToJpeg: vi.fn().mockResolvedValue(new Set()),
+}));
+
 // Import after mocking
 beforeEach(async () => {
   // Import the module dynamically to get the mocked version
