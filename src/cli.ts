@@ -26,7 +26,7 @@ const packageJson = JSON.parse(fs.readFileSync(findPackageJson(), "utf8"));
  */
 async function parseArguments(): Promise<Args> {
   const parsed = await yargs(hideBin(process.argv))
-    .usage(`${packageJson.description}\n\nUsage: pnpm build [options]`)
+    .usage(`${packageJson.description}\n\nUsage: epub-optimizer [options]`)
     .option("input", {
       alias: "i",
       describe: "Input EPUB file path",
@@ -65,12 +65,12 @@ async function parseArguments(): Promise<Args> {
       type: "boolean",
       default: false,
     })
-    .example("pnpm build -i book.epub -o book-optimized.epub", "Basic optimization")
-    .example("pnpm build:clean -i book.epub -o book-opt.epub", "Optimize and clean temp files")
-    .example("pnpm build -i book.epub -o book-opt.epub --jpg-quality 85", "Higher JPEG quality")
-    .example("pnpm build -i book.epub -o book-opt.epub --png-quality 0.9", "Higher PNG quality")
+    .example("pnpm optimize -i book.epub -o book-optimized.epub", "Basic optimization")
+    .example("pnpm optimize -i book.epub -o book-opt.epub --clean", "Optimize and clean temp files")
+    .example("pnpm optimize -i book.epub -o book-opt.epub --jpg-quality 85", "Higher JPEG quality")
+    .example("pnpm optimize -i book.epub -o book-opt.epub --png-quality 0.9", "Higher PNG quality")
     .example(
-      "pnpm build -i input.epub -o output.epub --jpg-quality 85 --png-quality 0.8",
+      "epub-optimizer -i input.epub -o output.epub --jpg-quality 85 --png-quality 0.8",
       "Custom image settings"
     )
     .help()
