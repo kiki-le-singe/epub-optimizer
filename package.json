@@ -1,6 +1,6 @@
 {
   "name": "epub-optimizer",
-  "version": "2.1.2",
+  "version": "2.2.0",
   "description": "Optimize EPUB files by compressing HTML, CSS, images and recompressing the archive",
   "main": "dist/src/index.js",
   "type": "module",
