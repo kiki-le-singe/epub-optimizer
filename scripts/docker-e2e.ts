@@ -19,6 +19,11 @@ async function main(): Promise<void> {
   assertDockerAvailable();
 
   const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "epub-optimizer-docker-e2e-"));
+  // GitHub-hosted Linux runners create temp dirs as 0700. The Docker image
+  // runs as the non-root node user, so the bind-mounted fixture dir must be
+  // writable by that container user.
+  await fs.chmod(runDir, 0o777);
+
   const fixtureDir = path.join(runDir, "fixture");
   const inputEpub = path.join(runDir, "input.epub");
   const outputEpub = path.join(runDir, "output.epub");
