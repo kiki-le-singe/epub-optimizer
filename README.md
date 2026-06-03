@@ -49,15 +49,15 @@ A Node.js utility to optimize EPUB files by compressing HTML, CSS, images and re
 I use this project to optimize EPUB files that I create using Pages on Mac. My workflow is:
 
 - Write (text and images) in Pages.
-- Create a manual summary page with bookmark links to chapters and sections. (The script automatically synchronizes these subsections from the manual summary page to the system navigation files - both EPUB3 toc.xhtml and EPUB2 NCX - so they appear in e-reader navigation menus.)
+- Create a manual summary page with bookmark links to chapters and sections. The author workflow preset can synchronize these subsections from the manual summary page to the system navigation files - both EPUB3 toc.xhtml and EPUB2 NCX - so they appear in e-reader navigation menus.
 - Export my work as an EPUB file.
 - Fill in the required information.
 - For "Cover": check the option "Use the first page as the book cover image".
 - For "Layout": check the reflowable option and "Use table of contents". For "Embed fonts", see the [Important Note for Apple Pages Users](#️-important-note-for-apple-pages-users) section below to decide based on whether preserving your typography/design is important to you.
 
-After exporting, my original EPUB file is about 24.4MB. I use this script to optimize it (resulting in about 7.3MB). Then I test the result in Apple Books, Kindle Previewer, etc.
+After exporting, my original EPUB file is about 24.4MB. I use the author workflow preset to optimize it (resulting in about 7.3MB). Then I test the result in Apple Books, Kindle Previewer, etc.
 
-This script is designed for this workflow (I don't use any other tools), but anyone who wants to optimize their EPUB file is welcome to try it! If your workflow differs from mine, the [Customizing the Optimization Process](#customizing-the-optimization-process) section shows how to disable the steps that are specific to my setup. If you have any questions or issues, let me know. Enjoy! :)
+This project started with this workflow (I don't use any other tools), but anyone who wants to optimize their EPUB file is welcome to try it! The default `pnpm optimize` path is generic. My own Pages/manual-summary workflow is available through `pnpm optimize:author` or `--author-workflow`. If you have any questions or issues, let me know. Enjoy! :)
 
 ### ⚠️ Important Note for Apple Pages Users
 
@@ -133,7 +133,7 @@ docker run --rm -v $(pwd):/epub-files epub-optimizer \
 - Archive recompression (EPUB-compliant ZIP packaging with proper compression settings)
 - EPUB validation against the EPUB specification
 - XML/XHTML validation fixing (automatically repairs common validation issues)
-- **Chapter sections synchronization** (automatically syncs subsections from manual summary page to system TOC files - both EPUB3 toc.xhtml and EPUB2 NCX)
+- **Optional author workflow preset** (syncs subsections from a manual summary page, updates cover navigation, and applies the project author's structure fixes)
 - Modular fix scripts for EPUB and OPF structure
 - Command-line interface with customizable options
 - File size comparison reporting
@@ -149,7 +149,7 @@ docker run --rm -v $(pwd):/epub-files epub-optimizer \
 **Only required for traditional installation** (skip if using Docker):
 
 - Node.js 22 or higher (my version: v25.6.1)
-- Java Runtime Environment (JRE) 1.7 or higher (my version: openjdk 23.0.2)
+- Java Runtime Environment (JRE) 17 or higher for EPUBCheck (CI and Docker use OpenJDK 17)
 - pnpm (my version: 10.30.3)
 - npm or pnpm for package management
 
@@ -219,23 +219,25 @@ docker run --rm -v $(pwd):/epub-files epub-optimizer \
 
 ### Available Scripts
 
-| Script           | Description                                                                                       |
-| ---------------- | ------------------------------------------------------------------------------------------------- |
-| `build`          | Build TypeScript for production (with minification)                                               |
-| `build:dev`      | Build TypeScript for development (no minification)                                                |
-| `build:prod`     | Build TypeScript with minification for production                                                 |
-| `minify:safe`    | Safely minify JavaScript in dist/ directory (runs the TS source via Node's native type-stripping) |
-| `optimize`       | Run optimizer, keeping temp files                                                                 |
-| `optimize:clean` | Run optimizer, removing temp files afterward                                                      |
-| `cleanup`        | Remove temporary files                                                                            |
-| `test`           | Run tests in watch mode                                                                           |
-| `test:run`       | Run tests once and exit                                                                           |
-| `test:coverage`  | Run tests with coverage report                                                                    |
-| `test:e2e`       | Run the compiled optimizer against a fixture EPUB and validate it with EPUBCheck                  |
-| `lint`           | Lint TypeScript files in src and scripts directories                                              |
-| `lint:fix`       | Lint and auto-fix TypeScript files in src and scripts                                             |
-| `format`         | Auto-format all .ts, .json, and .md files with Prettier                                           |
-| `format:check`   | Check formatting of all .ts, .json, and .md files with Prettier                                   |
+| Script            | Description                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------------------- |
+| `build`           | Build TypeScript for production (with minification)                                               |
+| `build:dev`       | Build TypeScript for development (no minification)                                                |
+| `build:prod`      | Build TypeScript with minification for production                                                 |
+| `minify:safe`     | Safely minify JavaScript in dist/ directory (runs the TS source via Node's native type-stripping) |
+| `optimize`        | Run optimizer, keeping temp files                                                                 |
+| `optimize:author` | Run optimizer with the project author's Pages/manual-summary structure workflow                   |
+| `optimize:clean`  | Run optimizer, removing temp files afterward                                                      |
+| `cleanup`         | Remove temporary files                                                                            |
+| `test`            | Run tests in watch mode                                                                           |
+| `test:run`        | Run tests once and exit                                                                           |
+| `test:coverage`   | Run tests with coverage report                                                                    |
+| `test:e2e`        | Run the compiled optimizer against a fixture EPUB and validate it with EPUBCheck                  |
+| `test:docker`     | Run the Docker image against a fixture EPUB and validate it with EPUBCheck                        |
+| `lint`            | Lint TypeScript files in src and scripts directories                                              |
+| `lint:fix`        | Lint and auto-fix TypeScript files in src and scripts                                             |
+| `format`          | Auto-format all .ts, .json, and .md files with Prettier                                           |
+| `format:check`    | Check formatting of all .ts, .json, and .md files with Prettier                                   |
 
 ### Modern Workflow
 
@@ -251,12 +253,18 @@ pnpm build:prod
 # Then run the optimizer
 pnpm optimize -i YourBook.epub -o YourBook-optimized.epub
 
+# Or use the project author's Pages/manual-summary workflow
+pnpm optimize:author -i YourBook.epub -o YourBook-optimized.epub
+
 # Run tests
 pnpm test
 # or run tests once and exit
 pnpm test:run
 # run the EPUBCheck end-to-end fixture after pnpm build
 pnpm test:e2e
+
+# after docker build -t epub-optimizer ., run the Docker fixture
+pnpm test:docker
 ```
 
 ### Command Line Options
@@ -272,6 +280,7 @@ Options:
   --png-quality     PNG compression quality (0-1 scale)     [number] [default: 0.6]
   --lang            UI language for labels (e.g. fr, en)    [string] [default: "fr"]
   --fonts           Enable experimental font subsetting      [boolean] [default: false]
+  --author-workflow Enable this project's author workflow    [boolean] [default: false]
   --clean           Clean temporary files after processing  [boolean] [default: false]
   -h, --help        Show help message                       [boolean]
   -v, --version     Show version number                     [boolean]
@@ -282,12 +291,14 @@ Examples:
   pnpm optimize -i book.epub -o book-opt.epub --jpg-quality 85 Higher JPEG quality (less compression)
   pnpm optimize -i book.epub -o book-opt.epub --png-quality 0.9 Higher PNG quality (less compression)
   pnpm optimize -i book.epub -o book-opt.epub --fonts          Enable font subsetting
+  pnpm optimize:author -i book.epub -o book-opt.epub           Use the author's Pages/manual-summary workflow
   pnpm optimize -i input.epub -o output.epub --jpg-quality 85 --png-quality 0.8 Custom image settings
 ```
 
 > **Script Differences:**
 >
 > - `pnpm optimize` - Optimizes the EPUB file and keeps temporary files for inspection
+> - `pnpm optimize:author` - Same as optimize, plus the project author's structure workflow (cover navigation, summary page, chapter sections)
 > - `pnpm optimize:clean` - Same as optimize but removes temporary files afterward
 > - `pnpm cleanup` - Manually removes the temporary directory (temp_epub)
 
@@ -379,6 +390,9 @@ epub-optimizer/
 ├── vitest.config.ts        # Test configuration
 ├── epubcheck/              # EPUBCheck for EPUB validation (not included in repo)
 ├── scripts/                # Build and maintenance scripts
+│   ├── clean-path.ts       # Guarded cleanup helper used instead of rm -rf
+│   ├── docker-e2e.ts       # Docker fixture test runner
+│   ├── e2e-epubcheck.ts    # Local fixture test runner with EPUBCheck
 │   └── minify-dist.ts      # Smart minification script for JavaScript files
 └── src/                    # Source code directory
     ├── index.ts            # optimizeEPUB(): extract + run every content processor
@@ -490,18 +504,32 @@ The production build process includes:
 Every processing step is a plain async function. `pipeline.ts` runs them all in-process (no sub-process spawns), forwarding a shared `{ tempDir, lang, output }` down the chain.
 
 - **General fixes** (span tags, XML/XHTML sanity, empty styles) live in `src/scripts/fix/`. `src/scripts/fix/index.ts` exports `runFixes(opts)` which awaits each leaf `run(opts)` in sequence.
-- **Structure modifications** (cover linear, TOC, summary page, chapter sections) live in `src/scripts/ops/`. `src/scripts/ops/update-structure.ts` exports `runStructureUpdates(opts)`.
+- **Author workflow structure modifications** (cover linear, TOC, summary page, chapter sections) live in `src/scripts/ops/`. `src/scripts/ops/update-structure.ts` exports `runStructureUpdates(opts)`, and the pipeline runs it only when `--author-workflow` is enabled.
 - To enable/disable a step, comment or uncomment the corresponding `await …(opts)` call in the matching orchestrator file.
 - To add a new step, create a script that exports `async run(opts: RunOpts)` and add an `await run(opts)` line in the orchestrator.
 - Each leaf script also auto-runs when executed directly (`node dist/src/scripts/fix/fix-xml.js`); the `isEntryPoint()` guard keeps that from firing on import.
 
 ### Customizing the Optimization Process
 
-If you don't need all the features I've implemented for my own workflow, you can easily customize the process. There are two levels of granularity:
+If you don't need all the features I've implemented for my own workflow, use the default generic optimizer:
+
+```bash
+pnpm optimize -i book.epub -o book-opt.epub
+```
+
+If you do want my Pages/manual-summary workflow, enable the author preset:
+
+```bash
+pnpm optimize:author -i YourBook.epub -o YourBook-optimized.epub
+# equivalent:
+pnpm optimize -i YourBook.epub -o YourBook-optimized.epub --author-workflow
+```
+
+For deeper customization, there are two levels of granularity:
 
 **Wholesale (in `src/pipeline.ts`)** — comment out an entire step to disable a whole group at once:
 
-- Comment `await runStructureUpdates(...)` to skip **all** structure updates (TOC, cover, summary, chapter sections) in one go.
+- Omit `--author-workflow` to skip **all** author workflow structure updates (TOC, cover, summary, chapter sections) in one go.
 - Comment `await runFixes(...)` to skip **all** general XHTML fixes (span tags, XML sanity, empty styles).
 - Comment `await validateEPUB(...)` to skip EPUBCheck validation (useful for debugging without a Java install).
 
@@ -570,7 +598,7 @@ This project uses the following dependencies:
 ### System Requirements
 
 - Node.js 22 or higher
-- Java Runtime Environment (JRE) 1.7 or higher (for EPUBCheck validation)
+- Java Runtime Environment (JRE) 17 or higher (for EPUBCheck validation)
 - pnpm or npm for package management
 
 ### Key npm Packages

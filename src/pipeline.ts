@@ -22,9 +22,16 @@ export async function main(): Promise<void> {
   console.log("\n=== General Fixes ===");
   await runFixes({ tempDir: args.temp });
 
-  // Step 3: EPUB structure (cover linear, TOC, summary, chapter sections).
-  console.log("\n=== EPUB Structure Updates ===");
-  await runStructureUpdates({ tempDir: args.temp, lang: args.lang });
+  // Step 3: Optional author workflow structure updates. These are tailored to
+  // this project's Pages/manual-summary publishing flow, so generic EPUB
+  // optimization skips them by default.
+  if (args.authorWorkflow) {
+    console.log("\n=== Author Workflow Structure Updates ===");
+    await runStructureUpdates({ tempDir: args.temp, lang: args.lang });
+  } else {
+    console.log("\n=== Author Workflow Structure Updates ===");
+    console.log("Skipping author workflow structure updates. Pass --author-workflow to enable.");
+  }
 
   // Step 4: Zip the final EPUB — single pass.
   console.log("\n=== Create EPUB ===");

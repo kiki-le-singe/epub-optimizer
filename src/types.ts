@@ -8,6 +8,8 @@ export interface Args {
   "png-quality": number;
   pngQuality: number;
   fonts: boolean;
+  "author-workflow": boolean;
+  authorWorkflow: boolean;
   lang: string;
   _: (string | number)[];
   $0: string;
