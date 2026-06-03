@@ -26,6 +26,7 @@ vi.mock("./cli.js", () => ({
     jpgQuality: 70,
     "png-quality": 0.6,
     pngQuality: 0.6,
+    fonts: false,
     lang: "fr",
     _: [],
     $0: "epub-optimizer",
@@ -47,6 +48,22 @@ vi.mock("./processors/image-processor.js", () => ({
 
 vi.mock("./processors/image-converter.js", () => ({
   convertPngToJpeg: vi.fn().mockResolvedValue(new Set()),
+}));
+
+vi.mock("./processors/js-processor.js", () => ({
+  minifyJavaScript: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("./processors/svg-optimizer.js", () => ({
+  optimizeSVGs: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("./processors/lazy-img.js", () => ({
+  addLazyLoadingToImages: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("./processors/font-processor.js", () => ({
+  subsetFonts: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Import after mocking
@@ -96,6 +113,7 @@ describe("index.ts", () => {
         jpgQuality: 70,
         "png-quality": 0.6,
         pngQuality: 0.6,
+        fonts: false,
         lang: "fr",
         _: [],
         $0: "epub-optimizer",

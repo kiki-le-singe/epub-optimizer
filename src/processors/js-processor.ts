@@ -1,7 +1,9 @@
 import fs from "fs-extra";
 import path from "node:path";
-import * as glob from "glob";
 import { minify as terserMinify } from "terser";
+import { collectFiles, hasExtension } from "../utils/files.js";
+
+const JS_EXTENSIONS = new Set([".js"]);
 
 /**
  * Minify JavaScript files in the EPUB
@@ -12,8 +14,7 @@ async function minifyJavaScript(dir: string): Promise<void> {
   try {
     console.log("Minifying JavaScript files...");
 
-    // Get all JS files recursively
-    const jsFiles = glob.sync(path.join(dir, "**", "*.js"));
+    const jsFiles = await collectFiles(dir, (filePath) => hasExtension(filePath, JS_EXTENSIONS));
 
     if (jsFiles.length === 0) {
       console.log("No JavaScript files found");

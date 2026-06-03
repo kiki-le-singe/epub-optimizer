@@ -1,21 +1,43 @@
 import fs from "fs-extra";
 import path from "node:path";
 import * as cheerio from "cheerio";
-import * as glob from "glob";
 import { createRequire } from "node:module";
 import { getContentPath } from "../utils/epub-utils.js";
+import { collectFiles, hasExtension } from "../utils/files.js";
 
-// fontmin is a CommonJS module, so we need to use require
 const require = createRequire(import.meta.url);
+const XHTML_EXTENSIONS = new Set([".xhtml"]);
+const FONT_EXTENSIONS = new Set([".ttf", ".otf"]);
+
+interface FontSubsetOptions {
+  enabled?: boolean;
+}
+
+interface FontminInstance {
+  src(filePath: string): FontminInstance;
+  use(plugin: unknown): FontminInstance;
+  dest(outputDir: string): FontminInstance;
+  run(callback: (err: Error | null, files: unknown) => void): void;
+}
+
+interface FontminModule {
+  new (): FontminInstance;
+  glyph(options: { text: string; hinting: boolean }): unknown;
+}
 
 /**
- * Subset font files to include only characters used in the EPUB content
- * This significantly reduces font file sizes using fontmin
+ * Optionally subset font files to include only characters used in the EPUB content.
+ * Disabled by default because the legacy fontmin dependency is not installed in production.
  * @param epubDir Directory containing the extracted EPUB
  * @throws Error if font subsetting fails
  */
-async function subsetFonts(epubDir: string): Promise<void> {
+async function subsetFonts(epubDir: string, options: FontSubsetOptions = {}): Promise<void> {
   try {
+    if (!options.enabled) {
+      console.log("Font subsetting disabled by default; pass --fonts to enable it.");
+      return;
+    }
+
     console.log("Subsetting fonts to reduce file size...");
 
     // Get content directory (OPS, OEBPS, or root)
@@ -33,7 +55,9 @@ async function subsetFonts(epubDir: string): Promise<void> {
     }
 
     // Get all XHTML files
-    const xhtmlFiles = glob.sync(path.join(contentDir, "*.xhtml"));
+    const xhtmlFiles = await collectFiles(contentDir, (filePath) =>
+      hasExtension(filePath, XHTML_EXTENSIONS)
+    );
     if (xhtmlFiles.length === 0) {
       console.log("No XHTML files found, skipping font subsetting");
       return;
@@ -53,7 +77,9 @@ async function subsetFonts(epubDir: string): Promise<void> {
     console.log(`Found ${uniqueChars.size} unique characters in EPUB content`);
 
     // Get all font files
-    const fontFiles = glob.sync(path.join(fontsDir, "*.{ttf,otf}"));
+    const fontFiles = await collectFiles(fontsDir, (filePath) =>
+      hasExtension(filePath, FONT_EXTENSIONS)
+    );
     if (fontFiles.length === 0) {
       console.log("No font files found");
       return;
@@ -61,8 +87,15 @@ async function subsetFonts(epubDir: string): Promise<void> {
 
     console.log(`Found ${fontFiles.length} font files to process`);
 
-    // Load fontmin as CommonJS module
-    const Fontmin = require("fontmin");
+    let Fontmin: FontminModule;
+    try {
+      Fontmin = require("fontmin") as FontminModule;
+    } catch {
+      console.warn(
+        "Font subsetting requested, but fontmin is not installed. Install fontmin locally only for trusted workflows."
+      );
+      return;
+    }
 
     // Process each font file with fontmin
     for (const fontFile of fontFiles) {

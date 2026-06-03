@@ -1,8 +1,10 @@
 import fs from "fs-extra";
 import path from "node:path";
-import * as glob from "glob";
 import { optimize as svgoOptimize } from "svgo";
 import { getContentPath } from "../utils/epub-utils.js";
+import { collectFiles, hasExtension } from "../utils/files.js";
+
+const SVG_EXTENSIONS = new Set([".svg"]);
 
 /**
  * Optimize SVG files in the EPUB images directory
@@ -16,7 +18,9 @@ export async function optimizeSVGs(epubDir: string): Promise<void> {
       console.log("No images directory found, skipping SVG optimization");
       return;
     }
-    const svgFiles = glob.sync(path.join(imagesDir, "*.svg"));
+    const svgFiles = await collectFiles(imagesDir, (filePath) =>
+      hasExtension(filePath, SVG_EXTENSIONS)
+    );
     if (svgFiles.length === 0) {
       console.log("No SVG files found");
       return;

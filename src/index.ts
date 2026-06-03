@@ -88,9 +88,10 @@ async function optimizeEPUB(
     await addLazyLoadingToImages(resolvedArgs.temp);
     console.log("🖼️  Added lazy loading to images");
 
-    // 8. Subset fonts
-    await subsetFonts(resolvedArgs.temp);
-    console.log("🔤 Subset fonts");
+    // 8. Optional font subsetting. Disabled by default because the legacy
+    // fontmin dependency tree is not suitable for the production install path.
+    await subsetFonts(resolvedArgs.temp, { enabled: resolvedArgs.fonts });
+    console.log("🔤 Font processing complete");
 
     if (!options.skipPackaging) {
       // 9. Recompress as EPUB

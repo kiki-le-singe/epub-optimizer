@@ -1,7 +1,9 @@
 import fs from "fs-extra";
 import path from "node:path";
-import * as glob from "glob";
 import { getContentPath } from "../utils/epub-utils.js";
+import { collectFiles, hasExtension } from "../utils/files.js";
+
+const XHTML_EXTENSIONS = new Set([".xhtml"]);
 
 /**
  * Add loading="lazy" to all <img> tags in XHTML files
@@ -10,7 +12,9 @@ import { getContentPath } from "../utils/epub-utils.js";
 export async function addLazyLoadingToImages(epubDir: string): Promise<void> {
   try {
     const contentDir = await getContentPath(epubDir);
-    const xhtmlFiles = glob.sync(path.join(contentDir, "*.xhtml"));
+    const xhtmlFiles = await collectFiles(contentDir, (filePath) =>
+      hasExtension(filePath, XHTML_EXTENSIONS)
+    );
     if (xhtmlFiles.length === 0) {
       console.log("No XHTML files found for lazy loading");
       return;
