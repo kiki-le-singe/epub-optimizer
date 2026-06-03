@@ -26,6 +26,7 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "node --experimental-strip-types scripts/e2e-epubcheck.ts",
     "lint": "eslint src scripts --ext .ts",
     "lint:fix": "eslint src scripts --ext .ts --fix",
     "format": "prettier --write \"**/*.{ts,json,md}\"",

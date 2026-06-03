@@ -231,6 +231,7 @@ docker run --rm -v $(pwd):/epub-files epub-optimizer \
 | `test`           | Run tests in watch mode                                                                           |
 | `test:run`       | Run tests once and exit                                                                           |
 | `test:coverage`  | Run tests with coverage report                                                                    |
+| `test:e2e`       | Run the compiled optimizer against a fixture EPUB and validate it with EPUBCheck                  |
 | `lint`           | Lint TypeScript files in src and scripts directories                                              |
 | `lint:fix`       | Lint and auto-fix TypeScript files in src and scripts                                             |
 | `format`         | Auto-format all .ts, .json, and .md files with Prettier                                           |
@@ -254,6 +255,8 @@ pnpm optimize -i YourBook.epub -o YourBook-optimized.epub
 pnpm test
 # or run tests once and exit
 pnpm test:run
+# run the EPUBCheck end-to-end fixture after pnpm build
+pnpm test:e2e
 ```
 
 ### Command Line Options
