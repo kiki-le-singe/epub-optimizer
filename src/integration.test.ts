@@ -30,6 +30,8 @@ describe("EPUB Optimization Integration Tests", () => {
     "png-quality": 0.6,
     pngQuality: 0.6,
     fonts: false,
+    "author-workflow": false,
+    authorWorkflow: false,
     lang: "fr",
     _: [],
     $0: "epub-optimizer",

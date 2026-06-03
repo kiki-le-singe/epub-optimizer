@@ -11,6 +11,8 @@ vi.mock("./cli.js", () => ({
     "png-quality": 0.6,
     pngQuality: 0.6,
     fonts: false,
+    "author-workflow": false,
+    authorWorkflow: false,
     lang: "fr",
     _: [],
     $0: "epub-optimizer",
@@ -50,7 +52,7 @@ describe("pipeline orchestration", () => {
     vi.restoreAllMocks();
   });
 
-  it("runs each step in order and forwards the shared temp/lang/output", async () => {
+  it("runs generic optimization without author workflow structure updates by default", async () => {
     const { main } = await import("./pipeline.js");
     const { optimizeEPUB } = await import("./index.js");
     const { runFixes } = await import("./scripts/fix/index.js");
@@ -65,9 +67,36 @@ describe("pipeline orchestration", () => {
       skipPackaging: true,
     });
     expect(runFixes).toHaveBeenCalledWith({ tempDir: "/tmp/ep" });
-    expect(runStructureUpdates).toHaveBeenCalledWith({ tempDir: "/tmp/ep", lang: "fr" });
+    expect(runStructureUpdates).not.toHaveBeenCalled();
     expect(createEPUBFile).toHaveBeenCalledWith({ tempDir: "/tmp/ep", output: "out.epub" });
     expect(validateEPUB).toHaveBeenCalledWith({ output: "out.epub" });
+  });
+
+  it("runs author workflow structure updates when --author-workflow is set", async () => {
+    const { parseArguments } = await import("./cli.js");
+    vi.mocked(parseArguments).mockResolvedValueOnce({
+      input: "in.epub",
+      output: "out.epub",
+      temp: "/tmp/ep",
+      clean: false,
+      "jpg-quality": 70,
+      jpgQuality: 70,
+      "png-quality": 0.6,
+      pngQuality: 0.6,
+      fonts: false,
+      "author-workflow": true,
+      authorWorkflow: true,
+      lang: "fr",
+      _: [],
+      $0: "epub-optimizer",
+    });
+
+    const { main } = await import("./pipeline.js");
+    const { runStructureUpdates } = await import("./scripts/ops/update-structure.js");
+
+    await main();
+
+    expect(runStructureUpdates).toHaveBeenCalledWith({ tempDir: "/tmp/ep", lang: "fr" });
   });
 
   it("invokes cleanup when --clean is set", async () => {
@@ -82,6 +111,8 @@ describe("pipeline orchestration", () => {
       "png-quality": 0.6,
       pngQuality: 0.6,
       fonts: false,
+      "author-workflow": false,
+      authorWorkflow: false,
       lang: "fr",
       _: [],
       $0: "epub-optimizer",

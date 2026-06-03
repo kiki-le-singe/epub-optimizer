@@ -3,7 +3,7 @@ import { createReadStream } from "node:fs";
 import fs from "fs-extra";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import sharp from "sharp";
 import unzipper from "unzipper";
 import yazl from "yazl";
@@ -305,7 +305,15 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+function isEntryPoint(metaUrl: string): boolean {
+  return process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href === metaUrl : false;
+}
+
+if (isEntryPoint(import.meta.url)) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}
+
+export { assertOptimizedOutput, createEpub, createFixtureEpubStructure };

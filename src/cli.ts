@@ -65,6 +65,11 @@ async function parseArguments(): Promise<Args> {
       type: "boolean",
       default: false,
     })
+    .option("author-workflow", {
+      describe: "Enable this project's author workflow structure updates",
+      type: "boolean",
+      default: false,
+    })
     .option("clean", {
       describe: "Clean temporary files after processing",
       type: "boolean",
@@ -75,6 +80,10 @@ async function parseArguments(): Promise<Args> {
     .example("pnpm optimize -i book.epub -o book-opt.epub --jpg-quality 85", "Higher JPEG quality")
     .example("pnpm optimize -i book.epub -o book-opt.epub --png-quality 0.9", "Higher PNG quality")
     .example("pnpm optimize -i book.epub -o book-opt.epub --fonts", "Enable font subsetting")
+    .example(
+      "pnpm optimize:author -i book.epub -o book-opt.epub",
+      "Use the project author's Pages/manual-summary workflow"
+    )
     .example(
       "epub-optimizer -i input.epub -o output.epub --jpg-quality 85 --png-quality 0.8",
       "Custom image settings"
