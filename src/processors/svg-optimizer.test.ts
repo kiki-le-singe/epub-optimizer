@@ -9,6 +9,18 @@ const tempDir = path.join(os.tmpdir(), "epub-optimizer-test-svg-opt");
 const svgWithComments = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><!-- comment --><rect width="100" height="100" fill="red"/></svg>`;
 const notSVG = `<html><body>Not an SVG</body></html>`;
 
+async function createEpubStructure(contentDirName: "OPS" | "OEBPS"): Promise<string> {
+  const contentDir = path.join(tempDir, contentDirName);
+  await fs.ensureDir(path.join(tempDir, "META-INF"));
+  await fs.ensureDir(contentDir);
+  await fs.writeFile(
+    path.join(tempDir, "META-INF", "container.xml"),
+    `<container><rootfiles><rootfile full-path="${contentDirName}/content.opf"/></rootfiles></container>`
+  );
+  await fs.writeFile(path.join(contentDir, "content.opf"), "<package/>");
+  return contentDir;
+}
+
 describe("optimizeSVGs", () => {
   beforeEach(async () => {
     await fs.remove(tempDir);
@@ -20,7 +32,7 @@ describe("optimizeSVGs", () => {
 
   it("minifies SVG files", async () => {
     // Create OPS structure for this test
-    const opsDir = path.join(tempDir, "OPS");
+    const opsDir = await createEpubStructure("OPS");
     const imagesDir = path.join(opsDir, "images");
     await fs.ensureDir(imagesDir);
 
@@ -36,7 +48,7 @@ describe("optimizeSVGs", () => {
 
   it("skips non-SVG files", async () => {
     // Create OPS structure for this test
-    const opsDir = path.join(tempDir, "OPS");
+    const opsDir = await createEpubStructure("OPS");
     const imagesDir = path.join(opsDir, "images");
     await fs.ensureDir(imagesDir);
 
@@ -50,7 +62,7 @@ describe("optimizeSVGs", () => {
   it("works with OEBPS directory structure", async () => {
     // Clean up OPS structure and create OEBPS structure
     await fs.remove(tempDir);
-    const oebpsDir = path.join(tempDir, "OEBPS");
+    const oebpsDir = await createEpubStructure("OEBPS");
     const oebpsImagesDir = path.join(oebpsDir, "images");
     await fs.ensureDir(oebpsImagesDir);
 

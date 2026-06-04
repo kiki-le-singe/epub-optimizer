@@ -1,6 +1,6 @@
 {
   "name": "epub-optimizer",
-  "version": "2.3.1",
+  "version": "3.0.0",
   "description": "Optimize EPUB files by compressing HTML, CSS, images and recompressing the archive",
   "main": "dist/src/index.js",
   "type": "module",
@@ -20,7 +20,9 @@
     "build:prod": "node --experimental-strip-types scripts/clean-path.ts dist && tsc -p tsconfig.prod.json && pnpm run minify:safe",
     "minify:safe": "node --experimental-strip-types scripts/minify-dist.ts",
     "optimize": "node dist/src/pipeline.js",
-    "optimize:author": "node dist/src/pipeline.js --author-workflow",
+    "optimize:author": "node dist/src/pipeline.js --preset author",
+    "optimize:repair": "node dist/src/pipeline.js --repair",
+    "optimize:lossless": "node dist/src/pipeline.js --preset lossless",
     "optimize:clean": "node dist/src/pipeline.js --clean",
     "cleanup": "node --experimental-strip-types scripts/clean-path.ts temp_epub",
     "# Dev tools": "# Development utilities",

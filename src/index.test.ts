@@ -9,10 +9,11 @@ let formatFileSize: (bytes: number) => string;
 // Mock dependencies before importing the module
 vi.mock("fs-extra", () => ({
   default: {
-    pathExists: vi.fn().mockResolvedValue(true),
+    pathExists: vi.fn(),
     ensureDir: vi.fn(),
     remove: vi.fn(),
     stat: vi.fn(),
+    lstat: vi.fn(),
   },
 }));
 
@@ -29,6 +30,17 @@ vi.mock("./cli.js", () => ({
     fonts: false,
     "author-workflow": false,
     authorWorkflow: false,
+    repair: false,
+    strict: false,
+    profile: false,
+    preset: "balanced",
+    "max-image-dim": 1600,
+    maxImageDim: 1600,
+    "convert-png": true,
+    convertPng: true,
+    "lazy-loading": false,
+    lazyLoading: false,
+    lossless: false,
     lang: "fr",
     _: [],
     $0: "epub-optimizer",
@@ -70,6 +82,14 @@ vi.mock("./processors/font-processor.js", () => ({
 
 // Import after mocking
 beforeEach(async () => {
+  vi.mocked(fs.pathExists).mockResolvedValue(true as unknown as void);
+  vi.mocked(fs.stat).mockResolvedValue({
+    isFile: () => true,
+  } as unknown as void);
+  vi.mocked(fs.lstat).mockResolvedValue({
+    isFile: () => true,
+  } as unknown as void);
+
   // Import the module dynamically to get the mocked version
   const module = await import("./index.js");
   // Cast to specific type to bypass TypeScript errors during testing
@@ -118,6 +138,17 @@ describe("index.ts", () => {
         fonts: false,
         "author-workflow": false,
         authorWorkflow: false,
+        repair: false,
+        strict: false,
+        profile: false,
+        preset: "balanced",
+        "max-image-dim": 1600,
+        maxImageDim: 1600,
+        "convert-png": true,
+        convertPng: true,
+        "lazy-loading": false,
+        lazyLoading: false,
+        lossless: false,
         lang: "fr",
         _: [],
         $0: "epub-optimizer",

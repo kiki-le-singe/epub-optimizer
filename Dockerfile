@@ -60,7 +60,8 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends openjdk-17-jre-headless \
  && rm -rf /var/lib/apt/lists/*
 
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    EPUBCHECK_PATH=/app/epubcheck/epubcheck.jar
 
 WORKDIR /app
 
@@ -76,6 +77,7 @@ RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh \
  && chmod +x /usr/local/bin/docker-entrypoint.sh
 
 VOLUME ["/epub-files"]
+WORKDIR /epub-files
 USER node
 
 ENTRYPOINT ["docker-entrypoint.sh"]

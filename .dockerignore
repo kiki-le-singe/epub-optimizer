@@ -23,6 +23,7 @@ coverage/
 .github/
 README.md
 Dockerfile
+compose.yaml
 .dockerignore
 memory/
 **/*.test.ts

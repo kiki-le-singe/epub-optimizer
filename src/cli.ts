@@ -5,6 +5,7 @@ import type { Args } from "./types.js";
 import fs from "fs-extra";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { applyPipelineOptions } from "./utils/pipeline-options.js";
 
 // Walk up from this file to find package.json — robust whether running from
 // src/ (vitest) or dist/src/ (compiled).
@@ -65,10 +66,46 @@ async function parseArguments(): Promise<Args> {
       type: "boolean",
       default: false,
     })
-    .option("author-workflow", {
-      describe: "Enable this project's author workflow structure updates",
+    .option("preset", {
+      describe: "Optimization preset",
+      choices: ["balanced", "lossless", "author"] as const,
+      default: "balanced" as const,
+    })
+    .option("repair", {
+      describe: "Apply potentially modifying XHTML repair passes",
       type: "boolean",
       default: false,
+    })
+    .option("author-workflow", {
+      describe: "Enable this project's complete author workflow (includes --repair)",
+      type: "boolean",
+      default: false,
+    })
+    .option("convert-png", {
+      describe: "Convert large opaque PNG files to JPEG when safe",
+      type: "boolean",
+    })
+    .option("lazy-loading", {
+      describe: 'Add loading="lazy" to XHTML images',
+      type: "boolean",
+    })
+    .option("max-image-dim", {
+      describe: "Maximum image width/height in pixels; 0 disables resizing",
+      type: "number",
+    })
+    .option("strict", {
+      describe: "Fail when a processing step emits warnings or errors",
+      type: "boolean",
+      default: false,
+    })
+    .option("profile", {
+      describe: "Print execution time for each pipeline step",
+      type: "boolean",
+      default: false,
+    })
+    .option("report-json", {
+      describe: "Write a structured pipeline report to this JSON file",
+      type: "string",
     })
     .option("clean", {
       describe: "Clean temporary files after processing",
@@ -80,9 +117,11 @@ async function parseArguments(): Promise<Args> {
     .example("pnpm optimize -i book.epub -o book-opt.epub --jpg-quality 85", "Higher JPEG quality")
     .example("pnpm optimize -i book.epub -o book-opt.epub --png-quality 0.9", "Higher PNG quality")
     .example("pnpm optimize -i book.epub -o book-opt.epub --fonts", "Enable font subsetting")
+    .example("pnpm optimize:lossless -i book.epub -o book-opt.epub", "Avoid lossy image changes")
+    .example("pnpm optimize:repair -i book.epub -o book-opt.epub", "Apply XHTML repair passes")
     .example(
       "pnpm optimize:author -i book.epub -o book-opt.epub",
-      "Use the project author's Pages/manual-summary workflow"
+      "Use the project author's complete Pages/manual-summary workflow"
     )
     .example(
       "epub-optimizer -i input.epub -o output.epub --jpg-quality 85 --png-quality 0.8",
@@ -93,11 +132,26 @@ async function parseArguments(): Promise<Args> {
     .version(packageJson.version)
     .alias("version", "v")
     .strict()
+    .check((argv) => {
+      const jpgQuality = Number(argv["jpg-quality"]);
+      const pngQuality = Number(argv["png-quality"]);
+      const maxImageDim = argv["max-image-dim"];
+      if (jpgQuality < 0 || jpgQuality > 100) {
+        throw new Error("--jpg-quality must be between 0 and 100.");
+      }
+      if (pngQuality < 0 || pngQuality > 1) {
+        throw new Error("--png-quality must be between 0 and 1.");
+      }
+      if (maxImageDim !== undefined && Number(maxImageDim) < 0) {
+        throw new Error("--max-image-dim must be 0 or greater.");
+      }
+      return true;
+    })
     .parseAsync();
 
   // yargs exposes both kebab-case and camelCase keys at runtime; `Args`
   // reflects that. A single assertion is enough — no `unknown` bridge.
-  return parsed as Args;
+  return applyPipelineOptions(parsed as unknown as Args);
 }
 
 export { parseArguments };

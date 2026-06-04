@@ -57,9 +57,9 @@ jobs:
       - name: Run EPUBCheck E2E fixture
         run: pnpm test:e2e
 
-      - name: Build Docker image
+      - name: Build Docker image with Compose
         if: matrix.node-version == '24.x'
-        run: docker build -t epub-optimizer .
+        run: docker compose build
 
       - name: Run Docker E2E fixture
         if: matrix.node-version == '24.x'

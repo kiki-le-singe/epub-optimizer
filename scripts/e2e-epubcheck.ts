@@ -65,7 +65,7 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
     <item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>
-    <item id="chapter-1" href="chapters/chapter-1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="chapter-1" href="chapters/chapter-1.xhtml" media-type="application/xhtml+xml" properties="scripted"/>
     <item id="styles" href="styles/book.css" media-type="text/css"/>
     <item id="photo" href="images/photo.png" media-type="image/png" properties="cover-image"/>
     <item id="diagram" href="images/diagram.svg" media-type="image/svg+xml"/>
@@ -120,6 +120,7 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
     <section epub:type="chapter">
       <h1>Chapter 1</h1>
       <p class="hero">Nested XHTML image references should migrate safely.</p>
+      <script>console.log("generic scripted content is preserved");</script>
       <img src="../images/photo.png" srcset="../images/photo.png 1x, ../images/photo.png 2x" alt="Nested photo"/>
       <div style="background-image: url('../images/photo.png#inline')">Inline style reference</div>
       <img src="../images/diagram.svg" alt="SVG wrapper"/>
@@ -262,6 +263,104 @@ async function assertOptimizedOutput(outputEpub: string, tempDir: string): Promi
   if (!opf.includes('href="images/photo.jpg"') || !opf.includes('media-type="image/jpeg"')) {
     throw new Error("Expected OPF manifest to point to image/jpeg photo.jpg.");
   }
+
+  const chapter = await fs.readFile(path.join(contentDir, "chapters", "chapter-1.xhtml"), "utf8");
+  if (!chapter.includes("<script")) {
+    throw new Error("Expected generic optimization to preserve valid scripted EPUB content.");
+  }
+}
+
+async function assertLosslessOutput(outputEpub: string, tempDir: string): Promise<void> {
+  const inspectedDir = path.join(tempDir, "inspect-lossless");
+  await extractEpub(outputEpub, inspectedDir);
+
+  const contentDir = path.join(inspectedDir, "OEBPS");
+  if (!(await fs.pathExists(path.join(contentDir, "images", "photo.png")))) {
+    throw new Error("Expected lossless preset to preserve photo.png.");
+  }
+  if (await fs.pathExists(path.join(contentDir, "images", "photo.jpg"))) {
+    throw new Error("Expected lossless preset not to create photo.jpg.");
+  }
+
+  const opf = await fs.readFile(path.join(contentDir, "content.opf"), "utf8");
+  if (!opf.includes('href="images/photo.png"') || !opf.includes('media-type="image/png"')) {
+    throw new Error("Expected lossless preset to preserve the PNG manifest entry.");
+  }
+}
+
+async function assertAuthorOutput(outputEpub: string, tempDir: string): Promise<void> {
+  const inspectedDir = path.join(tempDir, "inspect-author");
+  await extractEpub(outputEpub, inspectedDir);
+
+  const contentDir = path.join(inspectedDir, "OEBPS");
+  const chapter = await fs.readFile(path.join(contentDir, "chapters", "chapter-1.xhtml"), "utf8");
+  if (!chapter.includes('loading="lazy"')) {
+    throw new Error("Expected author preset to enable lazy loading.");
+  }
+
+  const opf = await fs.readFile(path.join(contentDir, "content.opf"), "utf8");
+  if (!opf.includes('idref="cover" linear="yes"')) {
+    throw new Error("Expected author preset to apply the cover structure update.");
+  }
+}
+
+interface E2ERunResult {
+  outputEpub: string;
+  report: {
+    preset?: string;
+    strict?: boolean;
+    success?: boolean;
+    steps?: Array<{ name?: string; status?: string }>;
+  };
+}
+
+async function runPipelineCase(
+  runDir: string,
+  inputEpub: string,
+  name: string,
+  extraArgs: string[] = []
+): Promise<E2ERunResult> {
+  const outputEpub = path.join(runDir, `${name}.epub`);
+  const extractDir = path.join(runDir, `extract-${name}`);
+  const reportPath = path.join(runDir, `report-${name}.json`);
+  const result = spawnSync(
+    process.execPath,
+    [
+      pipelinePath,
+      "-i",
+      inputEpub,
+      "-o",
+      outputEpub,
+      "--temp",
+      extractDir,
+      "--report-json",
+      reportPath,
+      "--clean",
+      ...extraArgs,
+    ],
+    {
+      cwd: repoRoot,
+      env: withJavaFallback(process.env),
+      stdio: "inherit",
+    }
+  );
+
+  if (result.status !== 0) {
+    throw new Error(`${name} pipeline E2E failed with exit ${result.status ?? "unknown"}.`);
+  }
+  if (!(await fs.pathExists(outputEpub))) {
+    throw new Error(`Expected ${name} optimized EPUB output to exist.`);
+  }
+  if (await fs.pathExists(extractDir)) {
+    throw new Error(`Expected ${name} --clean to remove the extraction temp directory.`);
+  }
+
+  const report = (await fs.readJson(reportPath)) as E2ERunResult["report"];
+  if (report.success !== true) {
+    throw new Error(`Expected ${name} JSON pipeline report to record a successful run.`);
+  }
+
+  return { outputEpub, report };
 }
 
 async function main(): Promise<void> {
@@ -271,35 +370,40 @@ async function main(): Promise<void> {
   const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "epub-optimizer-e2e-"));
   const fixtureDir = path.join(runDir, "fixture");
   const inputEpub = path.join(runDir, "input.epub");
-  const outputEpub = path.join(runDir, "output.epub");
-  const extractDir = path.join(runDir, "extract");
 
   try {
     await createFixtureEpubStructure(fixtureDir);
     await createEpub(inputEpub, fixtureDir);
 
-    const result = spawnSync(
-      process.execPath,
-      [pipelinePath, "-i", inputEpub, "-o", outputEpub, "--temp", extractDir, "--clean"],
-      {
-        cwd: repoRoot,
-        env,
-        stdio: "inherit",
+    const balanced = await runPipelineCase(runDir, inputEpub, "balanced");
+    if (balanced.report.preset !== "balanced") {
+      throw new Error("Expected default E2E report to use the balanced preset.");
+    }
+    await assertOptimizedOutput(balanced.outputEpub, runDir);
+
+    const lossless = await runPipelineCase(runDir, inputEpub, "lossless", ["--preset", "lossless"]);
+    if (lossless.report.preset !== "lossless") {
+      throw new Error("Expected lossless E2E report to record the lossless preset.");
+    }
+    await assertLosslessOutput(lossless.outputEpub, runDir);
+
+    const author = await runPipelineCase(runDir, inputEpub, "author", [
+      "--preset",
+      "author",
+      "--strict",
+    ]);
+    if (author.report.preset !== "author" || author.report.strict !== true) {
+      throw new Error("Expected author E2E report to record author preset and strict mode.");
+    }
+    for (const stepName of ["Repair XHTML", "Author workflow"]) {
+      const step = author.report.steps?.find(({ name }) => name === stepName);
+      if (step?.status !== "success") {
+        throw new Error(`Expected ${stepName} to succeed in author E2E run.`);
       }
-    );
+    }
+    await assertAuthorOutput(author.outputEpub, runDir);
 
-    if (result.status !== 0) {
-      throw new Error(`Pipeline E2E failed with exit ${result.status ?? "unknown"}.`);
-    }
-    if (!(await fs.pathExists(outputEpub))) {
-      throw new Error("Expected optimized EPUB output to exist.");
-    }
-    if (await fs.pathExists(extractDir)) {
-      throw new Error("Expected --clean to remove the extraction temp directory.");
-    }
-
-    await assertOptimizedOutput(outputEpub, runDir);
-    console.log("E2E EPUBCheck fixture passed.");
+    console.log("E2E EPUBCheck fixtures passed for balanced, lossless, and author presets.");
   } finally {
     await fs.remove(runDir);
   }

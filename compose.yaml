@@ -1,0 +1,24 @@
+name: epub-optimizer
+
+services:
+  optimizer:
+    image: ${EPUB_OPTIMIZER_DOCKER_IMAGE:-epub-optimizer}
+    build:
+      context: .
+      target: runtime
+    working_dir: /epub-files
+    init: true
+    read_only: true
+    network_mode: none
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      HOME: /tmp
+    tmpfs:
+      - /tmp
+    volumes:
+      - type: bind
+        source: ${EPUB_FILES_DIR:-.}
+        target: /epub-files

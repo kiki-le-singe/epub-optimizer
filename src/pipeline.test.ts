@@ -13,6 +13,17 @@ vi.mock("./cli.js", () => ({
     fonts: false,
     "author-workflow": false,
     authorWorkflow: false,
+    repair: false,
+    strict: false,
+    profile: false,
+    preset: "balanced",
+    "max-image-dim": 1600,
+    maxImageDim: 1600,
+    "convert-png": true,
+    convertPng: true,
+    "lazy-loading": false,
+    lazyLoading: false,
+    lossless: false,
     lang: "fr",
     _: [],
     $0: "epub-optimizer",
@@ -40,6 +51,14 @@ vi.mock("fs-extra", () => ({
 vi.mock("./utils/temp-dir.js", () => ({
   removeTempDir: vi.fn().mockResolvedValue("/tmp/ep"),
 }));
+vi.mock("./utils/output-transaction.js", () => ({
+  assertDistinctInputOutput: vi.fn(),
+  assertSafeOutputTarget: vi.fn().mockResolvedValue(undefined),
+  assertSafeReportPath: vi.fn(),
+  createCandidateOutputPath: vi.fn().mockResolvedValue("/tmp/candidate.epub"),
+  commitCandidateOutput: vi.fn().mockResolvedValue(undefined),
+  discardCandidateOutput: vi.fn().mockResolvedValue(undefined),
+}));
 
 describe("pipeline orchestration", () => {
   beforeEach(() => {
@@ -63,13 +82,17 @@ describe("pipeline orchestration", () => {
     await main();
 
     expect(optimizeEPUB).toHaveBeenCalledTimes(1);
-    expect(optimizeEPUB).toHaveBeenCalledWith(expect.objectContaining({ temp: "/tmp/ep" }), {
-      skipPackaging: true,
-    });
-    expect(runFixes).toHaveBeenCalledWith({ tempDir: "/tmp/ep" });
+    expect(optimizeEPUB).toHaveBeenCalledWith(
+      expect.objectContaining({ temp: "/tmp/ep" }),
+      expect.objectContaining({ skipPackaging: true })
+    );
+    expect(runFixes).not.toHaveBeenCalled();
     expect(runStructureUpdates).not.toHaveBeenCalled();
-    expect(createEPUBFile).toHaveBeenCalledWith({ tempDir: "/tmp/ep", output: "out.epub" });
-    expect(validateEPUB).toHaveBeenCalledWith({ output: "out.epub" });
+    expect(createEPUBFile).toHaveBeenCalledWith({
+      tempDir: "/tmp/ep",
+      output: "/tmp/candidate.epub",
+    });
+    expect(validateEPUB).toHaveBeenCalledWith({ output: "/tmp/candidate.epub", strict: false });
   });
 
   it("runs author workflow structure updates when --author-workflow is set", async () => {
@@ -86,17 +109,34 @@ describe("pipeline orchestration", () => {
       fonts: false,
       "author-workflow": true,
       authorWorkflow: true,
+      repair: true,
+      strict: false,
+      profile: false,
+      preset: "author",
+      "max-image-dim": 1600,
+      maxImageDim: 1600,
+      "convert-png": true,
+      convertPng: true,
+      "lazy-loading": true,
+      lazyLoading: true,
+      lossless: false,
       lang: "fr",
       _: [],
       $0: "epub-optimizer",
     });
 
     const { main } = await import("./pipeline.js");
+    const { runFixes } = await import("./scripts/fix/index.js");
     const { runStructureUpdates } = await import("./scripts/ops/update-structure.js");
 
     await main();
 
-    expect(runStructureUpdates).toHaveBeenCalledWith({ tempDir: "/tmp/ep", lang: "fr" });
+    expect(runFixes).toHaveBeenCalledWith({ tempDir: "/tmp/ep", strict: false });
+    expect(runStructureUpdates).toHaveBeenCalledWith({
+      tempDir: "/tmp/ep",
+      lang: "fr",
+      strict: false,
+    });
   });
 
   it("invokes cleanup when --clean is set", async () => {
@@ -113,6 +153,17 @@ describe("pipeline orchestration", () => {
       fonts: false,
       "author-workflow": false,
       authorWorkflow: false,
+      repair: false,
+      strict: false,
+      profile: false,
+      preset: "balanced",
+      "max-image-dim": 1600,
+      maxImageDim: 1600,
+      "convert-png": true,
+      convertPng: true,
+      "lazy-loading": false,
+      lazyLoading: false,
+      lossless: false,
       lang: "fr",
       _: [],
       $0: "epub-optimizer",
@@ -127,5 +178,20 @@ describe("pipeline orchestration", () => {
       inputPath: "in.epub",
       outputPath: "out.epub",
     });
+  });
+
+  it("does not publish the output when candidate validation fails", async () => {
+    const { run: validateEPUB } = await import("./scripts/validate-epub.js");
+    const { commitCandidateOutput, discardCandidateOutput } =
+      await import("./utils/output-transaction.js");
+    vi.mocked(validateEPUB).mockImplementationOnce(() => {
+      throw new Error("invalid candidate");
+    });
+
+    const { main } = await import("./pipeline.js");
+    await expect(main()).rejects.toThrow("invalid candidate");
+
+    expect(commitCandidateOutput).not.toHaveBeenCalled();
+    expect(discardCandidateOutput).toHaveBeenCalledWith("/tmp/candidate.epub");
   });
 });
