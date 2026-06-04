@@ -20,6 +20,7 @@ interface OptimizeOptions {
   skipPackaging?: boolean;
   runStep?: <T>(name: string, operation: () => Promise<T> | T) => Promise<T>;
   skipStep?: (name: string, reason: string) => void;
+  afterExtract?: (tempDir: string) => Promise<void> | void;
 }
 
 /**
@@ -61,6 +62,9 @@ async function optimizeEPUB(
     // 1. Extract EPUB file
     await runStep("Extract EPUB", () => extractEPUB(resolvedArgs.input, resolvedArgs.temp));
     console.log(`📦 Extracted ${resolvedArgs.input} to ${resolvedArgs.temp}`);
+    if (options.afterExtract) {
+      await runStep("Analyze input content", () => options.afterExtract?.(resolvedArgs.temp));
+    }
 
     // 2. Process HTML and CSS files
     await runStep("Optimize HTML/CSS", () => processHTML(resolvedArgs.temp));

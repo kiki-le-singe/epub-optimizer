@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import yargs from "yargs/yargs";
 import { hideBin } from "yargs/helpers";
 import config from "../utils/config.js";
+import type { AuthorWorkflowConfig } from "../utils/author-workflow-config.js";
 
 /**
  * Returns true when a module is being executed directly (e.g.
@@ -35,6 +36,8 @@ export interface RunOpts {
   output?: string;
   /** Fail instead of continuing after warnings or recoverable processing errors. */
   strict?: boolean;
+  /** Resolved optional configuration for the project-author structure updates. */
+  authorConfig?: AuthorWorkflowConfig;
 }
 
 /**

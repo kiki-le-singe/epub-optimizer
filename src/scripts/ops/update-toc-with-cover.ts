@@ -1,16 +1,29 @@
 import fs from "fs-extra";
 import * as cheerio from "cheerio";
 import { getCoverLabel } from "../../utils/i18n.js";
-import { getTOCFiles } from "../../utils/epub-utils.js";
+import { getContentPath, getTOCFiles } from "../../utils/epub-utils.js";
 import { getLang, getTempDir, isEntryPoint, type RunOpts } from "../utils.js";
 import { normalizeNCXNavigation } from "./ncx.js";
+import {
+  createOwnerRelativeHref,
+  DEFAULT_AUTHOR_WORKFLOW_CONFIG,
+  referenceTargetsFile,
+  resolveAuthorWorkflowHref,
+  type AuthorWorkflowConfig,
+} from "../../utils/author-workflow-config.js";
 
 /**
  * Updates EPUB3 navigation file to include cover link
  * @param navFilePath Path to the EPUB3 navigation file
  * @param coverLabel Localized cover label
  */
-async function updateEPUB3Navigation(navFilePath: string, coverLabel: string): Promise<void> {
+async function updateEPUB3Navigation(
+  epubDir: string,
+  navFilePath: string,
+  coverFile: string,
+  coverLabel: string,
+  authorConfig: AuthorWorkflowConfig
+): Promise<void> {
   try {
     console.log(`Adding cover to EPUB3 navigation file: ${navFilePath}`);
 
@@ -18,7 +31,9 @@ async function updateEPUB3Navigation(navFilePath: string, coverLabel: string): P
     const $ = cheerio.load(content, { xmlMode: true });
 
     // Check if cover is already in the TOC
-    const coverLink = $('a[href="cover.xhtml"]');
+    const coverLink = $("a[href]").filter((_, element) =>
+      referenceTargetsFile(epubDir, navFilePath, $(element).attr("href"), coverFile)
+    );
 
     if (coverLink.length === 0) {
       // Try different TOC selectors in order of preference
@@ -38,8 +53,10 @@ async function updateEPUB3Navigation(navFilePath: string, coverLabel: string): P
 
       if (olElement.length) {
         // Create new list item with cover link
-        const coverItem = $('<li class="s3"></li>');
-        const anchorElement = $(`<a href="cover.xhtml" class="s3">${coverLabel}</a>`);
+        const coverItem = $(`<li class="${authorConfig.coverNavClass}"></li>`);
+        const anchorElement = $(
+          `<a href="${createOwnerRelativeHref(navFilePath, coverFile)}" class="${authorConfig.coverNavClass}">${coverLabel}</a>`
+        );
         coverItem.append(anchorElement);
 
         // Add it as the first item
@@ -65,7 +82,13 @@ async function updateEPUB3Navigation(navFilePath: string, coverLabel: string): P
  * @param ncxFilePath Path to the EPUB2 NCX file
  * @param coverLabel Localized cover label
  */
-async function updateEPUB2NCX(ncxFilePath: string, coverLabel: string): Promise<void> {
+async function updateEPUB2NCX(
+  epubDir: string,
+  ncxFilePath: string,
+  coverFile: string,
+  coverLabel: string,
+  authorConfig: AuthorWorkflowConfig
+): Promise<void> {
   try {
     console.log(`Adding cover to EPUB2 NCX file: ${ncxFilePath}`);
 
@@ -73,7 +96,16 @@ async function updateEPUB2NCX(ncxFilePath: string, coverLabel: string): Promise<
     const $ = cheerio.load(content, { xmlMode: true });
 
     // Check if cover is already in the NCX navMap
-    const coverNavPoint = $(`navPoint navLabel text:contains("${coverLabel}")`).parent().parent();
+    const coverNavPoint = $("navPoint")
+      .filter((_, element) =>
+        referenceTargetsFile(
+          epubDir,
+          ncxFilePath,
+          $(element).find("> content").attr("src"),
+          coverFile
+        )
+      )
+      .first();
 
     if (coverNavPoint.length === 0) {
       const navMap = $("navMap");
@@ -81,11 +113,11 @@ async function updateEPUB2NCX(ncxFilePath: string, coverLabel: string): Promise<
       if (navMap.length) {
         // Create a new navPoint for the cover
         const coverNavPoint = $(`
-          <navPoint id="navpoint-cover" playOrder="1">
+          <navPoint id="navpoint-${authorConfig.coverSpineId}" playOrder="1">
             <navLabel>
               <text>${coverLabel}</text>
             </navLabel>
-            <content src="cover.xhtml"/>
+            <content src="${createOwnerRelativeHref(ncxFilePath, coverFile)}"/>
           </navPoint>
         `);
 
@@ -112,10 +144,17 @@ async function updateEPUB2NCX(ncxFilePath: string, coverLabel: string): Promise<
 export async function run(opts: RunOpts = {}): Promise<void> {
   const extractedDir = opts.tempDir ?? getTempDir();
   const coverLabel = getCoverLabel(opts.lang ?? getLang());
+  const authorConfig = opts.authorConfig ?? DEFAULT_AUTHOR_WORKFLOW_CONFIG;
 
   console.log("Discovering TOC files from OPF manifest...");
 
   const tocFiles = await getTOCFiles(extractedDir);
+  const contentDir = await getContentPath(extractedDir);
+  const coverFile = resolveAuthorWorkflowHref(
+    contentDir,
+    authorConfig.coverHref,
+    "author cover href"
+  );
 
   if (!tocFiles.epub3Nav && !tocFiles.epub2Ncx) {
     console.log("No TOC files found in OPF manifest. Skipping TOC updates.");
@@ -123,13 +162,19 @@ export async function run(opts: RunOpts = {}): Promise<void> {
   }
 
   if (tocFiles.epub3Nav) {
-    await updateEPUB3Navigation(tocFiles.epub3Nav, coverLabel);
+    await updateEPUB3Navigation(
+      extractedDir,
+      tocFiles.epub3Nav,
+      coverFile,
+      coverLabel,
+      authorConfig
+    );
   } else {
     console.log("No EPUB3 navigation file found");
   }
 
   if (tocFiles.epub2Ncx) {
-    await updateEPUB2NCX(tocFiles.epub2Ncx, coverLabel);
+    await updateEPUB2NCX(extractedDir, tocFiles.epub2Ncx, coverFile, coverLabel, authorConfig);
   } else {
     console.log("No EPUB2 NCX file found");
   }

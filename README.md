@@ -328,6 +328,7 @@ Options:
   --preset          Optimization preset: balanced, lossless, author
   --repair          Apply potentially modifying XHTML repairs
   --author-workflow Enable the complete author workflow, including repairs
+  --author-config   JSON overrides for the author workflow's summary, cover, and CSS class mapping
   --convert-png     Convert large opaque PNG files to JPEG when safe
   --no-convert-png  Disable PNG-to-JPEG conversion
   --lazy-loading    Add loading="lazy" to XHTML images
@@ -379,9 +380,37 @@ Examples:
 - `author` runs this project's complete Pages/manual-summary workflow and is equivalent to `pnpm optimize:author`.
 - `--repair` explicitly enables the potentially modifying XHTML repair passes.
 - `--author-workflow` remains supported and always enables the complete author workflow, including repairs.
+- `--author-config` optionally adapts the author workflow to another summary/cover/class mapping. Without it, the original project-author workflow is unchanged.
 - Font subsetting is opt-in through `--fonts` and is not enabled by any preset.
 
 Applicable CLI options override preset defaults. For example, `--preset balanced --no-convert-png` disables PNG-to-JPEG conversion. The `lossless` preset always skips lossy raster processing, and the author workflow always includes repairs and author structure updates.
+
+#### Optional Author Workflow Configuration
+
+`pnpm optimize:author` continues to use the original Pages/manual-summary conventions by default: `chapter-2.xhtml`, `cover.xhtml`, cover spine id `cover`, chapter classes `p6`/`p8`, section class `p7`, and navigation classes `s3`/`s4`.
+
+For a different authoring workflow, create a JSON file containing only the values that differ:
+
+```json
+{
+  "summaryHref": "contents.xhtml",
+  "coverSpineId": "front-cover",
+  "chapterClasses": ["chapter-link"],
+  "sectionClasses": ["section-link"],
+  "summaryEntryClass": "chapter-link",
+  "coverNavClass": "toc-cover",
+  "sectionNavClass": "toc-section"
+}
+```
+
+Then pass it to the same author command:
+
+```bash
+pnpm optimize:author -i book.epub -o book-optimized.epub \
+  --author-config author-workflow.json
+```
+
+The configuration is validated before structure updates. Unknown keys, unsafe paths, and invalid class/id values fail the run while preserving the temporary directory for debugging.
 
 ### Structured Reports and Profiling
 
@@ -390,7 +419,7 @@ Applicable CLI options override preset defaults. For example, `--preset balanced
 - `--report-json reports/report.json` writes a structured report on success and on pipeline failures that occur after preflight path validation.
 - The report directory is created automatically. Local reports under `reports/` are ignored by Git.
 
-Reports contain the configured input/output paths, preset, strict mode, timestamps, total duration, size reduction when available, per-step statuses/durations/messages, and the final error when a run fails:
+Reports contain the configured input/output paths, preset, strict mode, timestamps, total duration, size reduction when available, per-step statuses/durations/messages, before/after content metrics, integrity checks, and the final error when a run fails:
 
 ```json
 {
@@ -400,6 +429,29 @@ Reports contain the configured input/output paths, preset, strict mode, timestam
   "strict": true,
   "success": true,
   "durationMs": 1234,
+  "content": {
+    "before": {
+      "manifestItems": 42,
+      "spineItems": 18,
+      "contentDocuments": 20,
+      "images": 12,
+      "navigationEntries": 36,
+      "missingReferences": 0
+    },
+    "after": {
+      "manifestItems": 42,
+      "spineItems": 18,
+      "contentDocuments": 20,
+      "images": 12,
+      "navigationEntries": 36,
+      "missingReferences": 0
+    },
+    "integrity": {
+      "valid": true,
+      "newMissingReferences": [],
+      "issues": []
+    }
+  },
   "steps": [
     {
       "name": "Extract EPUB",
@@ -416,6 +468,8 @@ The report path must differ from the input and output EPUB paths and must be abs
 ### Safety Model
 
 The final EPUB is transactional: the optimizer creates a hidden candidate next to the requested output, validates that candidate with EPUBCheck, and publishes it only after validation succeeds. If optimization, packaging, validation, or publication fails before the commit, the candidate is discarded, the previous output remains untouched, and any temporary processing directory already created is preserved for debugging.
+
+Before packaging, the optimizer also compares the extracted EPUB before and after processing. Publication is blocked if manifest, spine, document, image, or navigation counts decrease, or if processing introduces a new missing internal reference. Existing input issues remain visible in the report without turning a previously processable EPUB into a false failure.
 
 Cleanup and JSON report writing happen after the validated EPUB is published. If either of these later operations fails, the command exits non-zero but keeps the newly published, EPUBCheck-validated output.
 
@@ -459,6 +513,14 @@ docker compose run --rm optimizer \
 docker compose run --rm optimizer \
   -i book.epub -o book-optimized.epub \
   --preset author --clean
+```
+
+**Author workflow with an optional configuration file:**
+
+```bash
+docker compose run --rm optimizer \
+  -i book.epub -o book-optimized.epub \
+  --preset author --author-config author-workflow.json
 ```
 
 **Compose command breakdown:**
@@ -594,6 +656,8 @@ epub-optimizer/
         ├── config.ts       # Application configuration
         ├── epub-utils.ts   # OPF / TOC file discovery
         ├── output-transaction.ts # Candidate output commit/rollback
+        ├── author-workflow-config.ts # Optional validated author workflow mapping
+        ├── epub-integrity.ts # Before/after content metrics and regression checks
         ├── path-safety.ts  # Safe path resolution inside the extracted EPUB
         ├── pipeline-options.ts # Preset resolution
         ├── run-report.ts   # Structured results and profiling
@@ -635,8 +699,9 @@ This project is built with TypeScript and uses modern ESM modules. Here's how th
 - Tests are written using Vitest, a modern test framework compatible with Jest syntax
 - Run tests with `pnpm test` (watch mode) or `pnpm test:run` (single run)
 - Run tests with coverage using `pnpm test:coverage`
-- `pnpm test:e2e` produces balanced, lossless, and strict author outputs from a fixture and validates each one with EPUBCheck
-- `pnpm test:docker` validates the same fixture through raw Docker and Docker Compose
+- `pnpm test:e2e` produces balanced, lossless, and strict author outputs, validates each one with EPUBCheck, and exercises a real manual-summary + NCX author fixture
+- The author E2E fixture also checks before/after content integrity, sequential NCX navigation, and a maximum output-size ratio to catch compression regressions
+- `pnpm test:docker` validates raw Docker, Docker Compose, and the complete author fixture workflow
 - CI validates the project on Node.js 22 and 24, and runs the Docker E2E workflow on Node.js 24
 - Unit tests run in a Node.js environment and mock external dependencies where appropriate
 
@@ -668,7 +733,7 @@ docker compose run --rm optimizer \
   --preset author --strict --report-json reports/YourBook-docker-report.json
 ```
 
-A successful release candidate exits with code 0, passes EPUBCheck without errors or warnings in strict mode, and produces reports with `"success": true`.
+A successful release candidate exits with code 0, passes EPUBCheck without errors or warnings in strict mode, and produces reports with `"success": true` and `"content.integrity.valid": true`.
 
 ### Development and Production
 
@@ -724,7 +789,9 @@ pnpm optimize:author -i YourBook.epub -o YourBook-optimized.epub
 pnpm optimize -i YourBook.epub -o YourBook-optimized.epub --preset author
 ```
 
-For deeper customization, there are two levels of granularity:
+The existing project-author conventions remain the defaults. To adapt summary/cover paths or CSS classes without editing source code, use `--author-config author-workflow.json` as documented under [Optional Author Workflow Configuration](#optional-author-workflow-configuration).
+
+For deeper source-level customization, there are two levels of granularity:
 
 **Wholesale (in `src/pipeline.ts`)** — comment out an entire step to disable a whole group at once:
 

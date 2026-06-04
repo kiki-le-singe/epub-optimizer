@@ -1,6 +1,7 @@
 import fs from "fs-extra";
 import path from "node:path";
 import type { Preset } from "../types.js";
+import type { EpubContentMetrics, EpubIntegrityComparison } from "./epub-integrity.js";
 
 export type StepStatus = "success" | "skipped" | "failed";
 
@@ -27,6 +28,11 @@ export interface PipelineReport {
     outputBytes: number;
     savedBytes: number;
     reductionPercent: number;
+  };
+  content?: {
+    before?: EpubContentMetrics;
+    after?: EpubContentMetrics;
+    integrity?: EpubIntegrityComparison;
   };
   steps: StepReport[];
 }

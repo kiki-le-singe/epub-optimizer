@@ -12,6 +12,8 @@ export interface Args {
   fonts: boolean;
   "author-workflow": boolean;
   authorWorkflow: boolean;
+  "author-config"?: string;
+  authorConfig?: string;
   repair: boolean;
   strict: boolean;
   profile: boolean;

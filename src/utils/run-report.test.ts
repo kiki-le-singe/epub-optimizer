@@ -21,6 +21,34 @@ describe("pipeline report", () => {
     expect(report.steps[0]).toMatchObject({ name: "example", status: "success" });
   });
 
+  it("keeps before/after content metrics in the structured report", () => {
+    const report = createPipelineReport({
+      input: "in.epub",
+      output: "out.epub",
+      preset: "balanced",
+      strict: false,
+    });
+    const metrics = {
+      manifestItems: 3,
+      spineItems: 1,
+      contentDocuments: 2,
+      images: 1,
+      navigationEntries: 1,
+      internalReferences: 5,
+      missingReferences: 0,
+      missingReferenceTargets: [],
+    };
+
+    report.content = {
+      before: metrics,
+      after: metrics,
+      integrity: { valid: true, checks: [], newMissingReferences: [], issues: [] },
+    };
+
+    expect(report.content.integrity?.valid).toBe(true);
+    expect(report.content.after?.images).toBe(1);
+  });
+
   it("turns warnings into failures in strict mode", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const report = createPipelineReport({

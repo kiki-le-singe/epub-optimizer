@@ -1,9 +1,14 @@
 import fs from "fs-extra";
 import * as cheerio from "cheerio";
-import path from "node:path";
 import { getTOCFiles, getContentPath } from "../../utils/epub-utils.js";
 import { getTempDir, isEntryPoint, type RunOpts } from "../utils.js";
 import { normalizeNCXNavigation } from "./ncx.js";
+import {
+  DEFAULT_AUTHOR_WORKFLOW_CONFIG,
+  hasAnyClass,
+  resolveAuthorWorkflowHref,
+  type AuthorWorkflowConfig,
+} from "../../utils/author-workflow-config.js";
 
 /**
  * Interface for a chapter section
@@ -23,11 +28,14 @@ interface Chapter {
 }
 
 /**
- * Extracts chapter structure with subsections from the manual Sommaire page
- * @param sommaireFilePath Path to the manual sommaire file (chapter-2.xhtml)
+ * Extracts chapter structure with subsections from the configured manual summary page
+ * @param sommaireFilePath Path to the manual summary file
  * @returns Array of chapters with their subsections
  */
-async function extractChapterStructure(sommaireFilePath: string): Promise<Chapter[]> {
+async function extractChapterStructure(
+  sommaireFilePath: string,
+  authorConfig: AuthorWorkflowConfig
+): Promise<Chapter[]> {
   try {
     console.log(`Reading manual sommaire from: ${sommaireFilePath}`);
 
@@ -48,8 +56,8 @@ async function extractChapterStructure(sommaireFilePath: string): Promise<Chapte
       const href = $link.attr("href") || "";
       const text = $link.text().trim();
 
-      // p6 = main entry, p7 = subsection (indented), p8 = another level
-      if (classes.includes("p6") || classes.includes("p8")) {
+      // Class mappings come from the optional author workflow configuration.
+      if (hasAnyClass(classes, authorConfig.chapterClasses)) {
         // Save previous chapter if it exists
         if (currentChapter) {
           chapters.push(currentChapter);
@@ -61,7 +69,7 @@ async function extractChapterStructure(sommaireFilePath: string): Promise<Chapte
           text,
           sections: [],
         };
-      } else if (classes.includes("p7") && currentChapter) {
+      } else if (hasAnyClass(classes, authorConfig.sectionClasses) && currentChapter) {
         // Add subsection to current chapter
         currentChapter.sections.push({ href, text });
       }
@@ -104,7 +112,8 @@ function getBaseHref(href: string): string {
  */
 async function updateEPUB3NavigationWithSections(
   navFilePath: string,
-  chapters: Chapter[]
+  chapters: Chapter[],
+  sectionNavClass: string
 ): Promise<void> {
   try {
     console.log(`Adding chapter subsections to EPUB3 navigation file: ${navFilePath}`);
@@ -136,8 +145,10 @@ async function updateEPUB3NavigationWithSections(
           const $nestedOl = $("<ol></ol>");
 
           for (const section of chapter.sections) {
-            const $sectionLi = $('<li class="s4"></li>');
-            const $sectionLink = $(`<a href="${section.href}" class="s4">${section.text}</a>`);
+            const $sectionLi = $(`<li class="${sectionNavClass}"></li>`);
+            const $sectionLink = $(
+              `<a href="${section.href}" class="${sectionNavClass}">${section.text}</a>`
+            );
             $sectionLi.append($sectionLink);
             $nestedOl.append($sectionLi);
           }
@@ -247,6 +258,7 @@ async function updateEPUB2NCXWithSections(ncxFilePath: string, chapters: Chapter
  */
 export async function run(opts: RunOpts = {}): Promise<void> {
   const extractedDir = opts.tempDir ?? getTempDir();
+  const authorConfig = opts.authorConfig ?? DEFAULT_AUTHOR_WORKFLOW_CONFIG;
 
   console.log("Discovering TOC files and content directory...");
 
@@ -258,7 +270,11 @@ export async function run(opts: RunOpts = {}): Promise<void> {
     return;
   }
 
-  const sommaireFilePath = path.join(contentPath, "chapter-2.xhtml");
+  const sommaireFilePath = resolveAuthorWorkflowHref(
+    contentPath,
+    authorConfig.summaryHref,
+    "author summary href"
+  );
 
   if (!(await fs.pathExists(sommaireFilePath))) {
     console.log(`Manual sommaire file not found at: ${sommaireFilePath}`);
@@ -266,7 +282,7 @@ export async function run(opts: RunOpts = {}): Promise<void> {
     return;
   }
 
-  const chapters = await extractChapterStructure(sommaireFilePath);
+  const chapters = await extractChapterStructure(sommaireFilePath, authorConfig);
   if (chapters.length === 0) {
     console.log("No chapters found in manual sommaire. Skipping updates.");
     return;
@@ -279,7 +295,11 @@ export async function run(opts: RunOpts = {}): Promise<void> {
   }
 
   if (tocFiles.epub3Nav) {
-    await updateEPUB3NavigationWithSections(tocFiles.epub3Nav, chaptersWithSections);
+    await updateEPUB3NavigationWithSections(
+      tocFiles.epub3Nav,
+      chaptersWithSections,
+      authorConfig.sectionNavClass
+    );
   } else {
     console.log("No EPUB3 navigation file found");
   }
