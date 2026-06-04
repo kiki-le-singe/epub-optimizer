@@ -1,11 +1,9 @@
 #!/bin/sh
 set -e
 
-# Docker entrypoint wrapper for epub-optimizer
-# This script ensures temp files are created in the mounted volume for debugging
-
-# Stay in /app directory to use container's node_modules
-# Do NOT cd to /epub-files to avoid using host's node_modules
+# Docker entrypoint wrapper for epub-optimizer.
+# The image works from /epub-files, so input/output arguments can use simple
+# relative paths while application code and dependencies remain under /app.
 
 # Check if temp directory argument is provided
 HAS_TEMP_ARG=false

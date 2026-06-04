@@ -45,7 +45,7 @@ const config = {
   },
 
   // EPUBCheck path
-  epubcheckPath: "epubcheck/epubcheck.jar",
+  epubcheckPath: process.env.EPUBCHECK_PATH ?? "epubcheck/epubcheck.jar",
 
   // UI Localization
   labels: {

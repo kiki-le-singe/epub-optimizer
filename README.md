@@ -103,7 +103,7 @@ This depends on whether preserving your book's design and typography is importan
 
 ## Quick Start
 
-> **Note:** Traditional usage accepts absolute or relative file paths. Docker can only access files inside directories mounted into the container.
+> **Note:** Traditional usage accepts absolute or relative file paths. Docker Compose automatically shares the repository directory with the container, so Docker commands also use simple relative paths.
 
 **Traditional installation:**
 
@@ -115,24 +115,24 @@ pnpm optimize -i YourBook.epub -o YourBook-optimized.epub
 
 The default `balanced` preset performs generic optimization without running the modifying XHTML repair or author workflow passes.
 
-**Or use Docker locally:**
+**Or use Docker Compose (recommended):**
 
 ```bash
 git clone https://github.com/kiki-le-singe/epub-optimizer.git
 cd epub-optimizer
-docker build -t epub-optimizer .
-docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
-  -i /epub-files/YourBook.epub -o /epub-files/YourBook-optimized.epub
+# Place YourBook.epub in this directory, then run:
+docker compose run --build --rm optimizer \
+  -i YourBook.epub -o YourBook-optimized.epub
 ```
 
-**Or use the published Docker image without cloning/building:**
+The first run builds the image and optimizes the EPUB. Later runs can omit `--build`.
+
+For the complete Pages/manual-summary author workflow:
 
 ```bash
-docker run --rm -v "$(pwd):/epub-files" ghcr.io/kiki-le-singe/epub-optimizer:v3.0.0 \
-  -i /epub-files/YourBook.epub -o /epub-files/YourBook-optimized.epub
+docker compose run --rm optimizer \
+  -i YourBook.epub -o YourBook-optimized.epub --preset author
 ```
-
-Use a versioned image tag for reproducible runs. The `latest` tag follows the newest published release.
 
 ## Migrating to v3
 
@@ -210,16 +210,15 @@ CI and Docker currently pin EPUBCheck 5.3.0.
 
 ## Docker Alternative
 
-**Docker Requirement:**
-You must have [Docker installed](https://docs.docker.com/get-docker/) on your system to use the Docker method.
+You must have [Docker installed](https://docs.docker.com/get-docker/) with Docker Compose v2. Docker Desktop includes both.
 
-Docker provides a containerized environment with all dependencies pre-installed, making it easier to run the EPUB optimizer without complex setup.
+Docker Compose provides a containerized environment with all dependencies pre-installed. It automatically mounts the repository directory, so the same relative EPUB paths work on Windows, macOS, and Linux.
 
 You can build the image locally or use the Linux AMD64/ARM64 image automatically published to GitHub Container Registry for every `v*` release tag.
 
 ### Docker Requirements
 
-- Docker installed on your system
+- Docker Desktop, or Docker Engine with Docker Compose v2
 
 ### Docker Installation
 
@@ -228,24 +227,16 @@ You can build the image locally or use the Linux AMD64/ARM64 image automatically
 git clone https://github.com/kiki-le-singe/epub-optimizer.git
 cd epub-optimizer
 
-# Build the Docker image (includes all dependencies)
-docker build -t epub-optimizer .
+# Build the local image (includes all dependencies)
+docker compose build
 ```
-
-Or pull the published image:
-
-```bash
-docker pull ghcr.io/kiki-le-singe/epub-optimizer:v3.0.0
-```
-
-Versioned tags are recommended for reproducible runs. `latest` tracks the newest release.
 
 ### Docker Quick Start
 
 ```bash
-# Optimize an EPUB file
-docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
-  -i /epub-files/your-book.epub -o /epub-files/your-book-optimized.epub
+# Build when needed, then optimize an EPUB from the repository directory
+docker compose run --build --rm optimizer \
+  -i your-book.epub -o your-book-optimized.epub
 ```
 
 **Benefits of Docker approach:**
@@ -254,6 +245,8 @@ docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
 - ✅ Works consistently across all platforms (Windows, Mac, Linux)
 - ✅ Includes EPUBCheck automatically
 - ✅ Uses the dependency versions tested by the project
+- ✅ Automatically mounts the working directory and accepts relative EPUB paths
+- ✅ Runs non-root with no network, no Linux capabilities, and a read-only container filesystem
 
 ## Usage
 
@@ -275,7 +268,7 @@ docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
 | `test:run`          | Run tests once and exit                                                                           |
 | `test:coverage`     | Run tests with coverage report                                                                    |
 | `test:e2e`          | Validate the balanced, lossless, and strict author fixture workflows with EPUBCheck               |
-| `test:docker`       | Run the Docker image against a fixture EPUB and validate it with EPUBCheck                        |
+| `test:docker`       | Validate raw Docker and Docker Compose workflows against a fixture with EPUBCheck                 |
 | `lint`              | Lint TypeScript files in src and scripts directories                                              |
 | `lint:fix`          | Lint and auto-fix TypeScript files in src and scripts                                             |
 | `format`            | Auto-format all .ts, .json, and .md files with Prettier                                           |
@@ -315,7 +308,7 @@ pnpm test:run
 # run the EPUBCheck end-to-end fixture after pnpm build
 pnpm test:e2e
 
-# after docker build -t epub-optimizer ., run the Docker fixture
+# after docker compose build, run the raw Docker and Compose fixture
 pnpm test:docker
 ```
 
@@ -435,41 +428,67 @@ Archive extraction rejects unsafe absolute/traversal paths and symbolic links. I
 
 ### Docker Usage
 
-If you're using the Docker alternative, here are additional usage examples:
+Docker Compose is the recommended cross-platform Docker interface. It automatically builds or reuses the local image, mounts the repository at `/epub-files`, and lets the CLI use normal relative paths.
 
-**Basic Docker optimization:**
+**First run or rebuild after updating the repository:**
 
 ```bash
-docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
-  -i /epub-files/book.epub -o /epub-files/book-optimized.epub
+docker compose run --build --rm optimizer \
+  -i book.epub -o book-optimized.epub
 ```
 
-**Docker with custom image quality:**
+**Later runs:**
 
 ```bash
-docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
-  -i /epub-files/book.epub -o /epub-files/book-optimized.epub \
+docker compose run --rm optimizer \
+  -i book.epub -o book-optimized.epub
+```
+
+**Custom image quality:**
+
+```bash
+docker compose run --rm optimizer \
+  -i book.epub -o book-optimized.epub \
   --jpg-quality 50 --png-quality 0.4
 ```
 
-**Docker with the complete author workflow:**
+**Complete author workflow:**
 
 ```bash
-docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
-  -i /epub-files/book.epub -o /epub-files/book-optimized.epub \
+docker compose run --rm optimizer \
+  -i book.epub -o book-optimized.epub \
   --preset author --clean
 ```
 
-**Docker command breakdown:**
+**Compose command breakdown:**
 
-- `docker run --rm` - Run container and remove it when done
-- `-v "$(pwd):/epub-files"` - Mount current directory to `/epub-files` in container
-- `epub-optimizer` - The Docker image name
-- Arguments after the image name are passed to the EPUB optimizer
+- `docker compose run` - Run the `optimizer` service defined in `compose.yaml`
+- `--build` - Build or refresh the image before running; needed on the first run and after code updates
+- `--rm` - Remove the stopped one-off container after processing
+- Arguments after `optimizer` are passed directly to the EPUB optimizer
 
-> **Paths inside the container:** The optimizer runs from `/app` inside the container, so input/output paths must point to the mount — prefix them with `/epub-files/` (e.g. `-i /epub-files/book.epub`). Your host's current directory maps to `/epub-files`, so any file written there (or into a custom `-t /epub-files/...` temp dir) appears on your host.
+By default, Compose shares the repository directory with the container. Place EPUB files in that directory and use their normal relative names. Temporary files also appear there unless `--clean` is used.
 
-> **Docker Note:** Temporary files are automatically created in the mounted directory (visible on your host) for easy debugging. By default, they're kept in `temp_epub/` unless you use `--clean`. Use `-t` to specify a custom temp directory location.
+<details>
+<summary>Advanced: raw Docker and published images</summary>
+
+Raw `docker run` remains supported, but its bind-mount syntax varies by shell. The image now works from `/epub-files`, so the EPUB arguments themselves remain relative:
+
+```bash
+docker build -t epub-optimizer .
+docker run --rm -v "$PWD:/epub-files" epub-optimizer \
+  -i book.epub -o book-optimized.epub
+```
+
+Release tags publish multi-architecture images to GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/kiki-le-singe/epub-optimizer:v3.0.0
+```
+
+Use a versioned image tag for reproducible runs. `latest` tracks the newest published release.
+
+</details>
 
 ### Debugging with Temporary Files
 
@@ -491,18 +510,18 @@ pnpm cleanup
 
 ```bash
 # Temp files automatically appear in your current directory
-docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
-  -i /epub-files/book.epub -o /epub-files/book-optimized.epub
+docker compose run --rm optimizer \
+  -i book.epub -o book-optimized.epub
 # Inspect temp_epub/ directory on your host
 
 # Custom temp location (still visible on host)
-docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
-  -i /epub-files/book.epub -o /epub-files/book-optimized.epub \
-  -t /epub-files/my-debug-folder
+docker compose run --rm optimizer \
+  -i book.epub -o book-optimized.epub \
+  -t my-debug-folder
 
 # Clean temp files after processing
-docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
-  -i /epub-files/book.epub -o /epub-files/book-optimized.epub \
+docker compose run --rm optimizer \
+  -i book.epub -o book-optimized.epub \
   --clean
 ```
 
@@ -525,6 +544,9 @@ epub-optimizer/
 ├── .github/workflows/
 │   ├── ci.yml                 # Node 22/24, EPUBCheck, and Docker E2E validation
 │   └── publish-docker.yml     # Publish multi-architecture GHCR images on v* tags
+├── compose.yaml            # Recommended cross-platform Docker interface
+├── Dockerfile              # Multi-stage production container image
+├── docker-entrypoint.sh    # Docker defaults and CLI entrypoint
 ├── dist/                   # Compiled JavaScript (production code)
 ├── package.json            # Package configuration
 ├── README.md               # Documentation
@@ -613,7 +635,7 @@ This project is built with TypeScript and uses modern ESM modules. Here's how th
 - Run tests with `pnpm test` (watch mode) or `pnpm test:run` (single run)
 - Run tests with coverage using `pnpm test:coverage`
 - `pnpm test:e2e` produces balanced, lossless, and strict author outputs from a fixture and validates each one with EPUBCheck
-- `pnpm test:docker` validates the same fixture through the Docker image
+- `pnpm test:docker` validates the same fixture through raw Docker and Docker Compose
 - CI validates the project on Node.js 22 and 24, and runs the Docker E2E workflow on Node.js 24
 - Unit tests run in a Node.js environment and mock external dependencies where appropriate
 
@@ -629,7 +651,8 @@ pnpm test:run
 pnpm test:coverage
 pnpm audit --prod
 pnpm test:e2e
-docker build -t epub-optimizer .
+docker compose config --quiet
+docker compose build
 pnpm test:docker
 ```
 
@@ -639,9 +662,9 @@ Also validate a representative real EPUB through both execution paths:
 pnpm optimize:author -i YourBook.epub -o YourBook-pnpm.epub \
   --strict --report-json YourBook-pnpm-report.json
 
-docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
-  -i /epub-files/YourBook.epub -o /epub-files/YourBook-docker.epub \
-  --preset author --strict --report-json /epub-files/YourBook-docker-report.json
+docker compose run --rm optimizer \
+  -i YourBook.epub -o YourBook-docker.epub \
+  --preset author --strict --report-json YourBook-docker-report.json
 ```
 
 A successful release candidate exits with code 0, passes EPUBCheck without errors or warnings in strict mode, and produces reports with `"success": true`.
@@ -726,6 +749,11 @@ After making any customizations, rebuild the project with `pnpm build` to apply 
 
 - Install Docker first: [Download Docker](https://docs.docker.com/get-docker/)
 - Make sure Docker Desktop is running
+
+**"`docker compose` is not a docker command"**
+
+- Install Docker Compose v2 or update Docker Desktop
+- Verify with `docker compose version`
 
 **"Permission denied" or file access errors**
 
