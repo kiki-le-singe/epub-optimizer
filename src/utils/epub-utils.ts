@@ -1,6 +1,7 @@
 import fs from "fs-extra";
 import path from "node:path";
 import * as cheerio from "cheerio";
+import { resolvePathInside } from "./path-safety.js";
 
 /**
  * Dynamically reads the OPF file path from META-INF/container.xml
@@ -27,7 +28,7 @@ export async function getOPFPath(epubDir: string): Promise<string> {
       throw new Error("No OPF path found in container.xml");
     }
 
-    const opfPath = path.join(epubDir, fullPath);
+    const opfPath = resolvePathInside(epubDir, epubDir, fullPath, "OPF rootfile path");
 
     if (!(await fs.pathExists(opfPath))) {
       throw new Error(`OPF file not found: ${opfPath}`);
@@ -46,41 +47,13 @@ export async function getOPFPath(epubDir: string): Promise<string> {
  * @returns The content directory name (e.g., "OPS", "OEBPS") or empty string if content is in root
  */
 export async function getContentDir(epubDir: string): Promise<string> {
-  // Standard EPUB content directory conventions
-  const standardDirs = ["OPS", "OEBPS"];
+  const opfPath = await getOPFPath(epubDir);
+  const opfDir = path.dirname(path.relative(epubDir, opfPath));
 
-  // Check each standard directory
-  for (const dir of standardDirs) {
-    const dirPath = path.join(epubDir, dir);
-    if (await fs.pathExists(dirPath)) {
-      try {
-        const stat = await fs.stat(dirPath);
-        if (stat && stat.isDirectory()) {
-          return dir;
-        }
-      } catch {
-        // If stat fails, continue to next directory
-        continue;
-      }
-    }
-  }
-
-  // Fallback: try to detect from OPF location
-  try {
-    const opfPath = await getOPFPath(epubDir);
-    const opfDir = path.dirname(path.relative(epubDir, opfPath));
-
-    // If OPF is in root, return empty string
-    if (opfDir === "." || opfDir === "") {
-      return "";
-    }
-
-    // Return the directory containing the OPF
-    return opfDir;
-  } catch {
-    // If all else fails, assume content is in root
+  if (opfDir === "." || opfDir === "") {
     return "";
   }
+  return opfDir;
 }
 
 /**
@@ -133,7 +106,7 @@ export async function getTOCFiles(epubDir: string): Promise<TOCFiles> {
   try {
     const opfPath = await getOPFPath(epubDir);
     const $ = await parseOPF(opfPath);
-    const contentDir = await getContentPath(epubDir);
+    const opfDir = path.dirname(opfPath);
 
     const tocFiles: TOCFiles = {};
 
@@ -142,7 +115,7 @@ export async function getTOCFiles(epubDir: string): Promise<TOCFiles> {
     if (navItem.length) {
       const href = navItem.attr("href");
       if (href) {
-        const navPath = path.join(contentDir, href);
+        const navPath = resolvePathInside(epubDir, opfDir, href, "EPUB3 navigation href");
         if (await fs.pathExists(navPath)) {
           tocFiles.epub3Nav = navPath;
         }
@@ -154,7 +127,7 @@ export async function getTOCFiles(epubDir: string): Promise<TOCFiles> {
     if (ncxItem.length) {
       const href = ncxItem.attr("href");
       if (href) {
-        const ncxPath = path.join(contentDir, href);
+        const ncxPath = resolvePathInside(epubDir, opfDir, href, "EPUB2 NCX href");
         if (await fs.pathExists(ncxPath)) {
           tocFiles.epub2Ncx = ncxPath;
         }

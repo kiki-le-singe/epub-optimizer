@@ -97,29 +97,31 @@ describe("epub-utils", () => {
 
   describe("getContentDir", () => {
     it("should detect OPS directory", async () => {
-      const opsDir = path.join(epubDir, "OPS");
-      await fs.ensureDir(opsDir);
+      await createContainerXml("OPS/content.opf");
+      await createOPF("OPS/content.opf");
 
       const result = await getContentDir(epubDir);
       expect(result).toBe("OPS");
     });
 
     it("should detect OEBPS directory", async () => {
-      const oebpsDir = path.join(epubDir, "OEBPS");
-      await fs.ensureDir(oebpsDir);
+      await createContainerXml("OEBPS/content.opf");
+      await createOPF("OEBPS/content.opf");
 
       const result = await getContentDir(epubDir);
       expect(result).toBe("OEBPS");
     });
 
-    it("should prefer OPS over OEBPS when both exist", async () => {
+    it("should follow the container OPF path when multiple directories exist", async () => {
       const opsDir = path.join(epubDir, "OPS");
       const oebpsDir = path.join(epubDir, "OEBPS");
       await fs.ensureDir(opsDir);
       await fs.ensureDir(oebpsDir);
+      await createContainerXml("OEBPS/content.opf");
+      await createOPF("OEBPS/content.opf");
 
       const result = await getContentDir(epubDir);
-      expect(result).toBe("OPS");
+      expect(result).toBe("OEBPS");
     });
 
     it("should return empty string when content is in root", async () => {
@@ -139,16 +141,16 @@ describe("epub-utils", () => {
       expect(result).toBe("EPUB");
     });
 
-    it("should return empty string when no container.xml exists", async () => {
-      const result = await getContentDir(epubDir);
-      expect(result).toBe("");
+    it("should reject an EPUB with no container.xml", async () => {
+      await expect(getContentDir(epubDir)).rejects.toThrow("Container file not found");
     });
   });
 
   describe("getContentPath", () => {
     it("should return full path to OPS directory", async () => {
       const opsDir = path.join(epubDir, "OPS");
-      await fs.ensureDir(opsDir);
+      await createContainerXml("OPS/content.opf");
+      await createOPF("OPS/content.opf");
 
       const result = await getContentPath(epubDir);
       expect(result).toBe(opsDir);
@@ -156,7 +158,8 @@ describe("epub-utils", () => {
 
     it("should return full path to OEBPS directory", async () => {
       const oebpsDir = path.join(epubDir, "OEBPS");
-      await fs.ensureDir(oebpsDir);
+      await createContainerXml("OEBPS/content.opf");
+      await createOPF("OEBPS/content.opf");
 
       const result = await getContentPath(epubDir);
       expect(result).toBe(oebpsDir);
@@ -169,6 +172,25 @@ describe("epub-utils", () => {
 
       const result = await getContentPath(epubDir);
       expect(result).toBe(epubDir);
+    });
+  });
+
+  describe("path safety", () => {
+    it("rejects an OPF rootfile path outside the EPUB", async () => {
+      await createContainerXml("../outside.opf");
+      await expect(getOPFPath(epubDir)).rejects.toThrow("outside EPUB root");
+    });
+
+    it("rejects a navigation href outside the EPUB", async () => {
+      await createContainerXml("OPS/content.opf");
+      const fullOPFPath = path.join(epubDir, "OPS", "content.opf");
+      await fs.ensureDir(path.dirname(fullOPFPath));
+      await fs.writeFile(
+        fullOPFPath,
+        `<package><manifest><item href="../../outside.xhtml" properties="nav"/></manifest></package>`
+      );
+
+      await expect(getTOCFiles(epubDir)).rejects.toThrow("outside EPUB root");
     });
   });
 

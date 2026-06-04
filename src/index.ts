@@ -10,12 +10,16 @@ import { minifyJavaScript } from "./processors/js-processor.js";
 import { optimizeSVGs } from "./processors/svg-optimizer.js";
 import { addLazyLoadingToImages } from "./processors/lazy-img.js";
 import { assertSafeTempDir, removeTempDir } from "./utils/temp-dir.js";
+import path from "node:path";
+import { assertDistinctInputOutput, assertSafeOutputTarget } from "./utils/output-transaction.js";
 
 interface OptimizeOptions {
   /** If true, skip the final zip + cleanup. The pipeline uses this so the
    *  fix/structure steps can still operate on the extracted directory and the
    *  final zip is done by create-epub in one go. */
   skipPackaging?: boolean;
+  runStep?: <T>(name: string, operation: () => Promise<T> | T) => Promise<T>;
+  skipStep?: (name: string, reason: string) => void;
 }
 
 /**
@@ -29,73 +33,98 @@ async function optimizeEPUB(
   options: OptimizeOptions = {}
 ): Promise<{ success: boolean; input: string; output: string }> {
   const resolvedArgs: Args = args ?? ((await parseArguments()) as Args);
+  const runStep =
+    options.runStep ?? (async <T>(_name: string, operation: () => Promise<T> | T) => operation());
+  const skipStep = options.skipStep ?? (() => {});
 
   try {
     // Validate inputs
     if (!(await fs.pathExists(resolvedArgs.input))) {
       throw new Error(`Input file not found: ${resolvedArgs.input}`);
     }
+    if (!(await fs.stat(resolvedArgs.input)).isFile()) {
+      throw new Error(`Input path must point to a regular file: ${resolvedArgs.input}`);
+    }
+    assertDistinctInputOutput(resolvedArgs.input, resolvedArgs.output);
+    await assertSafeOutputTarget(resolvedArgs.output);
     resolvedArgs.temp = assertSafeTempDir(resolvedArgs.temp, {
       inputPath: resolvedArgs.input,
       outputPath: resolvedArgs.output,
     });
 
     // Create parent directory for output if it doesn't exist
-    const outputDir = resolvedArgs.output.split("/").slice(0, -1).join("/");
-    if (outputDir) {
+    const outputDir = path.dirname(path.resolve(resolvedArgs.output));
+    if (outputDir !== path.parse(outputDir).root) {
       await fs.ensureDir(outputDir);
     }
 
     // 1. Extract EPUB file
-    await extractEPUB(resolvedArgs.input, resolvedArgs.temp);
+    await runStep("Extract EPUB", () => extractEPUB(resolvedArgs.input, resolvedArgs.temp));
     console.log(`📦 Extracted ${resolvedArgs.input} to ${resolvedArgs.temp}`);
 
     // 2. Process HTML and CSS files
-    await processHTML(resolvedArgs.temp);
+    await runStep("Optimize HTML/CSS", () => processHTML(resolvedArgs.temp));
     console.log("🔄 Optimized HTML/CSS files");
 
     // 3. Minify JavaScript
-    await minifyJavaScript(resolvedArgs.temp);
+    await runStep("Minify JavaScript", () => minifyJavaScript(resolvedArgs.temp));
     console.log("🔄 Minified JavaScript files");
 
     // 4. Convert large opaque PNGs to JPEG. Resize is chained into the same
     //    sharp pass so converted JPEGs don't need a follow-up downscale — step
     //    5 skips them to avoid a double recompression.
-    const MAX_IMAGE_DIM = 1600;
-    const convertedJpegs = await convertPngToJpeg(
-      resolvedArgs.temp,
-      resolvedArgs.jpgQuality,
-      undefined,
-      MAX_IMAGE_DIM
-    );
-    console.log("🖼️  Converted PNG to JPEG");
+    const maxImageDim = resolvedArgs.maxImageDim > 0 ? resolvedArgs.maxImageDim : undefined;
+    let convertedJpegs = new Set<string>();
+    if (resolvedArgs.convertPng && !resolvedArgs.lossless) {
+      convertedJpegs = await runStep("Convert PNG to JPEG", () =>
+        convertPngToJpeg(resolvedArgs.temp, resolvedArgs.jpgQuality, undefined, maxImageDim)
+      );
+      console.log("🖼️  Converted PNG to JPEG");
+    } else {
+      skipStep(
+        "Convert PNG to JPEG",
+        resolvedArgs.lossless ? "Disabled by lossless preset." : "Disabled by CLI option."
+      );
+    }
 
     // 5. Single-pass image optimization: resize + re-encode in one sharp
     //    pipeline (replaces the old downscale + optimize split).
-    await optimizeImages(resolvedArgs.temp, {
-      jpegQuality: resolvedArgs.jpgQuality,
-      pngQuality: resolvedArgs.pngQuality,
-      maxDim: MAX_IMAGE_DIM,
-      skip: convertedJpegs,
-    });
-    console.log("🖼️  Optimized image files");
+    if (!resolvedArgs.lossless) {
+      await runStep("Optimize images", () =>
+        optimizeImages(resolvedArgs.temp, {
+          jpegQuality: resolvedArgs.jpgQuality,
+          pngQuality: resolvedArgs.pngQuality,
+          maxDim: maxImageDim,
+          skip: convertedJpegs,
+        })
+      );
+      console.log("🖼️  Optimized image files");
+    } else {
+      skipStep("Optimize images", "Disabled by lossless preset.");
+    }
 
     // 6. Optimize SVGs
-    await optimizeSVGs(resolvedArgs.temp);
+    await runStep("Optimize SVG", () => optimizeSVGs(resolvedArgs.temp));
     console.log("🖼️  Optimized SVG files");
 
     // 7. Add lazy loading to images
-    await addLazyLoadingToImages(resolvedArgs.temp);
-    console.log("🖼️  Added lazy loading to images");
+    if (resolvedArgs.lazyLoading) {
+      await runStep("Add lazy loading", () => addLazyLoadingToImages(resolvedArgs.temp));
+      console.log("🖼️  Added lazy loading to images");
+    } else {
+      skipStep("Add lazy loading", "Disabled by preset/CLI option.");
+    }
 
     // 8. Optional font subsetting. Disabled by default because the legacy
     // fontmin dependency tree is not suitable for the production install path.
-    await subsetFonts(resolvedArgs.temp, { enabled: resolvedArgs.fonts });
+    await runStep("Process fonts", () =>
+      subsetFonts(resolvedArgs.temp, { enabled: resolvedArgs.fonts })
+    );
     console.log("🔤 Font processing complete");
 
     if (!options.skipPackaging) {
       // 9. Recompress as EPUB
-      await compressEPUB(resolvedArgs.output, resolvedArgs.temp);
+      await runStep("Create EPUB", () => compressEPUB(resolvedArgs.output, resolvedArgs.temp));
       console.log(`✅ Created optimized EPUB: ${resolvedArgs.output}`);
 
       // 10. Clean up temporary files if needed
@@ -118,11 +147,6 @@ async function optimizeEPUB(
       console.error(`❌ Error: ${error.message}`);
     } else {
       console.error("❌ Unknown error", error);
-    }
-
-    // Only exit the process in a non-test environment
-    if (process.env.NODE_ENV !== "test") {
-      process.exit(1);
     }
 
     throw error;

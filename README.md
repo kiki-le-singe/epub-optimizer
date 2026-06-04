@@ -4,18 +4,21 @@ A Node.js utility to optimize EPUB files by compressing HTML, CSS, images and re
 
 ## Why Use EPUB Optimizer?
 
-- ✅ **Dramatically reduces file size** - Typically 70-90% smaller files
-- ✅ **Maintains full compatibility** - Works with all major e-readers (Kindle, Apple Books, etc.)
-- ✅ **Preserves quality** - Smart optimization without visual degradation
-- ✅ **Supports all EPUB types** - Both modern (OPS) and legacy (OEBPS) formats
+- ✅ **Can dramatically reduce file size** - The original author workflow often produces files 70-90% smaller
+- ✅ **Validates before publishing** - EPUBCheck must succeed before the requested output is replaced
+- ✅ **Offers explicit quality trade-offs** - Choose balanced, lossless, or the complete author workflow
+- ✅ **Uses the EPUB package as source of truth** - Discovers modern and legacy content through `container.xml` and the OPF manifest
 - ✅ **Zero setup with Docker** - No need to install Node.js, Java, or other dependencies
 - ✅ **Battle-tested** - Used for real book publishing workflows
+- ✅ **Structured results** - Optional JSON reports, strict mode, and per-step profiling
+- ✅ **Explicit controls** - Generic, lossless, repair, and complete author workflows
 
 ![EPUB Optimizer Terminal Output](assets/epub-optimizer-demo.png)
 
 ## Table of Contents
 
 - [Quick Start](#quick-start)
+- [Migrating to v3](#migrating-to-v3)
 - [Features](#features)
 - [About This Project](#about-this-project)
   - [Important Note for Apple Pages Users](#️-important-note-for-apple-pages-users)
@@ -27,6 +30,9 @@ A Node.js utility to optimize EPUB files by compressing HTML, CSS, images and re
   - [Available Scripts](#available-scripts)
   - [Modern Workflow](#modern-workflow)
   - [Command Line Options](#command-line-options)
+  - [Modes and Presets](#modes-and-presets)
+  - [Structured Reports and Profiling](#structured-reports-and-profiling)
+  - [Safety Model](#safety-model)
   - [Docker Usage](#docker-usage)
   - [Debugging with Temporary Files](#debugging-with-temporary-files)
 - [Project Structure](#project-structure)
@@ -34,6 +40,7 @@ A Node.js utility to optimize EPUB files by compressing HTML, CSS, images and re
   - [Source and Build Separation](#source-and-build-separation)
   - [Import Structure](#import-structure)
   - [Testing](#testing)
+  - [Release Validation](#release-validation)
   - [Development and Production](#development-and-production)
 - [Linting and Formatting](#linting-and-formatting)
 - [Minification](#minification)
@@ -57,13 +64,13 @@ I use this project to optimize EPUB files that I create using Pages on Mac. My w
 
 After exporting, my original EPUB file is about 24.4MB. I use the author workflow preset to optimize it (resulting in about 7.3MB). Then I test the result in Apple Books, Kindle Previewer, etc.
 
-This project started with this workflow (I don't use any other tools), but anyone who wants to optimize their EPUB file is welcome to try it! The default `pnpm optimize` path is generic. My own Pages/manual-summary workflow is available through `pnpm optimize:author` or `--author-workflow`. If you have any questions or issues, let me know. Enjoy! :)
+This project started with this workflow (I don't use any other tools), but anyone who wants to optimize their EPUB file is welcome to try it! The default `pnpm optimize` path is generic. My complete Pages/manual-summary workflow is available through `pnpm optimize:author`, `--preset author`, or `--author-workflow`. If you have any questions or issues, let me know. Enjoy! :)
 
 ### ⚠️ Important Note for Apple Pages Users
 
 **Apple Pages applies DRM encryption to embedded fonts** for copyright protection. This means:
 
-- ✅ **Font optimization works** on EPUBs from most other sources
+- ✅ **Optional font optimization can work** on unencrypted TTF fonts when `--fonts` is enabled and `fontmin` is installed locally
 - ❌ **Font optimization WILL NOT work** on Pages EPUBs if you check "Embed fonts"
 - 🔒 **Why?** Apple encrypts fonts to protect font vendors from piracy (this is intentional and legal)
 
@@ -73,15 +80,15 @@ This depends on whether preserving your book's design and typography is importan
 
 **Option 1: Keep "Embed fonts" checked** (Preserve design - recommended if typography matters)
 
-- ✅ Your book's design is preserved perfectly
+- ✅ Your embedded typography and intended design are preserved more consistently
 - ✅ Consistent appearance across all e-readers
 - ✅ Full control over typography
 - ❌ Fonts remain at their original size (typically 1-3 MB total, can't be optimized due to DRM encryption)
-- 📊 Still achieve 85-90% total file size reduction from image/HTML/CSS optimization
+- 📊 My image-heavy workflow still achieves about 85-90% total reduction from image/HTML/CSS optimization
 
 **Option 2: Uncheck "Embed fonts"** (Maximum optimization - recommended if design is not critical)
 
-- ✅ **Maximum file size reduction** - optimize everything including images/HTML/CSS
+- ✅ **Maximum file size reduction potential** - optimize images/HTML/CSS and optionally subset compatible fonts with `--fonts`
 - ✅ **Better performance** - smaller files load faster
 - ✅ **More compatible** - readers' preferred fonts are used (better accessibility)
 - ✅ **Cleaner output** - no encrypted font files that can't be processed
@@ -96,8 +103,7 @@ This depends on whether preserving your book's design and typography is importan
 
 ## Quick Start
 
-> **Note:**
-> For both Docker and traditional usage, place your EPUB file(s) in the project root directory (the same directory as your `package.json` and Dockerfile), or specify the correct path to your file.
+> **Note:** Traditional usage accepts absolute or relative file paths. Docker can only access files inside directories mounted into the container.
 
 **Traditional installation:**
 
@@ -107,53 +113,75 @@ pnpm build
 pnpm optimize -i YourBook.epub -o YourBook-optimized.epub
 ```
 
-**Or use Docker (no setup required):**
+The default `balanced` preset performs generic optimization without running the modifying XHTML repair or author workflow passes.
+
+**Or use Docker locally:**
 
 ```bash
 git clone https://github.com/kiki-le-singe/epub-optimizer.git
 cd epub-optimizer
 docker build -t epub-optimizer .
-docker run --rm -v $(pwd):/epub-files epub-optimizer \
+docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
   -i /epub-files/YourBook.epub -o /epub-files/YourBook-optimized.epub
 ```
 
+**Or use the published Docker image without cloning/building:**
+
+```bash
+docker run --rm -v "$(pwd):/epub-files" ghcr.io/kiki-le-singe/epub-optimizer:v3.0.0 \
+  -i /epub-files/YourBook.epub -o /epub-files/YourBook-optimized.epub
+```
+
+Use a versioned image tag for reproducible runs. The `latest` tag follows the newest published release.
+
+## Migrating to v3
+
+Version 3 makes the default command safer and less specific to this project's original author workflow:
+
+- `pnpm optimize` now uses the generic `balanced` preset. It does not apply XHTML repairs, lazy loading, or author structure changes unless explicitly requested.
+- `pnpm optimize:author`, `--preset author`, and `--author-workflow` run the complete Pages/manual-summary workflow, including repairs, lazy loading, cover navigation, summary synchronization, and chapter sections.
+- For behavior close to the old generic v2 pipeline without the author structure changes, use `pnpm optimize ... --repair --lazy-loading`.
+- Input, output, and JSON report paths must be different. The output is created as a candidate and replaces the requested output only after EPUBCheck succeeds.
+- Use `--strict` to reject warnings, `--profile` to inspect step durations, and `--report-json` for a machine-readable result.
+
 ## Features
 
-- **Supports both "OPS" (modern) and "OEBPS" (legacy) EPUB content directories (auto-detected)**
+- **Discovers the package/content root through `META-INF/container.xml` and resolves navigation/resources through the OPF manifest**
 - HTML/XHTML minification (removes whitespace, comments, and unnecessary code)
 - CSS optimization (minifies and combines rules)
-- Image compression (JPEG, PNG, WebP, GIF, AVIF, SVG optimization without significant quality loss)
+- Image compression (JPEG, PNG, WebP, GIF, AVIF, and SVG according to the selected preset and quality settings)
 - PNG to JPEG conversion for non-transparent images (significantly reduces file size)
 - JavaScript minification (reduces script size)
 - **Optional font subsetting** via `--fonts` for trusted local workflows only; requires installing `fontmin` separately
 - **SVG optimization** (minifies SVG files using SVGO)
 - **Image downscaling** (optionally resizes large images to a max dimension for e-reader compatibility)
 - **Lazy loading for images** (adds `loading="lazy"` to all `<img>` tags in XHTML for EPUB3 readers)
-- **Cross-platform archive processing** (pure JavaScript implementation with no external dependencies)
+- **Cross-platform archive processing** (pure JavaScript implementation with no external ZIP binaries)
 - Archive recompression (EPUB-compliant ZIP packaging with proper compression settings)
-- EPUB validation against the EPUB specification
-- XML/XHTML validation fixing (automatically repairs common validation issues)
+- EPUB validation against the EPUB specification, with optional structured success and failure reports
+- Transactional output publication after successful EPUBCheck validation
+- **Optional XHTML repair mode** via `--repair`
 - **Optional author workflow preset** (syncs subsections from a manual summary page, updates cover navigation, and applies the project author's structure fixes)
+- **Balanced, lossless, and author presets**
+- Strict failure mode, per-step profiling, and JSON run reports
+- Archive extraction limits, zip-slip and symlink rejection, and safe OPF/manifest/navigation path resolution
 - Modular fix scripts for EPUB and OPF structure
 - Command-line interface with customizable options
 - File size comparison reporting
-- Comprehensive test suite with high coverage
+- Automated unit, EPUBCheck E2E, and Docker E2E test suites
 
 > **Note:**
 >
 > - **Font subsetting limitation:** Apple Pages EPUBs with embedded fonts are encrypted by Apple for DRM protection, preventing font optimization. Font subsetting is disabled by default and `fontmin` is not installed as a runtime dependency because its legacy dependency tree currently produces production audit findings. Use `--fonts` only for trusted local workflows after installing `fontmin` yourself.
-> - SVG optimization, image downscaling, and lazy loading are fully automated and require no manual intervention.
+> - Lazy loading is enabled by the author preset or explicitly with `--lazy-loading`.
 
 ## Requirements
 
 **Only required for traditional installation** (skip if using Docker):
 
-- Node.js 22 or higher (my version: v25.6.1)
+- Node.js 22 or higher (CI validates Node.js 22 and 24)
 - Java Runtime Environment (JRE) 17 or higher for EPUBCheck (CI and Docker use OpenJDK 17)
-- pnpm (my version: 10.30.3)
-- npm or pnpm for package management
-
-Note: All the examples below use pnpm, but you can substitute with npm if preferred.
+- pnpm 10.30.3, pinned by the repository's `packageManager` field
 
 ## Installation
 
@@ -178,12 +206,16 @@ This tool requires EPUBCheck to validate EPUB files. Follow these steps:
 3. Copy the extracted `epubcheck-x.x.x` folder (where x.x.x is the version) to the root of this project
 4. Make sure the folder is named `epubcheck` to match the path in `epubcheckPath` in src/utils/config.ts
 
+CI and Docker currently pin EPUBCheck 5.3.0.
+
 ## Docker Alternative
 
 **Docker Requirement:**
 You must have [Docker installed](https://docs.docker.com/get-docker/) on your system to use the Docker method.
 
 Docker provides a containerized environment with all dependencies pre-installed, making it easier to run the EPUB optimizer without complex setup.
+
+You can build the image locally or use the Linux AMD64/ARM64 image automatically published to GitHub Container Registry for every `v*` release tag.
 
 ### Docker Requirements
 
@@ -200,11 +232,19 @@ cd epub-optimizer
 docker build -t epub-optimizer .
 ```
 
+Or pull the published image:
+
+```bash
+docker pull ghcr.io/kiki-le-singe/epub-optimizer:v3.0.0
+```
+
+Versioned tags are recommended for reproducible runs. `latest` tracks the newest release.
+
 ### Docker Quick Start
 
 ```bash
 # Optimize an EPUB file
-docker run --rm -v $(pwd):/epub-files epub-optimizer \
+docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
   -i /epub-files/your-book.epub -o /epub-files/your-book-optimized.epub
 ```
 
@@ -213,31 +253,33 @@ docker run --rm -v $(pwd):/epub-files epub-optimizer \
 - ✅ No need to install Node.js, Java, or pnpm
 - ✅ Works consistently across all platforms (Windows, Mac, Linux)
 - ✅ Includes EPUBCheck automatically
-- ✅ Guaranteed to work with tested dependency versions
+- ✅ Uses the dependency versions tested by the project
 
 ## Usage
 
 ### Available Scripts
 
-| Script            | Description                                                                                       |
-| ----------------- | ------------------------------------------------------------------------------------------------- |
-| `build`           | Build TypeScript for production (with minification)                                               |
-| `build:dev`       | Build TypeScript for development (no minification)                                                |
-| `build:prod`      | Build TypeScript with minification for production                                                 |
-| `minify:safe`     | Safely minify JavaScript in dist/ directory (runs the TS source via Node's native type-stripping) |
-| `optimize`        | Run optimizer, keeping temp files                                                                 |
-| `optimize:author` | Run optimizer with the project author's Pages/manual-summary structure workflow                   |
-| `optimize:clean`  | Run optimizer, removing temp files afterward                                                      |
-| `cleanup`         | Remove temporary files                                                                            |
-| `test`            | Run tests in watch mode                                                                           |
-| `test:run`        | Run tests once and exit                                                                           |
-| `test:coverage`   | Run tests with coverage report                                                                    |
-| `test:e2e`        | Run the compiled optimizer against a fixture EPUB and validate it with EPUBCheck                  |
-| `test:docker`     | Run the Docker image against a fixture EPUB and validate it with EPUBCheck                        |
-| `lint`            | Lint TypeScript files in src and scripts directories                                              |
-| `lint:fix`        | Lint and auto-fix TypeScript files in src and scripts                                             |
-| `format`          | Auto-format all .ts, .json, and .md files with Prettier                                           |
-| `format:check`    | Check formatting of all .ts, .json, and .md files with Prettier                                   |
+| Script              | Description                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------------- |
+| `build`             | Build TypeScript for production (with minification)                                               |
+| `build:dev`         | Build TypeScript for development (no minification)                                                |
+| `build:prod`        | Build TypeScript with minification for production                                                 |
+| `minify:safe`       | Safely minify JavaScript in dist/ directory (runs the TS source via Node's native type-stripping) |
+| `optimize`          | Run optimizer, keeping temp files                                                                 |
+| `optimize:author`   | Run the complete project-author workflow, including repairs and structure updates                 |
+| `optimize:repair`   | Run generic optimization plus modifying XHTML repair passes                                       |
+| `optimize:lossless` | Avoid lossy image conversion, recompression, and resizing                                         |
+| `optimize:clean`    | Run optimizer, removing temp files afterward                                                      |
+| `cleanup`           | Remove temporary files                                                                            |
+| `test`              | Run tests in watch mode                                                                           |
+| `test:run`          | Run tests once and exit                                                                           |
+| `test:coverage`     | Run tests with coverage report                                                                    |
+| `test:e2e`          | Validate the balanced, lossless, and strict author fixture workflows with EPUBCheck               |
+| `test:docker`       | Run the Docker image against a fixture EPUB and validate it with EPUBCheck                        |
+| `lint`              | Lint TypeScript files in src and scripts directories                                              |
+| `lint:fix`          | Lint and auto-fix TypeScript files in src and scripts                                             |
+| `format`            | Auto-format all .ts, .json, and .md files with Prettier                                           |
+| `format:check`      | Check formatting of all .ts, .json, and .md files with Prettier                                   |
 
 ### Modern Workflow
 
@@ -256,6 +298,16 @@ pnpm optimize -i YourBook.epub -o YourBook-optimized.epub
 # Or use the project author's Pages/manual-summary workflow
 pnpm optimize:author -i YourBook.epub -o YourBook-optimized.epub
 
+# Avoid lossy image changes
+pnpm optimize:lossless -i YourBook.epub -o YourBook-optimized.epub
+
+# Apply the explicit XHTML repair passes
+pnpm optimize:repair -i YourBook.epub -o YourBook-optimized.epub
+
+# Reject warnings, print timings, and write a machine-readable report
+pnpm optimize -i YourBook.epub -o YourBook-optimized.epub \
+  --strict --profile --report-json optimization-report.json
+
 # Run tests
 pnpm test
 # or run tests once and exit
@@ -270,7 +322,7 @@ pnpm test:docker
 ### Command Line Options
 
 ```
-Usage: pnpm optimize [options]
+Usage: epub-optimizer [options]
 
 Options:
   -i, --input       Input EPUB file path                    [string] [default: "mybook.epub"]
@@ -280,7 +332,17 @@ Options:
   --png-quality     PNG compression quality (0-1 scale)     [number] [default: 0.6]
   --lang            UI language for labels (e.g. fr, en)    [string] [default: "fr"]
   --fonts           Enable experimental font subsetting      [boolean] [default: false]
-  --author-workflow Enable this project's author workflow    [boolean] [default: false]
+  --preset          Optimization preset: balanced, lossless, author
+  --repair          Apply potentially modifying XHTML repairs
+  --author-workflow Enable the complete author workflow, including repairs
+  --convert-png     Convert large opaque PNG files to JPEG when safe
+  --no-convert-png  Disable PNG-to-JPEG conversion
+  --lazy-loading    Add loading="lazy" to XHTML images
+  --no-lazy-loading Disable lazy loading
+  --max-image-dim   Maximum image width/height; 0 disables resizing
+  --strict          Fail when a step emits warnings or errors
+  --profile         Print execution time for each pipeline step
+  --report-json     Write a structured pipeline report to a JSON file
   --clean           Clean temporary files after processing  [boolean] [default: false]
   -h, --help        Show help message                       [boolean]
   -v, --version     Show version number                     [boolean]
@@ -291,6 +353,8 @@ Examples:
   pnpm optimize -i book.epub -o book-opt.epub --jpg-quality 85 Higher JPEG quality (less compression)
   pnpm optimize -i book.epub -o book-opt.epub --png-quality 0.9 Higher PNG quality (less compression)
   pnpm optimize -i book.epub -o book-opt.epub --fonts          Enable font subsetting
+  pnpm optimize:lossless -i book.epub -o book-opt.epub         Avoid lossy image changes
+  pnpm optimize:repair -i book.epub -o book-opt.epub           Apply XHTML repair passes
   pnpm optimize:author -i book.epub -o book-opt.epub           Use the author's Pages/manual-summary workflow
   pnpm optimize -i input.epub -o output.epub --jpg-quality 85 --png-quality 0.8 Custom image settings
 ```
@@ -298,11 +362,76 @@ Examples:
 > **Script Differences:**
 >
 > - `pnpm optimize` - Optimizes the EPUB file and keeps temporary files for inspection
-> - `pnpm optimize:author` - Same as optimize, plus the project author's structure workflow (cover navigation, summary page, chapter sections)
+> - `pnpm optimize:lossless` - Skips lossy image conversion, recompression, and resizing
+> - `pnpm optimize:repair` - Same as optimize, plus explicit XHTML repair passes
+> - `pnpm optimize:author` - Complete author workflow: generic optimization, repairs, lazy loading, cover navigation, summary page, and chapter sections
 > - `pnpm optimize:clean` - Same as optimize but removes temporary files afterward
 > - `pnpm cleanup` - Manually removes the temporary directory (temp_epub)
 
-> **Important Note:** This tool is designed to work with files in the project directory. Using absolute paths or paths outside the project directory may cause issues.
+### Modes and Presets
+
+| Behavior                         | `balanced` | `lossless` | `author` |
+| -------------------------------- | ---------- | ---------- | -------- |
+| HTML/CSS/JavaScript minification | Yes        | Yes        | Yes      |
+| SVG optimization                 | Yes        | Yes        | Yes      |
+| PNG-to-JPEG conversion           | Yes        | No         | Yes      |
+| Raster image resize/re-encode    | Yes        | No         | Yes      |
+| Default maximum image dimension  | 1600 px    | Disabled   | 1600 px  |
+| Lazy loading                     | No         | No         | Yes      |
+| XHTML repairs                    | No         | No         | Yes      |
+| Author structure workflow        | No         | No         | Yes      |
+
+- `balanced` is the default generic preset. It optimizes content and images without applying XHTML repairs or author structure changes.
+- `lossless` means no lossy raster processing. Text, CSS, JavaScript, and SVG files are still optimized, so the output is not byte-for-byte identical to the input.
+- `author` runs this project's complete Pages/manual-summary workflow and is equivalent to `pnpm optimize:author`.
+- `--repair` explicitly enables the potentially modifying XHTML repair passes.
+- `--author-workflow` remains supported and always enables the complete author workflow, including repairs.
+- Font subsetting is opt-in through `--fonts` and is not enabled by any preset.
+
+Applicable CLI options override preset defaults. For example, `--preset balanced --no-convert-png` disables PNG-to-JPEG conversion. The `lossless` preset always skips lossy raster processing, and the author workflow always includes repairs and author structure updates.
+
+### Structured Reports and Profiling
+
+- `--strict` also fails the run on processing or EPUBCheck warnings; processing and EPUBCheck errors always fail.
+- `--profile` prints each pipeline step's status and duration.
+- `--report-json report.json` writes a structured report on success and on pipeline failures that occur after preflight path validation.
+
+Reports contain the configured input/output paths, preset, strict mode, timestamps, total duration, size reduction when available, per-step statuses/durations/messages, and the final error when a run fails:
+
+```json
+{
+  "input": "/books/input.epub",
+  "output": "/books/output.epub",
+  "preset": "balanced",
+  "strict": true,
+  "success": true,
+  "durationMs": 1234,
+  "steps": [
+    {
+      "name": "Extract EPUB",
+      "status": "success",
+      "durationMs": 42,
+      "messages": []
+    }
+  ]
+}
+```
+
+The report path must differ from the input and output EPUB paths and must be absent or a regular file. A report write failure fails the command.
+
+### Safety Model
+
+The final EPUB is transactional: the optimizer creates a hidden candidate next to the requested output, validates that candidate with EPUBCheck, and publishes it only after validation succeeds. If optimization, packaging, validation, or publication fails before the commit, the candidate is discarded, the previous output remains untouched, and any temporary processing directory already created is preserved for debugging.
+
+Cleanup and JSON report writing happen after the validated EPUB is published. If either of these later operations fails, the command exits non-zero but keeps the newly published, EPUBCheck-validated output.
+
+Input, output, and report collisions are rejected, including aliases through symbolic links or hard links and case-only aliases on macOS/Windows. Existing output and report targets must be regular files.
+
+Temporary-directory cleanup is guarded: the optimizer refuses filesystem roots, the current working directory, the home directory, and any temp directory containing the input or output EPUB. Build and manual cleanup scripts also refuse paths outside the project or system temp directories.
+
+Archive extraction rejects unsafe absolute/traversal paths and symbolic links. It also limits archives to 20,000 entries, 512 MB per file, 2 GB total extracted size, and a maximum compression ratio of 1000:1.
+
+`META-INF/container.xml` and the OPF package document are the source of truth for content discovery. OPF and navigation references are resolved safely and cannot escape the extracted EPUB root.
 
 ### Docker Usage
 
@@ -311,22 +440,30 @@ If you're using the Docker alternative, here are additional usage examples:
 **Basic Docker optimization:**
 
 ```bash
-docker run --rm -v $(pwd):/epub-files epub-optimizer \
+docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
   -i /epub-files/book.epub -o /epub-files/book-optimized.epub
 ```
 
 **Docker with custom image quality:**
 
 ```bash
-docker run --rm -v $(pwd):/epub-files epub-optimizer \
+docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
   -i /epub-files/book.epub -o /epub-files/book-optimized.epub \
   --jpg-quality 50 --png-quality 0.4
+```
+
+**Docker with the complete author workflow:**
+
+```bash
+docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
+  -i /epub-files/book.epub -o /epub-files/book-optimized.epub \
+  --preset author --clean
 ```
 
 **Docker command breakdown:**
 
 - `docker run --rm` - Run container and remove it when done
-- `-v $(pwd):/epub-files` - Mount current directory to `/epub-files` in container
+- `-v "$(pwd):/epub-files"` - Mount current directory to `/epub-files` in container
 - `epub-optimizer` - The Docker image name
 - Arguments after the image name are passed to the EPUB optimizer
 
@@ -354,17 +491,17 @@ pnpm cleanup
 
 ```bash
 # Temp files automatically appear in your current directory
-docker run --rm -v $(pwd):/epub-files epub-optimizer \
+docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
   -i /epub-files/book.epub -o /epub-files/book-optimized.epub
 # Inspect temp_epub/ directory on your host
 
 # Custom temp location (still visible on host)
-docker run --rm -v $(pwd):/epub-files epub-optimizer \
+docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
   -i /epub-files/book.epub -o /epub-files/book-optimized.epub \
   -t /epub-files/my-debug-folder
 
 # Clean temp files after processing
-docker run --rm -v $(pwd):/epub-files epub-optimizer \
+docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
   -i /epub-files/book.epub -o /epub-files/book-optimized.epub \
   --clean
 ```
@@ -379,10 +516,15 @@ docker run --rm -v $(pwd):/epub-files epub-optimizer \
 
 This is invaluable for debugging optimization issues or understanding what the tool does to your EPUB.
 
+Failures before successful cleanup preserve temporary files even when `--clean` was requested. This keeps the failed processing state available for debugging. A later report-writing failure can occur after cleanup and publication have already succeeded.
+
 ## Project Structure
 
 ```
 epub-optimizer/
+├── .github/workflows/
+│   ├── ci.yml                 # Node 22/24, EPUBCheck, and Docker E2E validation
+│   └── publish-docker.yml     # Publish multi-architecture GHCR images on v* tags
 ├── dist/                   # Compiled JavaScript (production code)
 ├── package.json            # Package configuration
 ├── README.md               # Documentation
@@ -428,6 +570,10 @@ epub-optimizer/
     └── utils/              # Utility modules
         ├── config.ts       # Application configuration
         ├── epub-utils.ts   # OPF / TOC file discovery
+        ├── output-transaction.ts # Candidate output commit/rollback
+        ├── path-safety.ts  # Safe path resolution inside the extracted EPUB
+        ├── pipeline-options.ts # Preset resolution
+        ├── run-report.ts   # Structured results and profiling
         └── i18n.ts         # Localized label lookup
 ```
 
@@ -466,7 +612,39 @@ This project is built with TypeScript and uses modern ESM modules. Here's how th
 - Tests are written using Vitest, a modern test framework compatible with Jest syntax
 - Run tests with `pnpm test` (watch mode) or `pnpm test:run` (single run)
 - Run tests with coverage using `pnpm test:coverage`
-- Tests run in Node.js environment and mock external dependencies
+- `pnpm test:e2e` produces balanced, lossless, and strict author outputs from a fixture and validates each one with EPUBCheck
+- `pnpm test:docker` validates the same fixture through the Docker image
+- CI validates the project on Node.js 22 and 24, and runs the Docker E2E workflow on Node.js 24
+- Unit tests run in a Node.js environment and mock external dependencies where appropriate
+
+### Release Validation
+
+Before creating a release, run the CI quality gates plus coverage, audit, and local Docker checks:
+
+```bash
+pnpm lint
+pnpm format:check
+pnpm build
+pnpm test:run
+pnpm test:coverage
+pnpm audit --prod
+pnpm test:e2e
+docker build -t epub-optimizer .
+pnpm test:docker
+```
+
+Also validate a representative real EPUB through both execution paths:
+
+```bash
+pnpm optimize:author -i YourBook.epub -o YourBook-pnpm.epub \
+  --strict --report-json YourBook-pnpm-report.json
+
+docker run --rm -v "$(pwd):/epub-files" epub-optimizer \
+  -i /epub-files/YourBook.epub -o /epub-files/YourBook-docker.epub \
+  --preset author --strict --report-json /epub-files/YourBook-docker-report.json
+```
+
+A successful release candidate exits with code 0, passes EPUBCheck without errors or warnings in strict mode, and produces reports with `"success": true`.
 
 ### Development and Production
 
@@ -488,13 +666,10 @@ This project is built with TypeScript and uses modern ESM modules. Here's how th
 The production build process includes:
 
 - TypeScript compilation
-- ESM import path fixing
 - Smart JavaScript minification with Terser:
   - Minifies all files in both `src/` and `scripts/` directories
-  - Uses a skip list to avoid minifying problematic files with syntax incompatibilities
   - Maintains class names and function names for better error reporting
   - Compresses and mangles variables for reduced file size
-- Source maps for debugging
 - Comment removal
 
 > **Note:** The minification script (`minify:safe`) runs `scripts/minify-dist.ts` directly via Node's native TypeScript stripping (`node --experimental-strip-types`), not on compiled JavaScript. This keeps the build toolchain dependency-free (no `ts-node`/`tsx`) while always using the latest TypeScript logic for minification.
@@ -503,7 +678,7 @@ The production build process includes:
 
 Every processing step is a plain async function. `pipeline.ts` runs them all in-process (no sub-process spawns), forwarding a shared `{ tempDir, lang, output }` down the chain.
 
-- **General fixes** (span tags, XML/XHTML sanity, empty styles) live in `src/scripts/fix/`. `src/scripts/fix/index.ts` exports `runFixes(opts)` which awaits each leaf `run(opts)` in sequence.
+- **Explicit repair passes** (span tags, XML/XHTML sanity, empty styles) live in `src/scripts/fix/`. They run only with `--repair` or the author workflow because they intentionally modify document structure.
 - **Author workflow structure modifications** (cover linear, TOC, summary page, chapter sections) live in `src/scripts/ops/`. `src/scripts/ops/update-structure.ts` exports `runStructureUpdates(opts)`, and the pipeline runs it only when `--author-workflow` is enabled.
 - To enable/disable a step, comment or uncomment the corresponding `await …(opts)` call in the matching orchestrator file.
 - To add a new step, create a script that exports `async run(opts: RunOpts)` and add an `await run(opts)` line in the orchestrator.
@@ -511,27 +686,27 @@ Every processing step is a plain async function. `pipeline.ts` runs them all in-
 
 ### Customizing the Optimization Process
 
-If you don't need all the features I've implemented for my own workflow, use the default generic optimizer:
+Use the default generic optimizer for EPUBs that do not need the project author's Pages/manual-summary workflow:
 
 ```bash
 pnpm optimize -i book.epub -o book-opt.epub
 ```
 
-If you do want my Pages/manual-summary workflow, enable the author preset:
+If you do want the complete Pages/manual-summary workflow, enable the author preset:
 
 ```bash
 pnpm optimize:author -i YourBook.epub -o YourBook-optimized.epub
 # equivalent:
-pnpm optimize -i YourBook.epub -o YourBook-optimized.epub --author-workflow
+pnpm optimize -i YourBook.epub -o YourBook-optimized.epub --preset author
 ```
 
 For deeper customization, there are two levels of granularity:
 
 **Wholesale (in `src/pipeline.ts`)** — comment out an entire step to disable a whole group at once:
 
-- Omit `--author-workflow` to skip **all** author workflow structure updates (TOC, cover, summary, chapter sections) in one go.
-- Comment `await runFixes(...)` to skip **all** general XHTML fixes (span tags, XML sanity, empty styles).
-- Comment `await validateEPUB(...)` to skip EPUBCheck validation (useful for debugging without a Java install).
+- Omit `--repair` and the author preset to skip **all** modifying XHTML repair passes.
+- Omit `--author-workflow` / `--preset author` to skip **all** author workflow structure updates.
+- EPUBCheck validation is required for transactional publication. When a run fails, inspect the preserved temporary directory instead of disabling validation.
 
 **Granular (in the orchestrator files)** — keep some steps, skip others:
 
@@ -561,13 +736,12 @@ After making any customizations, rebuild the project with `pnpm build` to apply 
 
 **"Java not found" or EPUBCheck errors**
 
-- Install Java JRE 1.7+ (see [Requirements](#requirements))
+- Install Java JRE 17+ (see [Requirements](#requirements))
 - Download EPUBCheck manually (see [EPUBCheck Setup](#epubcheck-setup))
 
 **"pnpm command not found"**
 
 - Install pnpm: `npm install -g pnpm`
-- Or use npm instead: replace `pnpm` with `npm` in commands
 
 **Build errors**
 
@@ -599,7 +773,7 @@ This project uses the following dependencies:
 
 - Node.js 22 or higher
 - Java Runtime Environment (JRE) 17 or higher (for EPUBCheck validation)
-- pnpm or npm for package management
+- pnpm 10.30.3
 
 ### Key npm Packages
 

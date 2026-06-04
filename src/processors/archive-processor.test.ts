@@ -129,4 +129,31 @@ describe("Archive Processor", () => {
     const stats = await fs.stat(outputEpub);
     expect(stats.size).toBeGreaterThan(0);
   });
+
+  it("rejects archives that exceed configured entry limits", async () => {
+    await createMockEpub(mockEpubPath);
+
+    await expect(
+      extractEPUB(mockEpubPath, extractDir, {
+        maxEntries: 1,
+        maxEntryBytes: 1024 * 1024,
+        maxTotalBytes: 10 * 1024 * 1024,
+        maxCompressionRatio: 10_000,
+      })
+    ).rejects.toThrow("limit is 1");
+  });
+
+  it("rejects archives with a suspicious compression ratio", async () => {
+    await fs.writeFile(path.join(sampleEpubDir, "highly-compressible.txt"), "a".repeat(100_000));
+    await createMockEpub(mockEpubPath);
+
+    await expect(
+      extractEPUB(mockEpubPath, extractDir, {
+        maxEntries: 100,
+        maxEntryBytes: 1024 * 1024,
+        maxTotalBytes: 10 * 1024 * 1024,
+        maxCompressionRatio: 2,
+      })
+    ).rejects.toThrow("suspicious compression ratio");
+  });
 });

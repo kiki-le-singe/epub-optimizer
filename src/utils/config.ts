@@ -37,6 +37,12 @@ const config = {
   archiveOptions: {
     zlib: { level: 9 },
   },
+  archiveLimits: {
+    maxEntries: 20_000,
+    maxEntryBytes: 512 * 1024 * 1024,
+    maxTotalBytes: 2 * 1024 * 1024 * 1024,
+    maxCompressionRatio: 1_000,
+  },
 
   // EPUBCheck path
   epubcheckPath: "epubcheck/epubcheck.jar",

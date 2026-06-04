@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "fs-extra";
 import os from "node:os";
 import path from "node:path";
+// @ts-expect-error Node's native TypeScript stripping requires the source extension.
 import { assertOptimizedOutput, createEpub, createFixtureEpubStructure } from "./e2e-epubcheck.ts";
 
 const imageName = process.env.EPUB_OPTIMIZER_DOCKER_IMAGE ?? "epub-optimizer";
@@ -28,6 +29,7 @@ async function main(): Promise<void> {
   const inputEpub = path.join(runDir, "input.epub");
   const outputEpub = path.join(runDir, "output.epub");
   const extractDir = path.join(runDir, "extract");
+  const reportPath = path.join(runDir, "report.json");
 
   try {
     await createFixtureEpubStructure(fixtureDir);
@@ -47,6 +49,8 @@ async function main(): Promise<void> {
         "/epub-files/output.epub",
         "--temp",
         "/epub-files/extract",
+        "--report-json",
+        "/epub-files/report.json",
         "--clean",
       ],
       { stdio: "inherit" }
@@ -60,6 +64,10 @@ async function main(): Promise<void> {
     }
     if (await fs.pathExists(extractDir)) {
       throw new Error("Expected Docker --clean to remove the extraction temp directory.");
+    }
+    const report = (await fs.readJson(reportPath)) as { success?: boolean };
+    if (report.success !== true) {
+      throw new Error("Expected Docker JSON pipeline report to record a successful run.");
     }
 
     await assertOptimizedOutput(outputEpub, runDir);
