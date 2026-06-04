@@ -8,9 +8,12 @@ import * as e2eFixture from "./e2e-epubcheck.ts";
 
 const {
   assertAuthorOutput,
+  assertConfiguredAuthorOutput,
+  assertLosslessOutput,
   assertOptimizedOutput,
   assertSizeRegression,
   createAuthorFixtureEpubStructure,
+  createConfiguredAuthorFixtureEpubStructure,
   createEpub,
   createFixtureEpubStructure,
 } = e2eFixture;
@@ -32,28 +35,106 @@ function assertDockerAvailable(): void {
   }
 }
 
+interface DockerRunReport {
+  preset?: string;
+  strict?: boolean;
+  success?: boolean;
+  steps?: Array<{ name?: string; status?: string }>;
+  content?: { integrity?: { valid?: boolean } };
+}
+
+interface DockerWorkflowResult {
+  outputEpub: string;
+  report: DockerRunReport;
+}
+
 async function assertSuccessfulRun(
-  runDir: string,
   name: string,
   outputEpub: string,
   extractDir: string,
-  reportPath: string
-): Promise<void> {
+  reportPath: string,
+  expectClean: boolean
+): Promise<DockerRunReport> {
   if (!(await fs.pathExists(outputEpub))) {
     throw new Error(`Expected ${name} optimized EPUB output to exist.`);
   }
-  if (await fs.pathExists(extractDir)) {
-    throw new Error(`Expected ${name} --clean to remove the extraction temp directory.`);
+  const tempExists = await fs.pathExists(extractDir);
+  if (expectClean && tempExists) {
+    throw new Error(`Expected ${name} to remove the extraction temp directory.`);
   }
-  const report = (await fs.readJson(reportPath)) as {
-    success?: boolean;
-    content?: { integrity?: { valid?: boolean } };
-  };
+  if (!expectClean && !tempExists) {
+    throw new Error(`Expected ${name} to keep the extraction temp directory.`);
+  }
+  const report = (await fs.readJson(reportPath)) as DockerRunReport;
   if (report.success !== true || report.content?.integrity?.valid !== true) {
     throw new Error(`Expected ${name} JSON pipeline report to record a successful run.`);
   }
 
-  await assertOptimizedOutput(outputEpub, path.join(runDir, `assert-${name}`));
+  return report;
+}
+
+function assertStepStatus(
+  report: DockerRunReport,
+  stepName: string,
+  expectedStatus: "success" | "skipped"
+): void {
+  const step = report.steps?.find(({ name }) => name === stepName);
+  if (step?.status !== expectedStatus) {
+    throw new Error(
+      `Expected ${stepName} to be ${expectedStatus}, received ${step?.status ?? "missing"}.`
+    );
+  }
+}
+
+async function runDockerWorkflowCase(
+  runDir: string,
+  name: string,
+  inputFile: string,
+  mode: "run" | "compose",
+  expectClean: boolean,
+  extraArgs: string[] = []
+): Promise<DockerWorkflowResult> {
+  const outputFile = `${name}.epub`;
+  const extractName = `extract-${name}`;
+  const reportFile = `report-${name}.json`;
+  const cliArgs = [
+    "-i",
+    inputFile,
+    "-o",
+    outputFile,
+    "--temp",
+    extractName,
+    "--report-json",
+    reportFile,
+    ...extraArgs,
+  ];
+  const dockerArgs =
+    mode === "run"
+      ? ["run", "--rm", "-v", `${runDir}:/epub-files`, imageName, ...cliArgs]
+      : ["compose", "run", "--rm", "optimizer", ...cliArgs];
+  const result = spawnSync("docker", dockerArgs, {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      EPUB_FILES_DIR: runDir,
+      EPUB_OPTIMIZER_DOCKER_IMAGE: imageName,
+    },
+    stdio: "inherit",
+  });
+
+  if (result.status !== 0) {
+    throw new Error(`Docker ${mode} ${name} E2E failed with exit ${result.status ?? "unknown"}.`);
+  }
+
+  const outputEpub = path.join(runDir, outputFile);
+  const report = await assertSuccessfulRun(
+    `Docker ${mode} ${name}`,
+    outputEpub,
+    path.join(runDir, extractName),
+    path.join(runDir, reportFile),
+    expectClean
+  );
+  return { outputEpub, report };
 }
 
 async function main(): Promise<void> {
@@ -67,131 +148,136 @@ async function main(): Promise<void> {
 
   const fixtureDir = path.join(runDir, "fixture");
   const inputEpub = path.join(runDir, "input.epub");
-  const runOutputEpub = path.join(runDir, "output-run.epub");
-  const runExtractDir = path.join(runDir, "extract-run");
-  const runReportPath = path.join(runDir, "report-run.json");
-  const composeOutputEpub = path.join(runDir, "output-compose.epub");
-  const composeExtractDir = path.join(runDir, "extract-compose");
-  const composeReportPath = path.join(runDir, "report-compose.json");
   const authorFixtureDir = path.join(runDir, "author-fixture");
   const authorInputEpub = path.join(runDir, "author-input.epub");
-  const authorOutputEpub = path.join(runDir, "author-output.epub");
-  const authorExtractDir = path.join(runDir, "extract-author");
-  const authorReportPath = path.join(runDir, "report-author.json");
+  const configuredAuthorFixtureDir = path.join(runDir, "configured-author-fixture");
+  const configuredAuthorInputEpub = path.join(runDir, "configured-author-input.epub");
+  const authorConfigPath = path.join(runDir, "author-workflow.json");
 
   try {
     await createFixtureEpubStructure(fixtureDir);
     await createEpub(inputEpub, fixtureDir);
     await createAuthorFixtureEpubStructure(authorFixtureDir);
     await createEpub(authorInputEpub, authorFixtureDir);
+    await createConfiguredAuthorFixtureEpubStructure(configuredAuthorFixtureDir);
+    await createEpub(configuredAuthorInputEpub, configuredAuthorFixtureDir);
+    await fs.writeJson(authorConfigPath, {
+      summaryHref: "contents.xhtml",
+      coverSpineId: "front-cover",
+      chapterClasses: ["chapter-link"],
+      sectionClasses: ["section-link"],
+      summaryEntryClass: "chapter-link",
+      coverNavClass: "toc-cover",
+      sectionNavClass: "toc-section",
+    });
 
-    const result = spawnSync(
-      "docker",
-      [
-        "run",
-        "--rm",
-        "-v",
-        `${runDir}:/epub-files`,
-        imageName,
-        "-i",
-        "input.epub",
-        "-o",
-        "output-run.epub",
-        "--temp",
-        "extract-run",
-        "--report-json",
-        "report-run.json",
-        "--clean",
-      ],
-      { stdio: "inherit" }
-    );
-
-    if (result.status !== 0) {
-      throw new Error(`Docker run E2E failed with exit ${result.status ?? "unknown"}.`);
-    }
-    await assertSuccessfulRun(runDir, "docker run", runOutputEpub, runExtractDir, runReportPath);
-
-    const composeResult = spawnSync(
-      "docker",
-      [
-        "compose",
-        "run",
-        "--rm",
-        "optimizer",
-        "-i",
-        "input.epub",
-        "-o",
-        "output-compose.epub",
-        "--temp",
-        "extract-compose",
-        "--report-json",
-        "report-compose.json",
-        "--clean",
-      ],
-      {
-        cwd: repoRoot,
-        env: {
-          ...process.env,
-          EPUB_FILES_DIR: runDir,
-          EPUB_OPTIMIZER_DOCKER_IMAGE: imageName,
-        },
-        stdio: "inherit",
-      }
-    );
-
-    if (composeResult.status !== 0) {
-      throw new Error(`Docker Compose E2E failed with exit ${composeResult.status ?? "unknown"}.`);
-    }
-    await assertSuccessfulRun(
+    const rawBalanced = await runDockerWorkflowCase(
       runDir,
-      "Docker Compose",
-      composeOutputEpub,
-      composeExtractDir,
-      composeReportPath
+      "raw-balanced",
+      "input.epub",
+      "run",
+      true,
+      ["--clean"]
+    );
+    await assertOptimizedOutput(rawBalanced.outputEpub, path.join(runDir, "assert-raw-balanced"));
+
+    const composeBalanced = await runDockerWorkflowCase(
+      runDir,
+      "compose-balanced",
+      "input.epub",
+      "compose",
+      false
+    );
+    if (composeBalanced.report.preset !== "balanced") {
+      throw new Error("Expected Docker Compose default workflow to use the balanced preset.");
+    }
+    assertStepStatus(composeBalanced.report, "Repair XHTML", "skipped");
+    assertStepStatus(composeBalanced.report, "Author workflow", "skipped");
+    await assertOptimizedOutput(
+      composeBalanced.outputEpub,
+      path.join(runDir, "assert-compose-balanced")
     );
 
-    const authorResult = spawnSync(
-      "docker",
+    const composeLossless = await runDockerWorkflowCase(
+      runDir,
+      "compose-lossless",
+      "input.epub",
+      "compose",
+      true,
+      ["--preset", "lossless", "--clean"]
+    );
+    if (composeLossless.report.preset !== "lossless") {
+      throw new Error("Expected Docker Compose lossless workflow to record the lossless preset.");
+    }
+    await assertLosslessOutput(composeLossless.outputEpub, path.join(runDir, "assert-lossless"));
+
+    const composeRepair = await runDockerWorkflowCase(
+      runDir,
+      "compose-repair",
+      "input.epub",
+      "compose",
+      true,
+      ["--repair", "--clean"]
+    );
+    assertStepStatus(composeRepair.report, "Repair XHTML", "success");
+    assertStepStatus(composeRepair.report, "Author workflow", "skipped");
+    await assertOptimizedOutput(composeRepair.outputEpub, path.join(runDir, "assert-repair"));
+
+    const composeAuthor = await runDockerWorkflowCase(
+      runDir,
+      "compose-author",
+      "author-input.epub",
+      "compose",
+      true,
+      ["--preset", "author", "--strict", "--lang", "en", "--clean"]
+    );
+    if (composeAuthor.report.preset !== "author" || composeAuthor.report.strict !== true) {
+      throw new Error(
+        "Expected Docker Compose author workflow to record author preset and strict mode."
+      );
+    }
+    for (const stepName of ["Repair XHTML", "Author workflow"]) {
+      assertStepStatus(composeAuthor.report, stepName, "success");
+    }
+    await assertAuthorOutput(composeAuthor.outputEpub, path.join(runDir, "assert-author"));
+    await assertSizeRegression(authorInputEpub, composeAuthor.outputEpub, 0.75);
+
+    const composeConfiguredAuthor = await runDockerWorkflowCase(
+      runDir,
+      "compose-configured-author",
+      "configured-author-input.epub",
+      "compose",
+      true,
       [
-        "run",
-        "--rm",
-        "-v",
-        `${runDir}:/epub-files`,
-        imageName,
-        "-i",
-        "author-input.epub",
-        "-o",
-        "author-output.epub",
-        "--temp",
-        "extract-author",
-        "--report-json",
-        "report-author.json",
         "--preset",
         "author",
         "--strict",
         "--lang",
         "en",
+        "--author-config",
+        "author-workflow.json",
         "--clean",
-      ],
-      { stdio: "inherit" }
+      ]
     );
-    if (authorResult.status !== 0) {
-      throw new Error(`Docker author E2E failed with exit ${authorResult.status ?? "unknown"}.`);
+    if (
+      composeConfiguredAuthor.report.preset !== "author" ||
+      composeConfiguredAuthor.report.strict !== true
+    ) {
+      throw new Error(
+        "Expected Docker Compose configured author workflow to record author preset and strict mode."
+      );
     }
-    if (await fs.pathExists(authorExtractDir)) {
-      throw new Error("Expected Docker author --clean to remove the extraction temp directory.");
+    for (const stepName of ["Repair XHTML", "Author workflow"]) {
+      assertStepStatus(composeConfiguredAuthor.report, stepName, "success");
     }
-    const authorReport = (await fs.readJson(authorReportPath)) as {
-      success?: boolean;
-      content?: { integrity?: { valid?: boolean } };
-    };
-    if (authorReport.success !== true || authorReport.content?.integrity?.valid !== true) {
-      throw new Error("Expected Docker author report to record valid content integrity.");
-    }
-    await assertAuthorOutput(authorOutputEpub, path.join(runDir, "assert-author"));
-    await assertSizeRegression(authorInputEpub, authorOutputEpub, 0.75);
+    await assertConfiguredAuthorOutput(
+      composeConfiguredAuthor.outputEpub,
+      path.join(runDir, "assert-configured-author")
+    );
 
-    console.log("Docker run, Docker Compose, and author workflow E2E fixtures passed.");
+    console.log(
+      "Docker workflows passed E2E validation: raw run, Compose balanced, lossless, repair, author, and configured author."
+    );
   } finally {
     await fs.remove(runDir);
   }
