@@ -3,6 +3,7 @@ import * as cheerio from "cheerio";
 import { getCoverLabel } from "../../utils/i18n.js";
 import { getTOCFiles } from "../../utils/epub-utils.js";
 import { getLang, getTempDir, isEntryPoint, type RunOpts } from "../utils.js";
+import { normalizeNCXNavigation } from "./ncx.js";
 
 /**
  * Updates EPUB3 navigation file to include cover link
@@ -91,14 +92,7 @@ async function updateEPUB2NCX(ncxFilePath: string, coverLabel: string): Promise<
         // Add it as the first navPoint
         navMap.prepend(coverNavPoint);
 
-        // Update the playOrder of all subsequent navPoints
-        $("navPoint").each((i, el) => {
-          const navPoint = $(el);
-          if (navPoint.attr("id") !== "navpoint-cover") {
-            const currentOrder = parseInt(navPoint.attr("playOrder") || "1");
-            navPoint.attr("playOrder", (currentOrder + 1).toString());
-          }
-        });
+        normalizeNCXNavigation($);
 
         // Save the updated NCX
         await fs.writeFile(ncxFilePath, $.xml());

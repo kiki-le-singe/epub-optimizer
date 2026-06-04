@@ -299,7 +299,7 @@ pnpm optimize:repair -i YourBook.epub -o YourBook-optimized.epub
 
 # Reject warnings, print timings, and write a machine-readable report
 pnpm optimize -i YourBook.epub -o YourBook-optimized.epub \
-  --strict --profile --report-json optimization-report.json
+  --strict --profile --report-json reports/optimization-report.json
 
 # Run tests
 pnpm test
@@ -387,7 +387,8 @@ Applicable CLI options override preset defaults. For example, `--preset balanced
 
 - `--strict` also fails the run on processing or EPUBCheck warnings; processing and EPUBCheck errors always fail.
 - `--profile` prints each pipeline step's status and duration.
-- `--report-json report.json` writes a structured report on success and on pipeline failures that occur after preflight path validation.
+- `--report-json reports/report.json` writes a structured report on success and on pipeline failures that occur after preflight path validation.
+- The report directory is created automatically. Local reports under `reports/` are ignored by Git.
 
 Reports contain the configured input/output paths, preset, strict mode, timestamps, total duration, size reduction when available, per-step statuses/durations/messages, and the final error when a run fails:
 
@@ -660,11 +661,11 @@ Also validate a representative real EPUB through both execution paths:
 
 ```bash
 pnpm optimize:author -i YourBook.epub -o YourBook-pnpm.epub \
-  --strict --report-json YourBook-pnpm-report.json
+  --strict --report-json reports/YourBook-pnpm-report.json
 
 docker compose run --rm optimizer \
   -i YourBook.epub -o YourBook-docker.epub \
-  --preset author --strict --report-json YourBook-docker-report.json
+  --preset author --strict --report-json reports/YourBook-docker-report.json
 ```
 
 A successful release candidate exits with code 0, passes EPUBCheck without errors or warnings in strict mode, and produces reports with `"success": true`.

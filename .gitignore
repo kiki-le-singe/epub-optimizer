@@ -8,11 +8,15 @@ dist/
 temp_epub/
 extracted/
 
+# Local optimization reports
+reports/
+
 # EPUB CHECK files
 epubcheck/
 
-# EPUB files
+# Generated ebook files
 *.epub
+*.mobi
 
 # Log files
 logs
@@ -34,4 +38,4 @@ coverage/
 .nyc_output/
 
 # ESLint
-.eslintcache 
+.eslintcache
