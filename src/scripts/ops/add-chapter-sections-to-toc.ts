@@ -3,6 +3,7 @@ import * as cheerio from "cheerio";
 import path from "node:path";
 import { getTOCFiles, getContentPath } from "../../utils/epub-utils.js";
 import { getTempDir, isEntryPoint, type RunOpts } from "../utils.js";
+import { normalizeNCXNavigation } from "./ncx.js";
 
 /**
  * Interface for a chapter section
@@ -229,6 +230,8 @@ async function updateEPUB2NCXWithSections(ncxFilePath: string, chapters: Chapter
         console.log(`Warning: Could not find chapter in NCX: ${chapter.text}`);
       }
     }
+
+    normalizeNCXNavigation($);
 
     // Save the updated NCX
     await fs.writeFile(ncxFilePath, $.xml());
