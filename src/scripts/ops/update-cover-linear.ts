@@ -5,15 +5,21 @@ import fs from "fs-extra";
 import * as cheerio from "cheerio";
 import { getOPFPath } from "../../utils/epub-utils.js";
 import { getTempDir, isEntryPoint, type RunOpts } from "../utils.js";
+import { DEFAULT_AUTHOR_WORKFLOW_CONFIG } from "../../utils/author-workflow-config.js";
 
 /**
  * Mark the cover item in an OPF manifest's spine as `linear="yes"` so readers
  * render it first. Returns the updated XML and whether a change was made.
  * Pure function — no I/O.
  */
-export function setCoverLinear(opfXml: string): { xml: string; updated: boolean } {
+export function setCoverLinear(
+  opfXml: string,
+  coverSpineId = DEFAULT_AUTHOR_WORKFLOW_CONFIG.coverSpineId
+): { xml: string; updated: boolean } {
   const $ = cheerio.load(opfXml, { xmlMode: true });
-  const coverRef = $('itemref[idref="cover"]');
+  const coverRef = $("spine itemref")
+    .filter((_, element) => $(element).attr("idref") === coverSpineId)
+    .first();
   if (!coverRef.length) {
     return { xml: opfXml, updated: false };
   }
@@ -27,11 +33,13 @@ export async function run(opts: RunOpts = {}): Promise<void> {
   console.log(`Updating cover in OPF file: ${opfFile}`);
 
   const content = fs.readFileSync(opfFile, "utf8");
-  const { xml, updated } = setCoverLinear(content);
+  const coverSpineId =
+    opts.authorConfig?.coverSpineId ?? DEFAULT_AUTHOR_WORKFLOW_CONFIG.coverSpineId;
+  const { xml, updated } = setCoverLinear(content, coverSpineId);
 
   if (updated) {
     fs.writeFileSync(opfFile, xml);
-    console.log('Successfully set cover to linear: <itemref idref="cover" linear="yes"/>');
+    console.log(`Successfully set cover spine item "${coverSpineId}" to linear="yes"`);
   } else {
     console.log("Warning: No cover reference found in spine section of OPF file");
   }

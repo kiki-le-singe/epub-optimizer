@@ -81,6 +81,10 @@ async function parseArguments(): Promise<Args> {
       type: "boolean",
       default: false,
     })
+    .option("author-config", {
+      describe: "JSON overrides for the author workflow's summary, cover, and CSS class mapping",
+      type: "string",
+    })
     .option("convert-png", {
       describe: "Convert large opaque PNG files to JPEG when safe",
       type: "boolean",
@@ -124,6 +128,10 @@ async function parseArguments(): Promise<Args> {
       "Use the project author's complete Pages/manual-summary workflow"
     )
     .example(
+      "pnpm optimize:author -i book.epub -o book-opt.epub --author-config author-workflow.json",
+      "Override the author workflow's summary, cover, and CSS class mapping"
+    )
+    .example(
       "epub-optimizer -i input.epub -o output.epub --jpg-quality 85 --png-quality 0.8",
       "Custom image settings"
     )
@@ -144,6 +152,9 @@ async function parseArguments(): Promise<Args> {
       }
       if (maxImageDim !== undefined && Number(maxImageDim) < 0) {
         throw new Error("--max-image-dim must be 0 or greater.");
+      }
+      if (argv["author-config"] && argv.preset !== "author" && argv["author-workflow"] !== true) {
+        throw new Error("--author-config requires --preset author or --author-workflow.");
       }
       return true;
     })

@@ -4,7 +4,16 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 // @ts-expect-error Node's native TypeScript stripping requires the source extension.
-import { assertOptimizedOutput, createEpub, createFixtureEpubStructure } from "./e2e-epubcheck.ts";
+import * as e2eFixture from "./e2e-epubcheck.ts";
+
+const {
+  assertAuthorOutput,
+  assertOptimizedOutput,
+  assertSizeRegression,
+  createAuthorFixtureEpubStructure,
+  createEpub,
+  createFixtureEpubStructure,
+} = e2eFixture;
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const imageName = process.env.EPUB_OPTIMIZER_DOCKER_IMAGE ?? "epub-optimizer";
@@ -36,8 +45,11 @@ async function assertSuccessfulRun(
   if (await fs.pathExists(extractDir)) {
     throw new Error(`Expected ${name} --clean to remove the extraction temp directory.`);
   }
-  const report = (await fs.readJson(reportPath)) as { success?: boolean };
-  if (report.success !== true) {
+  const report = (await fs.readJson(reportPath)) as {
+    success?: boolean;
+    content?: { integrity?: { valid?: boolean } };
+  };
+  if (report.success !== true || report.content?.integrity?.valid !== true) {
     throw new Error(`Expected ${name} JSON pipeline report to record a successful run.`);
   }
 
@@ -61,10 +73,17 @@ async function main(): Promise<void> {
   const composeOutputEpub = path.join(runDir, "output-compose.epub");
   const composeExtractDir = path.join(runDir, "extract-compose");
   const composeReportPath = path.join(runDir, "report-compose.json");
+  const authorFixtureDir = path.join(runDir, "author-fixture");
+  const authorInputEpub = path.join(runDir, "author-input.epub");
+  const authorOutputEpub = path.join(runDir, "author-output.epub");
+  const authorExtractDir = path.join(runDir, "extract-author");
+  const authorReportPath = path.join(runDir, "report-author.json");
 
   try {
     await createFixtureEpubStructure(fixtureDir);
     await createEpub(inputEpub, fixtureDir);
+    await createAuthorFixtureEpubStructure(authorFixtureDir);
+    await createEpub(authorInputEpub, authorFixtureDir);
 
     const result = spawnSync(
       "docker",
@@ -131,7 +150,48 @@ async function main(): Promise<void> {
       composeReportPath
     );
 
-    console.log("Docker run and Docker Compose E2E fixtures passed.");
+    const authorResult = spawnSync(
+      "docker",
+      [
+        "run",
+        "--rm",
+        "-v",
+        `${runDir}:/epub-files`,
+        imageName,
+        "-i",
+        "author-input.epub",
+        "-o",
+        "author-output.epub",
+        "--temp",
+        "extract-author",
+        "--report-json",
+        "report-author.json",
+        "--preset",
+        "author",
+        "--strict",
+        "--lang",
+        "en",
+        "--clean",
+      ],
+      { stdio: "inherit" }
+    );
+    if (authorResult.status !== 0) {
+      throw new Error(`Docker author E2E failed with exit ${authorResult.status ?? "unknown"}.`);
+    }
+    if (await fs.pathExists(authorExtractDir)) {
+      throw new Error("Expected Docker author --clean to remove the extraction temp directory.");
+    }
+    const authorReport = (await fs.readJson(authorReportPath)) as {
+      success?: boolean;
+      content?: { integrity?: { valid?: boolean } };
+    };
+    if (authorReport.success !== true || authorReport.content?.integrity?.valid !== true) {
+      throw new Error("Expected Docker author report to record valid content integrity.");
+    }
+    await assertAuthorOutput(authorOutputEpub, path.join(runDir, "assert-author"));
+    await assertSizeRegression(authorInputEpub, authorOutputEpub, 0.75);
+
+    console.log("Docker run, Docker Compose, and author workflow E2E fixtures passed.");
   } finally {
     await fs.remove(runDir);
   }

@@ -7,12 +7,16 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import sharp from "sharp";
 import unzipper from "unzipper";
 import yazl from "yazl";
+import * as cheerio from "cheerio";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
 const pipelinePath = path.join(repoRoot, "dist", "src", "pipeline.js");
-const epubcheckPath = path.join(repoRoot, "epubcheck", "epubcheck.jar");
+const epubcheckPath = path.resolve(
+  repoRoot,
+  process.env.EPUBCHECK_PATH ?? path.join("epubcheck", "epubcheck.jar")
+);
 
 async function createOpaquePng(): Promise<Buffer> {
   const width = 1024;
@@ -150,6 +154,137 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
   );
 
   await fs.writeFile(path.join(oebps, "images", "photo.png"), await createOpaquePng());
+}
+
+async function createAuthorFixtureEpubStructure(root: string): Promise<void> {
+  await createFixtureEpubStructure(root);
+  const oebps = path.join(root, "OEBPS");
+
+  await fs.writeFile(
+    path.join(oebps, "content.opf"),
+    `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="book-id">urn:uuid:123e4567-e89b-12d3-a456-426614174001</dc:identifier>
+    <dc:title>EPUB Optimizer Author Fixture</dc:title>
+    <dc:language>en</dc:language>
+    <meta property="dcterms:modified">2026-06-04T00:00:00Z</meta>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+    <item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>
+    <item id="summary" href="chapter-2.xhtml" media-type="application/xhtml+xml"/>
+    <item id="chapter-1" href="chapters/chapter-1.xhtml" media-type="application/xhtml+xml" properties="scripted"/>
+    <item id="styles" href="styles/book.css" media-type="text/css"/>
+    <item id="photo" href="images/photo.png" media-type="image/png" properties="cover-image"/>
+    <item id="diagram" href="images/diagram.svg" media-type="image/svg+xml"/>
+  </manifest>
+  <spine toc="ncx">
+    <itemref idref="cover" linear="no"/>
+    <itemref idref="summary"/>
+    <itemref idref="chapter-1"/>
+  </spine>
+</package>
+`
+  );
+
+  await fs.writeFile(
+    path.join(oebps, "nav.xhtml"),
+    `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+  <head><title>Contents</title></head>
+  <body><nav epub:type="toc"><ol>
+    <li><a href="chapter-2.xhtml">Contents</a></li>
+    <li><a href="chapters/chapter-1.xhtml">Chapter 1</a></li>
+  </ol></nav></body>
+</html>
+`
+  );
+
+  await fs.writeFile(
+    path.join(oebps, "chapter-2.xhtml"),
+    `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head><title>Contents</title></head>
+  <body>
+    <p class="p6"><a href="chapter-2.xhtml">Contents</a></p>
+    <p class="p6"><a href="chapters/chapter-1.xhtml">Chapter 1</a></p>
+    <p class="p7"><a href="chapters/chapter-1.xhtml#section-one">Section One</a></p>
+    <p class="p7"><a href="chapters/chapter-1.xhtml#section-two">Section Two</a></p>
+  </body>
+</html>
+`
+  );
+
+  await fs.writeFile(
+    path.join(oebps, "chapters", "chapter-1.xhtml"),
+    `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+  <head>
+    <title>Chapter 1</title>
+    <link rel="stylesheet" type="text/css" href="../styles/book.css"/>
+  </head>
+  <body>
+    <section epub:type="chapter">
+      <h1>Chapter 1</h1>
+      <section id="section-one"><h2>Section One</h2><img src="../images/photo.png" alt="Photo"/></section>
+      <section id="section-two"><h2>Section Two</h2><img src="../images/diagram.svg" alt="Diagram"/></section>
+      <script>console.log("author fixture");</script>
+    </section>
+  </body>
+</html>
+`
+  );
+
+  await fs.writeFile(
+    path.join(oebps, "toc.ncx"),
+    `<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head>
+    <meta name="dtb:uid" content="urn:uuid:123e4567-e89b-12d3-a456-426614174001"/>
+    <meta name="dtb:depth" content="1"/>
+    <meta name="dtb:totalPageCount" content="0"/>
+    <meta name="dtb:maxPageNumber" content="0"/>
+  </head>
+  <docTitle><text>EPUB Optimizer Author Fixture</text></docTitle>
+  <navMap>
+    <navPoint id="summary" playOrder="1"><navLabel><text>Contents</text></navLabel><content src="chapter-2.xhtml"/></navPoint>
+    <navPoint id="chapter-1" playOrder="2"><navLabel><text>Chapter 1</text></navLabel><content src="chapters/chapter-1.xhtml"/></navPoint>
+  </navMap>
+</ncx>
+`
+  );
+}
+
+async function createConfiguredAuthorFixtureEpubStructure(root: string): Promise<void> {
+  await createAuthorFixtureEpubStructure(root);
+  const oebps = path.join(root, "OEBPS");
+  const summaryPath = path.join(oebps, "chapter-2.xhtml");
+  const configuredSummaryPath = path.join(oebps, "contents.xhtml");
+
+  await fs.move(summaryPath, configuredSummaryPath);
+  await fs.writeFile(
+    configuredSummaryPath,
+    (await fs.readFile(configuredSummaryPath, "utf8"))
+      .replaceAll("chapter-2.xhtml", "contents.xhtml")
+      .replaceAll('class="p6"', 'class="chapter-link"')
+      .replaceAll('class="p7"', 'class="section-link"')
+  );
+
+  for (const fileName of ["content.opf", "nav.xhtml", "toc.ncx"]) {
+    const filePath = path.join(oebps, fileName);
+    let content = (await fs.readFile(filePath, "utf8")).replaceAll(
+      "chapter-2.xhtml",
+      "contents.xhtml"
+    );
+    if (fileName === "content.opf") {
+      content = content
+        .replace('id="cover" href="cover.xhtml"', 'id="front-cover" href="cover.xhtml"')
+        .replace('idref="cover"', 'idref="front-cover"');
+    }
+    await fs.writeFile(filePath, content);
+  }
 }
 
 async function addDirectoryRecursive(
@@ -302,6 +437,72 @@ async function assertAuthorOutput(outputEpub: string, tempDir: string): Promise<
   if (!opf.includes('idref="cover" linear="yes"')) {
     throw new Error("Expected author preset to apply the cover structure update.");
   }
+
+  const summary = await fs.readFile(path.join(contentDir, "chapter-2.xhtml"), "utf8");
+  if (summary.includes('href="chapter-2.xhtml"') || !summary.includes('href="cover.xhtml"')) {
+    throw new Error("Expected author preset to replace the summary self-link with a cover link.");
+  }
+
+  const nav = await fs.readFile(path.join(contentDir, "nav.xhtml"), "utf8");
+  if (
+    !nav.includes('href="cover.xhtml"') ||
+    !nav.includes('href="chapters/chapter-1.xhtml#section-one"')
+  ) {
+    throw new Error("Expected author preset to add cover and subsection EPUB3 navigation entries.");
+  }
+
+  const ncx = await fs.readFile(path.join(contentDir, "toc.ncx"), "utf8");
+  const $ncx = cheerio.load(ncx, { xmlMode: true });
+  const playOrders = $ncx("navMap navPoint")
+    .map((_, element) => $ncx(element).attr("playOrder"))
+    .get();
+  if (playOrders.join(",") !== playOrders.map((_, index) => String(index + 1)).join(",")) {
+    throw new Error("Expected author preset to keep NCX playOrder sequential.");
+  }
+  if ($ncx('meta[name="dtb:depth"]').attr("content") !== "2") {
+    throw new Error("Expected author preset to update NCX navigation depth.");
+  }
+  if (
+    $ncx('content[src="cover.xhtml"]').length !== 1 ||
+    $ncx('content[src="chapters/chapter-1.xhtml#section-one"]').length !== 1
+  ) {
+    throw new Error("Expected author preset to add cover and subsection NCX entries.");
+  }
+}
+
+async function assertSizeRegression(
+  inputEpub: string,
+  outputEpub: string,
+  maxOutputRatio: number
+): Promise<void> {
+  const [inputStats, outputStats] = await Promise.all([fs.stat(inputEpub), fs.stat(outputEpub)]);
+  const ratio = outputStats.size / inputStats.size;
+  if (ratio > maxOutputRatio) {
+    throw new Error(
+      `Output size regression: ${(ratio * 100).toFixed(1)}% of input exceeds ${(maxOutputRatio * 100).toFixed(1)}% limit.`
+    );
+  }
+}
+
+async function assertConfiguredAuthorOutput(outputEpub: string, tempDir: string): Promise<void> {
+  const inspectedDir = path.join(tempDir, "inspect-configured-author");
+  await extractEpub(outputEpub, inspectedDir);
+  const contentDir = path.join(inspectedDir, "OEBPS");
+
+  const opf = await fs.readFile(path.join(contentDir, "content.opf"), "utf8");
+  if (!opf.includes('idref="front-cover" linear="yes"')) {
+    throw new Error("Expected configured author cover spine id to become linear.");
+  }
+
+  const summary = await fs.readFile(path.join(contentDir, "contents.xhtml"), "utf8");
+  if (summary.includes('href="contents.xhtml"') || !summary.includes('href="cover.xhtml"')) {
+    throw new Error("Expected configured author summary mapping to be applied.");
+  }
+
+  const nav = await fs.readFile(path.join(contentDir, "nav.xhtml"), "utf8");
+  if (!nav.includes('class="toc-cover"') || !nav.includes('class="toc-section"')) {
+    throw new Error("Expected configured author navigation classes to be applied.");
+  }
 }
 
 interface E2ERunResult {
@@ -311,6 +512,11 @@ interface E2ERunResult {
     strict?: boolean;
     success?: boolean;
     steps?: Array<{ name?: string; status?: string }>;
+    content?: {
+      before?: { images?: number; contentDocuments?: number };
+      after?: { images?: number; contentDocuments?: number };
+      integrity?: { valid?: boolean; issues?: string[] };
+    };
   };
 }
 
@@ -359,6 +565,9 @@ async function runPipelineCase(
   if (report.success !== true) {
     throw new Error(`Expected ${name} JSON pipeline report to record a successful run.`);
   }
+  if (report.content?.integrity?.valid !== true) {
+    throw new Error(`Expected ${name} JSON report to record valid before/after content integrity.`);
+  }
 
   return { outputEpub, report };
 }
@@ -370,10 +579,28 @@ async function main(): Promise<void> {
   const runDir = await fs.mkdtemp(path.join(os.tmpdir(), "epub-optimizer-e2e-"));
   const fixtureDir = path.join(runDir, "fixture");
   const inputEpub = path.join(runDir, "input.epub");
+  const authorFixtureDir = path.join(runDir, "author-fixture");
+  const authorInputEpub = path.join(runDir, "author-input.epub");
+  const configuredAuthorFixtureDir = path.join(runDir, "configured-author-fixture");
+  const configuredAuthorInputEpub = path.join(runDir, "configured-author-input.epub");
+  const authorConfigPath = path.join(runDir, "author-workflow.json");
 
   try {
     await createFixtureEpubStructure(fixtureDir);
     await createEpub(inputEpub, fixtureDir);
+    await createAuthorFixtureEpubStructure(authorFixtureDir);
+    await createEpub(authorInputEpub, authorFixtureDir);
+    await createConfiguredAuthorFixtureEpubStructure(configuredAuthorFixtureDir);
+    await createEpub(configuredAuthorInputEpub, configuredAuthorFixtureDir);
+    await fs.writeJson(authorConfigPath, {
+      summaryHref: "contents.xhtml",
+      coverSpineId: "front-cover",
+      chapterClasses: ["chapter-link"],
+      sectionClasses: ["section-link"],
+      summaryEntryClass: "chapter-link",
+      coverNavClass: "toc-cover",
+      sectionNavClass: "toc-section",
+    });
 
     const balanced = await runPipelineCase(runDir, inputEpub, "balanced");
     if (balanced.report.preset !== "balanced") {
@@ -387,10 +614,12 @@ async function main(): Promise<void> {
     }
     await assertLosslessOutput(lossless.outputEpub, runDir);
 
-    const author = await runPipelineCase(runDir, inputEpub, "author", [
+    const author = await runPipelineCase(runDir, authorInputEpub, "author", [
       "--preset",
       "author",
       "--strict",
+      "--lang",
+      "en",
     ]);
     if (author.report.preset !== "author" || author.report.strict !== true) {
       throw new Error("Expected author E2E report to record author preset and strict mode.");
@@ -402,8 +631,19 @@ async function main(): Promise<void> {
       }
     }
     await assertAuthorOutput(author.outputEpub, runDir);
+    await assertSizeRegression(authorInputEpub, author.outputEpub, 0.75);
 
-    console.log("E2E EPUBCheck fixtures passed for balanced, lossless, and author presets.");
+    const configuredAuthor = await runPipelineCase(
+      runDir,
+      configuredAuthorInputEpub,
+      "configured-author",
+      ["--preset", "author", "--strict", "--lang", "en", "--author-config", authorConfigPath]
+    );
+    await assertConfiguredAuthorOutput(configuredAuthor.outputEpub, runDir);
+
+    console.log(
+      "E2E EPUBCheck fixtures passed for balanced, lossless, default author, and configured author workflows."
+    );
   } finally {
     await fs.remove(runDir);
   }
@@ -420,4 +660,12 @@ if (isEntryPoint(import.meta.url)) {
   });
 }
 
-export { assertOptimizedOutput, createEpub, createFixtureEpubStructure };
+export {
+  assertAuthorOutput,
+  assertOptimizedOutput,
+  assertSizeRegression,
+  createAuthorFixtureEpubStructure,
+  createConfiguredAuthorFixtureEpubStructure,
+  createEpub,
+  createFixtureEpubStructure,
+};

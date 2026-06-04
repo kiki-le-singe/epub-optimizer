@@ -30,7 +30,17 @@ vi.mock("./cli.js", () => ({
   }),
 }));
 vi.mock("./index.js", () => ({
-  optimizeEPUB: vi.fn().mockResolvedValue({ success: true, input: "in.epub", output: "out.epub" }),
+  optimizeEPUB: vi
+    .fn()
+    .mockImplementation(
+      async (
+        _args: unknown,
+        options: { afterExtract?: (tempDir: string) => Promise<void> | void }
+      ) => {
+        await options.afterExtract?.("/tmp/ep");
+        return { success: true, input: "in.epub", output: "out.epub" };
+      }
+    ),
   reportFileSizeComparison: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("./scripts/fix/index.js", () => ({
@@ -58,6 +68,29 @@ vi.mock("./utils/output-transaction.js", () => ({
   createCandidateOutputPath: vi.fn().mockResolvedValue("/tmp/candidate.epub"),
   commitCandidateOutput: vi.fn().mockResolvedValue(undefined),
   discardCandidateOutput: vi.fn().mockResolvedValue(undefined),
+}));
+const contentMetrics = {
+  manifestItems: 3,
+  spineItems: 1,
+  contentDocuments: 2,
+  images: 1,
+  navigationEntries: 1,
+  internalReferences: 5,
+  missingReferences: 0,
+  missingReferenceTargets: [],
+};
+vi.mock("./utils/epub-integrity.js", () => ({
+  collectEpubContentMetrics: vi.fn().mockResolvedValue(contentMetrics),
+  compareEpubContentMetrics: vi.fn().mockReturnValue({
+    valid: true,
+    checks: [],
+    newMissingReferences: [],
+    issues: [],
+  }),
+  assertEpubContentIntegrity: vi.fn(),
+}));
+vi.mock("./utils/author-workflow-config.js", () => ({
+  loadAuthorWorkflowConfig: vi.fn().mockResolvedValue({ summaryHref: "chapter-2.xhtml" }),
 }));
 
 describe("pipeline orchestration", () => {
@@ -136,6 +169,7 @@ describe("pipeline orchestration", () => {
       tempDir: "/tmp/ep",
       lang: "fr",
       strict: false,
+      authorConfig: { summaryHref: "chapter-2.xhtml" },
     });
   });
 
@@ -193,5 +227,20 @@ describe("pipeline orchestration", () => {
 
     expect(commitCandidateOutput).not.toHaveBeenCalled();
     expect(discardCandidateOutput).toHaveBeenCalledWith("/tmp/candidate.epub");
+  });
+
+  it("does not create or publish a candidate when before/after integrity fails", async () => {
+    const { assertEpubContentIntegrity } = await import("./utils/epub-integrity.js");
+    const { run: createEPUBFile } = await import("./scripts/create-epub.js");
+    const { commitCandidateOutput } = await import("./utils/output-transaction.js");
+    vi.mocked(assertEpubContentIntegrity).mockImplementationOnce(() => {
+      throw new Error("content regression");
+    });
+
+    const { main } = await import("./pipeline.js");
+    await expect(main()).rejects.toThrow("content regression");
+
+    expect(createEPUBFile).not.toHaveBeenCalled();
+    expect(commitCandidateOutput).not.toHaveBeenCalled();
   });
 });

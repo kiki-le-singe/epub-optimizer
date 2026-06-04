@@ -24,6 +24,12 @@ import {
   runReportedStep,
   writePipelineReport,
 } from "./utils/run-report.js";
+import {
+  assertEpubContentIntegrity,
+  collectEpubContentMetrics,
+  compareEpubContentMetrics,
+} from "./utils/epub-integrity.js";
+import { loadAuthorWorkflowConfig } from "./utils/author-workflow-config.js";
 
 export async function main(): Promise<void> {
   const args = await parseArguments();
@@ -52,6 +58,11 @@ export async function main(): Promise<void> {
       skipPackaging: true,
       runStep: (name, operation) => runReportedStep(report, name, args.strict, operation),
       skipStep: (name, reason) => recordSkippedStep(report, name, reason),
+      afterExtract: async (tempDir) => {
+        report.content = {
+          before: await collectEpubContentMetrics(tempDir),
+        };
+      },
     });
 
     // Step 2: Explicit XHTML repair passes. The author workflow implies repair,
@@ -69,9 +80,15 @@ export async function main(): Promise<void> {
     // this project's Pages/manual-summary publishing flow.
     if (args.authorWorkflow) {
       console.log("\n=== Author Workflow Structure Updates ===");
-      await runReportedStep(report, "Author workflow", args.strict, () =>
-        runStructureUpdates({ tempDir: args.temp, lang: args.lang, strict: args.strict })
-      );
+      await runReportedStep(report, "Author workflow", args.strict, async () => {
+        const authorConfig = await loadAuthorWorkflowConfig(args.authorConfig);
+        await runStructureUpdates({
+          tempDir: args.temp,
+          lang: args.lang,
+          strict: args.strict,
+          authorConfig,
+        });
+      });
     } else {
       recordSkippedStep(
         report,
@@ -79,6 +96,19 @@ export async function main(): Promise<void> {
         "Enable with --author-workflow or --preset author."
       );
     }
+
+    console.log("\n=== Validate Content Integrity ===");
+    await runReportedStep(report, "Validate content integrity", args.strict, async () => {
+      const before = report.content?.before;
+      if (!before) {
+        throw new Error("Input content metrics were not collected after extraction.");
+      }
+      const after = await collectEpubContentMetrics(args.temp);
+      const integrity = compareEpubContentMetrics(before, after);
+      report.content = { before, after, integrity };
+      assertEpubContentIntegrity(integrity);
+      console.log("Content counts and internal references passed before/after validation.");
+    });
 
     // Step 4: Build and validate a candidate. The requested output is not
     // touched until EPUBCheck has accepted the candidate.

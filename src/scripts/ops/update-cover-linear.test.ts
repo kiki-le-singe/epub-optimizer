@@ -26,4 +26,12 @@ describe("setCoverLinear", () => {
     expect(xml).toContain('linear="yes"');
     expect(xml).not.toContain('linear="no"');
   });
+
+  it("supports a custom author workflow cover spine id", () => {
+    const input = opfWith('<itemref idref="front-cover"/><itemref idref="chap1"/>');
+    const { xml, updated } = setCoverLinear(input, "front-cover");
+
+    expect(updated).toBe(true);
+    expect(xml).toContain('<itemref idref="front-cover" linear="yes"/>');
+  });
 });
