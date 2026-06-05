@@ -1,5 +1,7 @@
 import fs from "fs-extra";
 import path from "node:path";
+import os from "node:os";
+import pLimit from "p-limit";
 
 async function collectFiles(
   dir: string,
@@ -30,4 +32,24 @@ function hasExtension(filePath: string, extensions: ReadonlySet<string>): boolea
   return extensions.has(path.extname(filePath).toLowerCase());
 }
 
-export { collectFiles, hasExtension };
+/**
+ * Default bound for CPU-bound per-file work (HTML/CSS/JS/SVG minification).
+ * Keeps parallel processing from oversubscribing cores on small machines.
+ */
+export const DEFAULT_FILE_CONCURRENCY = Math.max(1, Math.min(8, os.cpus().length));
+
+/**
+ * Runs `worker` over `items` with bounded concurrency. Rejects on the first
+ * worker rejection (fail-fast for callers that re-throw); workers that catch
+ * their own errors keep it lenient.
+ */
+async function forEachFileLimited<T>(
+  items: readonly T[],
+  worker: (item: T) => Promise<void>,
+  concurrency: number = DEFAULT_FILE_CONCURRENCY
+): Promise<void> {
+  const limit = pLimit(concurrency);
+  await Promise.all(items.map((item) => limit(() => worker(item))));
+}
+
+export { collectFiles, hasExtension, forEachFileLimited };

@@ -5,29 +5,32 @@ import CleanCSS from "clean-css";
 import * as cheerio from "cheerio";
 import config from "../utils/config.js";
 import { isXHTMLContent, normalizeVoidElements } from "../utils/xhtml.js";
+import { collectFiles, forEachFileLimited, hasExtension } from "../utils/files.js";
+
+const HTML_EXTENSIONS = new Set([".xhtml", ".html"]);
+const CSS_EXTENSIONS = new Set([".css"]);
 
 /**
- * Process HTML and CSS files in a directory recursively
- * Minifies HTML/XHTML and CSS files to reduce file size
+ * Process HTML and CSS files in a directory recursively.
+ * Minifies HTML/XHTML and CSS files in parallel (bounded) to reduce file size.
  * @param dir Directory to process
- * @throws Error if processing fails
+ * @throws Error if any file fails to minify
  */
 async function processHTML(dir: string): Promise<void> {
   try {
-    const entries = await fs.readdir(dir);
+    const files = await collectFiles(
+      dir,
+      (filePath) =>
+        hasExtension(filePath, HTML_EXTENSIONS) || hasExtension(filePath, CSS_EXTENSIONS)
+    );
 
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry);
-      const stat = await fs.stat(fullPath);
-
-      if (stat.isDirectory()) {
-        await processHTML(fullPath);
-      } else if (entry.endsWith(".xhtml") || entry.endsWith(".html")) {
-        await minifyHTML(fullPath);
-      } else if (entry.endsWith(".css")) {
-        await minifyCSS(fullPath);
+    await forEachFileLimited(files, async (filePath) => {
+      if (hasExtension(filePath, CSS_EXTENSIONS)) {
+        await minifyCSS(filePath);
+      } else {
+        await minifyHTML(filePath);
       }
-    }
+    });
   } catch (error) {
     throw new Error(
       `Failed to process HTML/CSS in ${dir}: ${
