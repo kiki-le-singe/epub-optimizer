@@ -214,9 +214,7 @@ CI and Docker currently pin EPUBCheck 5.3.0.
 
 You must have [Docker installed](https://docs.docker.com/get-docker/) with Docker Compose v2. Docker Desktop includes both.
 
-Docker Compose provides a containerized environment with all dependencies pre-installed. It automatically mounts the repository directory, so the same relative EPUB paths work on Windows, macOS, and Linux.
-
-You can build the image locally or use the Linux AMD64/ARM64 image automatically published to GitHub Container Registry for every `v*` release tag.
+Docker Compose provides a containerized environment with all dependencies pre-installed. It automatically mounts the repository directory, so the same relative EPUB paths work on Windows, macOS, and Linux. Users build the image locally from the cloned repository.
 
 ### Docker Requirements
 
@@ -556,7 +554,7 @@ docker compose run --rm optimizer \
 By default, Compose shares the repository directory with the container. Place EPUB files in that directory and use their normal relative names. Temporary files also appear there unless `--clean` is used.
 
 <details>
-<summary>Advanced: raw Docker and published images</summary>
+<summary>Advanced: raw Docker</summary>
 
 Raw `docker run` remains supported, but its bind-mount syntax varies by shell. The image now works from `/epub-files`, so the EPUB arguments themselves remain relative:
 
@@ -565,14 +563,6 @@ docker build -t epub-optimizer .
 docker run --rm -v "$PWD:/epub-files" epub-optimizer \
   -i book.epub -o book-optimized.epub
 ```
-
-Release tags publish multi-architecture images to GitHub Container Registry:
-
-```bash
-docker pull ghcr.io/kiki-le-singe/epub-optimizer:v3.0.0
-```
-
-Use a versioned image tag for reproducible runs. `latest` tracks the newest published release.
 
 </details>
 
@@ -629,8 +619,8 @@ Failures before successful cleanup preserve temporary files even when `--clean` 
 epub-optimizer/
 ├── .github/workflows/
 │   ├── ci.yml                 # Node 22/24, EPUBCheck, and Docker E2E validation
-│   ├── publish-docker.yml     # Publish multi-architecture GHCR images and GitHub releases on v* tags
-│   └── release.yml            # Manual release automation with CI gates, tag, GitHub Release, and GHCR publish
+│   ├── publish-release.yml    # Create GitHub releases for manually pushed v* tags
+│   └── release.yml            # Manual release automation with CI gates, tag, and GitHub Release
 ├── compose.yaml            # Recommended cross-platform Docker interface
 ├── Dockerfile              # Multi-stage production container image
 ├── docker-entrypoint.sh    # Docker defaults and CLI entrypoint
@@ -734,9 +724,9 @@ This project is built with TypeScript and uses modern ESM modules. Here's how th
 
 ### Release Validation
 
-Releases can be cut from GitHub Actions with the manual **Release** workflow. Dispatch it from `main` with the package version without the `v` prefix. The workflow verifies that the requested version matches `package.json`, checks that the tag does not already exist, runs the CI quality gates and E2E suites, publishes the multi-architecture GHCR image, creates the annotated `v*` tag, and creates the GitHub release.
+Releases can be cut from GitHub Actions with the manual **Release** workflow. Dispatch it from `main` with the package version without the `v` prefix. The workflow verifies that the requested version matches `package.json`, checks that the tag does not already exist, runs the CI quality gates and E2E suites, creates the annotated `v*` tag, and creates the GitHub release.
 
-Pushing a `v*` tag manually remains supported. The tag workflow verifies that the tag matches `package.json`, publishes the GHCR image, and creates the GitHub release if it does not already exist.
+Pushing a `v*` tag manually remains supported. The tag workflow verifies that the tag matches `package.json` and creates the GitHub release if it does not already exist.
 
 Before creating a release manually, run the CI quality gates plus coverage, audit, and local Docker checks:
 
