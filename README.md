@@ -619,7 +619,6 @@ Failures before successful cleanup preserve temporary files even when `--clean` 
 epub-optimizer/
 ├── .github/workflows/
 │   ├── ci.yml                 # Node 22/24, EPUBCheck, and Docker E2E validation
-│   ├── publish-release.yml    # Create GitHub releases for manually pushed v* tags
 │   └── release.yml            # Manual release automation with CI gates, tag, and GitHub Release
 ├── compose.yaml            # Recommended cross-platform Docker interface
 ├── Dockerfile              # Multi-stage production container image
