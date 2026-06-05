@@ -111,6 +111,12 @@ async function parseArguments(): Promise<Args> {
       describe: "Write a structured pipeline report to this JSON file",
       type: "string",
     })
+    .option("doctor", {
+      alias: "inspect",
+      describe: "Inspect an EPUB without optimizing or writing an output EPUB",
+      type: "boolean",
+      default: false,
+    })
     .option("clean", {
       describe: "Clean temporary files after processing",
       type: "boolean",
@@ -135,6 +141,7 @@ async function parseArguments(): Promise<Args> {
       "epub-optimizer -i input.epub -o output.epub --jpg-quality 85 --png-quality 0.8",
       "Custom image settings"
     )
+    .example("epub-optimizer --doctor -i input.epub", "Inspect without modifying the EPUB")
     .help()
     .alias("help", "h")
     .version(packageJson.version)

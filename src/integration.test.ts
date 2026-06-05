@@ -43,6 +43,8 @@ describe("EPUB Optimization Integration Tests", () => {
     "lazy-loading": false,
     lazyLoading: false,
     lossless: false,
+    doctor: false,
+    inspect: false,
     lang: "fr",
     _: [],
     $0: "epub-optimizer",

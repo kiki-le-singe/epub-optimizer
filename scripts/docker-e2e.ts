@@ -230,6 +230,25 @@ async function main(): Promise<void> {
     );
     await assertOptimizedOutput(rawBalanced.outputEpub, path.join(runDir, "assert-raw-balanced"));
 
+    const rawAuthor = await runDockerWorkflowCase(
+      runDir,
+      "raw-author",
+      "author-input.epub",
+      "run",
+      true,
+      ["--preset", "author", "--strict", "--lang", "en", "--clean"]
+    );
+    if (rawAuthor.report.preset !== "author" || rawAuthor.report.strict !== true) {
+      throw new Error(
+        "Expected raw Docker author workflow to record author preset and strict mode."
+      );
+    }
+    for (const stepName of ["Repair XHTML", "Author workflow"]) {
+      assertStepStatus(rawAuthor.report, stepName, "success");
+    }
+    await assertAuthorOutput(rawAuthor.outputEpub, path.join(runDir, "assert-raw-author"));
+    await assertSizeRegression(authorInputEpub, rawAuthor.outputEpub, 0.75);
+
     const composeBalanced = await runDockerWorkflowCase(
       runDir,
       "compose-balanced",
@@ -325,7 +344,7 @@ async function main(): Promise<void> {
     );
 
     console.log(
-      "Docker workflows passed E2E validation: raw run, Compose balanced, lossless, repair, author, and configured author."
+      "Docker workflows passed E2E validation: raw balanced, raw author, Compose balanced, lossless, repair, author, and configured author."
     );
   } finally {
     await removeDockerE2ERunDir(runDir);

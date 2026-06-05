@@ -24,6 +24,8 @@ vi.mock("./cli.js", () => ({
     "lazy-loading": false,
     lazyLoading: false,
     lossless: false,
+    doctor: false,
+    inspect: false,
     lang: "fr",
     _: [],
     $0: "epub-optimizer",
@@ -92,6 +94,9 @@ vi.mock("./utils/epub-integrity.js", () => ({
 vi.mock("./utils/author-workflow-config.js", () => ({
   loadAuthorWorkflowConfig: vi.fn().mockResolvedValue({ summaryHref: "chapter-2.xhtml" }),
 }));
+vi.mock("./utils/epub-doctor.js", () => ({
+  runDoctor: vi.fn().mockResolvedValue(undefined),
+}));
 
 describe("pipeline orchestration", () => {
   beforeEach(() => {
@@ -153,6 +158,8 @@ describe("pipeline orchestration", () => {
       "lazy-loading": true,
       lazyLoading: true,
       lossless: false,
+      doctor: false,
+      inspect: false,
       lang: "fr",
       _: [],
       $0: "epub-optimizer",
@@ -198,6 +205,8 @@ describe("pipeline orchestration", () => {
       "lazy-loading": false,
       lazyLoading: false,
       lossless: false,
+      doctor: false,
+      inspect: false,
       lang: "fr",
       _: [],
       $0: "epub-optimizer",
@@ -212,6 +221,49 @@ describe("pipeline orchestration", () => {
       inputPath: "in.epub",
       outputPath: "out.epub",
     });
+  });
+
+  it("runs doctor mode without creating a candidate output", async () => {
+    const { parseArguments } = await import("./cli.js");
+    vi.mocked(parseArguments).mockResolvedValueOnce({
+      input: "in.epub",
+      output: "out.epub",
+      temp: "/tmp/ep",
+      clean: false,
+      "jpg-quality": 70,
+      jpgQuality: 70,
+      "png-quality": 0.6,
+      pngQuality: 0.6,
+      fonts: false,
+      "author-workflow": false,
+      authorWorkflow: false,
+      repair: false,
+      strict: false,
+      profile: false,
+      preset: "balanced",
+      "max-image-dim": 1600,
+      maxImageDim: 1600,
+      "convert-png": true,
+      convertPng: true,
+      "lazy-loading": false,
+      lazyLoading: false,
+      lossless: false,
+      doctor: true,
+      inspect: false,
+      lang: "fr",
+      _: [],
+      $0: "epub-optimizer",
+    });
+    const { main } = await import("./pipeline.js");
+    const { runDoctor } = await import("./utils/epub-doctor.js");
+    const { optimizeEPUB } = await import("./index.js");
+    const { createCandidateOutputPath } = await import("./utils/output-transaction.js");
+
+    await main();
+
+    expect(runDoctor).toHaveBeenCalledWith({ input: "in.epub", reportJson: undefined });
+    expect(optimizeEPUB).not.toHaveBeenCalled();
+    expect(createCandidateOutputPath).not.toHaveBeenCalled();
   });
 
   it("does not publish the output when candidate validation fails", async () => {
