@@ -267,8 +267,8 @@ docker compose run --build --rm optimizer \
 | `test`              | Run tests in watch mode                                                                           |
 | `test:run`          | Run tests once and exit                                                                           |
 | `test:coverage`     | Run tests with coverage report                                                                    |
-| `test:e2e`          | Validate the balanced, lossless, and strict author fixture workflows with EPUBCheck               |
-| `test:docker`       | Validate raw Docker and Docker Compose workflows against a fixture with EPUBCheck                 |
+| `test:e2e`          | Validate every public pnpm optimization workflow with fixtures and EPUBCheck                      |
+| `test:docker`       | Validate raw Docker plus the complete Docker Compose workflow matrix with EPUBCheck               |
 | `lint`              | Lint TypeScript files in src and scripts directories                                              |
 | `lint:fix`          | Lint and auto-fix TypeScript files in src and scripts                                             |
 | `format`            | Auto-format all .ts, .json, and .md files with Prettier                                           |
@@ -699,9 +699,11 @@ This project is built with TypeScript and uses modern ESM modules. Here's how th
 - Tests are written using Vitest, a modern test framework compatible with Jest syntax
 - Run tests with `pnpm test` (watch mode) or `pnpm test:run` (single run)
 - Run tests with coverage using `pnpm test:coverage`
-- `pnpm test:e2e` produces balanced, lossless, and strict author outputs, validates each one with EPUBCheck, and exercises a real manual-summary + NCX author fixture
+- `pnpm test:e2e` runs the public `optimize`, `optimize:clean`, `optimize:lossless`, `optimize:repair`, and `optimize:author` commands, including a configured author workflow
+- Every pnpm E2E output is checked for content integrity and validated with EPUBCheck; clean/keep-temp behavior and workflow-specific transformations are also verified
 - The author E2E fixture also checks before/after content integrity, sequential NCX navigation, and a maximum output-size ratio to catch compression regressions
-- `pnpm test:docker` validates raw Docker, Docker Compose, and the complete author fixture workflow
+- `pnpm test:docker` validates raw Docker plus Docker Compose balanced, lossless, repair, author, and configured-author workflows
+- Docker E2E verifies reports, content integrity, EPUBCheck output, workflow-specific transformations, and clean/keep-temp behavior
 - CI validates the project on Node.js 22 and 24, and runs the Docker E2E workflow on Node.js 24
 - Unit tests run in a Node.js environment and mock external dependencies where appropriate
 

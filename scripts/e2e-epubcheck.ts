@@ -330,6 +330,7 @@ async function createEpub(outputPath: string, sourceDir: string): Promise<void> 
 }
 
 async function extractEpub(epubPath: string, outputDir: string): Promise<void> {
+  await fs.remove(outputDir);
   await fs.ensureDir(outputDir);
   await createReadStream(epubPath)
     .pipe(unzipper.Extract({ path: outputDir }))
@@ -520,19 +521,56 @@ interface E2ERunResult {
   };
 }
 
-async function runPipelineCase(
+type PnpmWorkflowScript =
+  | "optimize"
+  | "optimize:author"
+  | "optimize:clean"
+  | "optimize:lossless"
+  | "optimize:repair";
+
+function runPnpmScript(script: PnpmWorkflowScript, args: string[], env: NodeJS.ProcessEnv) {
+  const pnpmExecPath = process.env.npm_execpath;
+  const command = pnpmExecPath
+    ? process.execPath
+    : process.platform === "win32"
+      ? "pnpm.cmd"
+      : "pnpm";
+  const commandArgs = pnpmExecPath ? [pnpmExecPath, script, ...args] : [script, ...args];
+
+  return spawnSync(command, commandArgs, {
+    cwd: repoRoot,
+    env,
+    stdio: "inherit",
+  });
+}
+
+function assertStepStatus(
+  report: E2ERunResult["report"],
+  stepName: string,
+  expectedStatus: "success" | "skipped"
+): void {
+  const step = report.steps?.find(({ name }) => name === stepName);
+  if (step?.status !== expectedStatus) {
+    throw new Error(
+      `Expected ${stepName} to be ${expectedStatus}, received ${step?.status ?? "missing"}.`
+    );
+  }
+}
+
+async function runPnpmWorkflowCase(
   runDir: string,
   inputEpub: string,
   name: string,
+  script: PnpmWorkflowScript,
+  expectClean: boolean,
   extraArgs: string[] = []
 ): Promise<E2ERunResult> {
   const outputEpub = path.join(runDir, `${name}.epub`);
   const extractDir = path.join(runDir, `extract-${name}`);
   const reportPath = path.join(runDir, `report-${name}.json`);
-  const result = spawnSync(
-    process.execPath,
+  const result = runPnpmScript(
+    script,
     [
-      pipelinePath,
       "-i",
       inputEpub,
       "-o",
@@ -541,32 +579,31 @@ async function runPipelineCase(
       extractDir,
       "--report-json",
       reportPath,
-      "--clean",
       ...extraArgs,
     ],
-    {
-      cwd: repoRoot,
-      env: withJavaFallback(process.env),
-      stdio: "inherit",
-    }
+    withJavaFallback(process.env)
   );
 
   if (result.status !== 0) {
-    throw new Error(`${name} pipeline E2E failed with exit ${result.status ?? "unknown"}.`);
+    throw new Error(`pnpm ${script} E2E failed with exit ${result.status ?? "unknown"}.`);
   }
   if (!(await fs.pathExists(outputEpub))) {
-    throw new Error(`Expected ${name} optimized EPUB output to exist.`);
+    throw new Error(`Expected pnpm ${script} optimized EPUB output to exist.`);
   }
-  if (await fs.pathExists(extractDir)) {
-    throw new Error(`Expected ${name} --clean to remove the extraction temp directory.`);
+  const tempExists = await fs.pathExists(extractDir);
+  if (expectClean && tempExists) {
+    throw new Error(`Expected pnpm ${script} to remove the extraction temp directory.`);
+  }
+  if (!expectClean && !tempExists) {
+    throw new Error(`Expected pnpm ${script} to keep the extraction temp directory.`);
   }
 
   const report = (await fs.readJson(reportPath)) as E2ERunResult["report"];
   if (report.success !== true) {
-    throw new Error(`Expected ${name} JSON pipeline report to record a successful run.`);
+    throw new Error(`Expected pnpm ${script} JSON pipeline report to record a successful run.`);
   }
   if (report.content?.integrity?.valid !== true) {
-    throw new Error(`Expected ${name} JSON report to record valid before/after content integrity.`);
+    throw new Error(`Expected pnpm ${script} JSON report to record valid content integrity.`);
   }
 
   return { outputEpub, report };
@@ -602,47 +639,75 @@ async function main(): Promise<void> {
       sectionNavClass: "toc-section",
     });
 
-    const balanced = await runPipelineCase(runDir, inputEpub, "balanced");
+    const balanced = await runPnpmWorkflowCase(runDir, inputEpub, "balanced", "optimize", false);
     if (balanced.report.preset !== "balanced") {
       throw new Error("Expected default E2E report to use the balanced preset.");
     }
+    assertStepStatus(balanced.report, "Repair XHTML", "skipped");
+    assertStepStatus(balanced.report, "Author workflow", "skipped");
     await assertOptimizedOutput(balanced.outputEpub, runDir);
 
-    const lossless = await runPipelineCase(runDir, inputEpub, "lossless", ["--preset", "lossless"]);
+    const clean = await runPnpmWorkflowCase(runDir, inputEpub, "clean", "optimize:clean", true);
+    assertStepStatus(clean.report, "Cleanup", "success");
+    await assertOptimizedOutput(clean.outputEpub, runDir);
+
+    const lossless = await runPnpmWorkflowCase(
+      runDir,
+      inputEpub,
+      "lossless",
+      "optimize:lossless",
+      true,
+      ["--clean"]
+    );
     if (lossless.report.preset !== "lossless") {
       throw new Error("Expected lossless E2E report to record the lossless preset.");
     }
     await assertLosslessOutput(lossless.outputEpub, runDir);
 
-    const author = await runPipelineCase(runDir, authorInputEpub, "author", [
-      "--preset",
-      "author",
-      "--strict",
-      "--lang",
-      "en",
+    const repair = await runPnpmWorkflowCase(runDir, inputEpub, "repair", "optimize:repair", true, [
+      "--clean",
     ]);
+    assertStepStatus(repair.report, "Repair XHTML", "success");
+    assertStepStatus(repair.report, "Author workflow", "skipped");
+    await assertOptimizedOutput(repair.outputEpub, runDir);
+
+    const author = await runPnpmWorkflowCase(
+      runDir,
+      authorInputEpub,
+      "author",
+      "optimize:author",
+      true,
+      ["--strict", "--lang", "en", "--clean"]
+    );
     if (author.report.preset !== "author" || author.report.strict !== true) {
       throw new Error("Expected author E2E report to record author preset and strict mode.");
     }
     for (const stepName of ["Repair XHTML", "Author workflow"]) {
-      const step = author.report.steps?.find(({ name }) => name === stepName);
-      if (step?.status !== "success") {
-        throw new Error(`Expected ${stepName} to succeed in author E2E run.`);
-      }
+      assertStepStatus(author.report, stepName, "success");
     }
     await assertAuthorOutput(author.outputEpub, runDir);
     await assertSizeRegression(authorInputEpub, author.outputEpub, 0.75);
 
-    const configuredAuthor = await runPipelineCase(
+    const configuredAuthor = await runPnpmWorkflowCase(
       runDir,
       configuredAuthorInputEpub,
       "configured-author",
-      ["--preset", "author", "--strict", "--lang", "en", "--author-config", authorConfigPath]
+      "optimize:author",
+      true,
+      ["--strict", "--lang", "en", "--author-config", authorConfigPath, "--clean"]
     );
+    if (configuredAuthor.report.preset !== "author" || configuredAuthor.report.strict !== true) {
+      throw new Error(
+        "Expected configured author E2E report to record author preset and strict mode."
+      );
+    }
+    for (const stepName of ["Repair XHTML", "Author workflow"]) {
+      assertStepStatus(configuredAuthor.report, stepName, "success");
+    }
     await assertConfiguredAuthorOutput(configuredAuthor.outputEpub, runDir);
 
     console.log(
-      "E2E EPUBCheck fixtures passed for balanced, lossless, default author, and configured author workflows."
+      "Public pnpm workflows passed E2E validation: optimize, clean, lossless, repair, author, and configured author."
     );
   } finally {
     await fs.remove(runDir);
@@ -662,6 +727,8 @@ if (isEntryPoint(import.meta.url)) {
 
 export {
   assertAuthorOutput,
+  assertConfiguredAuthorOutput,
+  assertLosslessOutput,
   assertOptimizedOutput,
   assertSizeRegression,
   createAuthorFixtureEpubStructure,
