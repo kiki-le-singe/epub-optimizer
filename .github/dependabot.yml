@@ -3,6 +3,7 @@ updates:
   # npm/pnpm dependencies
   - package-ecosystem: "npm"
     directory: "/"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
@@ -14,6 +15,7 @@ updates:
   # GitHub Actions (keeps the SHA-pinned actions and their version comments updated)
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
