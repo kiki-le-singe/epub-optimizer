@@ -82,6 +82,48 @@ vi.mock("./processors/font-processor.js", () => ({
   subsetFonts: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("./utils/epub-features.js", () => ({
+  detectEpubFeatures: vi.fn().mockResolvedValue({
+    encryptionKind: "none",
+    encryptedHrefs: [],
+    fixedLayout: false,
+  }),
+}));
+
+// vi.resetAllMocks() clears parseArguments' resolved value between tests, so
+// any test that drives optimizeEPUB past arg-parsing must re-establish it.
+function makeArgs(): Args {
+  return {
+    input: "test.epub",
+    output: "optimized.epub",
+    temp: "/tmp/epub-extract",
+    clean: true,
+    "jpg-quality": 70,
+    jpgQuality: 70,
+    "png-quality": 0.6,
+    pngQuality: 0.6,
+    fonts: false,
+    "author-workflow": false,
+    authorWorkflow: false,
+    repair: false,
+    strict: false,
+    profile: false,
+    preset: "balanced",
+    "max-image-dim": 1600,
+    maxImageDim: 1600,
+    "convert-png": true,
+    convertPng: true,
+    "lazy-loading": false,
+    lazyLoading: false,
+    lossless: false,
+    doctor: false,
+    inspect: false,
+    lang: "fr",
+    _: [],
+    $0: "epub-optimizer",
+  } as Args;
+}
+
 // Import after mocking
 beforeEach(async () => {
   vi.mocked(fs.pathExists).mockResolvedValue(true as unknown as void);
@@ -123,6 +165,44 @@ describe("index.ts", () => {
       // Check that compressEPUB was called with the right arguments
       const { compressEPUB } = await import("./processors/archive-processor.js");
       expect(compressEPUB).toHaveBeenCalledWith("optimized.epub", "/tmp/epub-extract");
+    });
+
+    it("refuses a DRM-encrypted EPUB before any processing", async () => {
+      const { parseArguments } = await import("./cli.js");
+      vi.mocked(parseArguments).mockResolvedValueOnce(makeArgs());
+      const { detectEpubFeatures } = await import("./utils/epub-features.js");
+      vi.mocked(detectEpubFeatures).mockResolvedValueOnce({
+        encryptionKind: "drm",
+        encryptedHrefs: [],
+        fixedLayout: false,
+      });
+
+      const module = await import("./index.js");
+      await expect(module.optimizeEPUB()).rejects.toThrow(/encrypted\/DRM-protected/);
+
+      // The EPUB must never be repacked when refused.
+      const { compressEPUB } = await import("./processors/archive-processor.js");
+      expect(compressEPUB).not.toHaveBeenCalled();
+    });
+
+    it("disables image downscaling for fixed-layout EPUBs", async () => {
+      const { parseArguments } = await import("./cli.js");
+      vi.mocked(parseArguments).mockResolvedValueOnce(makeArgs());
+      const { detectEpubFeatures } = await import("./utils/epub-features.js");
+      vi.mocked(detectEpubFeatures).mockResolvedValueOnce({
+        encryptionKind: "none",
+        encryptedHrefs: [],
+        fixedLayout: true,
+      });
+
+      const module = await import("./index.js");
+      await module.optimizeEPUB();
+
+      const { optimizeImages } = await import("./processors/image-processor.js");
+      expect(optimizeImages).toHaveBeenCalledWith(
+        "/tmp/epub-extract",
+        expect.objectContaining({ maxDim: undefined })
+      );
     });
 
     it("exits with code 1 when an error occurs", async () => {

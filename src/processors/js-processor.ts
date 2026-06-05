@@ -1,7 +1,7 @@
 import fs from "fs-extra";
 import path from "node:path";
 import { minify as terserMinify } from "terser";
-import { collectFiles, hasExtension } from "../utils/files.js";
+import { collectFiles, forEachFileLimited, hasExtension } from "../utils/files.js";
 
 const JS_EXTENSIONS = new Set([".js"]);
 
@@ -23,7 +23,7 @@ async function minifyJavaScript(dir: string): Promise<void> {
 
     console.log(`Found ${jsFiles.length} JavaScript files to minify`);
 
-    for (const jsFile of jsFiles) {
+    await forEachFileLimited(jsFiles, async (jsFile) => {
       try {
         // Read original file
         const content = await fs.readFile(jsFile, "utf8");
@@ -32,7 +32,7 @@ async function minifyJavaScript(dir: string): Promise<void> {
         // Skip empty files
         if (content.trim() === "") {
           console.log(`Skipping empty file: ${path.basename(jsFile)}`);
-          continue;
+          return;
         }
 
         // Minify with Terser
@@ -61,7 +61,7 @@ async function minifyJavaScript(dir: string): Promise<void> {
           `Skipping ${path.basename(jsFile)}: ${error instanceof Error ? error.message : String(error)}`
         );
       }
-    }
+    });
   } catch (error) {
     throw new Error(
       `Failed to minify JavaScript: ${error instanceof Error ? error.message : String(error)}`,

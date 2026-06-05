@@ -2,7 +2,7 @@ import fs from "fs-extra";
 import path from "node:path";
 import { optimize as svgoOptimize } from "svgo";
 import { getContentPath } from "../utils/epub-utils.js";
-import { collectFiles, hasExtension } from "../utils/files.js";
+import { collectFiles, forEachFileLimited, hasExtension } from "../utils/files.js";
 
 const SVG_EXTENSIONS = new Set([".svg"]);
 
@@ -26,7 +26,7 @@ export async function optimizeSVGs(epubDir: string): Promise<void> {
       return;
     }
     console.log(`Optimizing ${svgFiles.length} SVG files...`);
-    for (const svgFile of svgFiles) {
+    await forEachFileLimited(svgFiles, async (svgFile) => {
       try {
         const original = await fs.readFile(svgFile, "utf8");
         const result = svgoOptimize(original, { multipass: true });
@@ -43,7 +43,7 @@ export async function optimizeSVGs(epubDir: string): Promise<void> {
           `Failed to optimize ${path.basename(svgFile)}: ${error instanceof Error ? error.message : String(error)}`
         );
       }
-    }
+    });
   } catch (error) {
     console.error(
       `SVG optimization failed: ${error instanceof Error ? error.message : String(error)}`

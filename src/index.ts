@@ -12,6 +12,7 @@ import { addLazyLoadingToImages } from "./processors/lazy-img.js";
 import { assertSafeTempDir, removeTempDir } from "./utils/temp-dir.js";
 import path from "node:path";
 import { assertDistinctInputOutput, assertSafeOutputTarget } from "./utils/output-transaction.js";
+import { detectEpubFeatures } from "./utils/epub-features.js";
 
 interface OptimizeOptions {
   /** If true, skip the final zip + cleanup. The pipeline uses this so the
@@ -62,6 +63,34 @@ async function optimizeEPUB(
     // 1. Extract EPUB file
     await runStep("Extract EPUB", () => extractEPUB(resolvedArgs.input, resolvedArgs.temp));
     console.log(`📦 Extracted ${resolvedArgs.input} to ${resolvedArgs.temp}`);
+
+    // 1b. Detect special EPUB shapes early so we degrade gracefully instead of
+    //     silently corrupting them: refuse DRM-encrypted books, leave obfuscated
+    //     fonts untouched, and keep fixed-layout page images at their native size.
+    await runStep("Analyze EPUB structure", async () => {
+      const features = await detectEpubFeatures(resolvedArgs.temp);
+      if (features.encryptionKind === "drm") {
+        throw new Error(
+          "EPUB contains encrypted/DRM-protected resources (META-INF/encryption.xml). " +
+            "Optimizing would corrupt the protected content, so the operation was refused."
+        );
+      }
+      if (features.encryptionKind === "obfuscation") {
+        console.warn(
+          "⚠️  Obfuscated embedded fonts detected (META-INF/encryption.xml); optimizing " +
+            "everything else and leaving the fonts untouched."
+        );
+        resolvedArgs.fonts = false;
+      }
+      if (features.fixedLayout && resolvedArgs.maxImageDim > 0) {
+        console.warn(
+          "⚠️  Fixed-layout (pre-paginated) EPUB detected; disabling image downscaling " +
+            "to keep page images aligned with the declared viewport."
+        );
+        resolvedArgs.maxImageDim = 0;
+      }
+    });
+
     if (options.afterExtract) {
       await runStep("Analyze input content", () => options.afterExtract?.(resolvedArgs.temp));
     }
