@@ -1,9 +1,10 @@
 import fs from "fs-extra";
 import path from "node:path";
 import { optimize as svgoOptimize } from "svgo";
-import { getContentPath } from "../utils/epub-utils.js";
-import { collectFiles, forEachFileLimited, hasExtension } from "../utils/files.js";
+import { collectManifestResources } from "../utils/epub-utils.js";
+import { forEachFileLimited } from "../utils/files.js";
 
+const SVG_MEDIA_TYPES = new Set(["image/svg+xml"]);
 const SVG_EXTENSIONS = new Set([".svg"]);
 
 /**
@@ -12,15 +13,12 @@ const SVG_EXTENSIONS = new Set([".svg"]);
  */
 export async function optimizeSVGs(epubDir: string): Promise<void> {
   try {
-    const contentDir = await getContentPath(epubDir);
-    const imagesDir = path.join(contentDir, "images");
-    if (!(await fs.pathExists(imagesDir))) {
-      console.log("No images directory found, skipping SVG optimization");
-      return;
-    }
-    const svgFiles = await collectFiles(imagesDir, (filePath) =>
-      hasExtension(filePath, SVG_EXTENSIONS)
-    );
+    // Discover SVGs via the OPF manifest (any folder/case), not a hardcoded
+    // `images/` folder — Sigil/EDRLab use capitalized `Images/`, etc.
+    const svgFiles = await collectManifestResources(epubDir, {
+      mediaTypes: SVG_MEDIA_TYPES,
+      extensions: SVG_EXTENSIONS,
+    });
     if (svgFiles.length === 0) {
       console.log("No SVG files found");
       return;

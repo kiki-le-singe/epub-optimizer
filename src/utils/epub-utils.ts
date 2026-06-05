@@ -2,6 +2,7 @@ import fs from "fs-extra";
 import path from "node:path";
 import * as cheerio from "cheerio";
 import { resolvePathInside } from "./path-safety.js";
+import { collectFiles } from "./files.js";
 
 /**
  * Dynamically reads the OPF file path from META-INF/container.xml
@@ -168,5 +169,75 @@ export async function getEPUB2NCXPath(epubDir: string): Promise<string | null> {
     return tocFiles.epub2Ncx || null;
   } catch {
     return null;
+  }
+}
+
+export interface ManifestResourceQuery {
+  /** OPF manifest `media-type` values to match (compared case-insensitively). */
+  mediaTypes: ReadonlySet<string>;
+  /** File extensions to match (lowercase, with dot), e.g. `.svg`. */
+  extensions: ReadonlySet<string>;
+}
+
+/**
+ * Discovers resources of given media-types/extensions in a **producer-agnostic**
+ * way — independent of folder name or case. The EPUB spec mandates no folder
+ * layout and treats paths as case-sensitive, so resources cannot be located by a
+ * hardcoded folder like `images/` or `fonts/` (e.g. Sigil/EDRLab use capitalized
+ * `Images/`/`Fonts/`).
+ *
+ * Primary path: enumerate the OPF manifest (the authoritative resource index),
+ * matching items by `media-type` or by href extension, resolving each href
+ * relative to the OPF. Fallback: recursive extension scan over the content
+ * directory if the manifest is unusable.
+ *
+ * @returns Absolute paths to matching resources that exist on disk.
+ */
+export async function collectManifestResources(
+  epubDir: string,
+  query: ManifestResourceQuery
+): Promise<string[]> {
+  // Primary: the OPF manifest, resolved relative to the OPF location.
+  try {
+    const opfPath = await getOPFPath(epubDir);
+    const $ = await parseOPF(opfPath);
+    const opfDir = path.dirname(opfPath);
+    const found: string[] = [];
+    const seen = new Set<string>();
+
+    for (const el of $("manifest item").toArray()) {
+      const href = $(el).attr("href");
+      if (!href) continue;
+      const mediaType = ($(el).attr("media-type") ?? "").trim().toLowerCase();
+      const hrefPath = href.split(/[?#]/, 1)[0] ?? href;
+      const ext = path.extname(hrefPath).toLowerCase();
+      if (!query.mediaTypes.has(mediaType) && !query.extensions.has(ext)) continue;
+
+      let resolved: string;
+      try {
+        resolved = resolvePathInside(epubDir, opfDir, href, "manifest item href");
+      } catch {
+        continue;
+      }
+      if (seen.has(resolved)) continue;
+      seen.add(resolved);
+      if (await fs.pathExists(resolved)) found.push(resolved);
+    }
+
+    if (found.length > 0) return found;
+  } catch {
+    // Manifest unreadable → fall back to a recursive extension scan.
+  }
+
+  // Fallback: walk the whole content directory by extension (still folder/case
+  // agnostic, just without media-type awareness).
+  try {
+    const contentDir = await getContentPath(epubDir);
+    if (!(await fs.pathExists(contentDir))) return [];
+    return await collectFiles(contentDir, (filePath) =>
+      query.extensions.has(path.extname(filePath).toLowerCase())
+    );
+  } catch {
+    return [];
   }
 }
