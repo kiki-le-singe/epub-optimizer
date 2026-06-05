@@ -1,0 +1,132 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "package.json version to release, without the v prefix"
+        required: true
+        type: string
+      prerelease:
+        description: "Mark the GitHub release as a prerelease"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release candidate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: "pnpm"
+
+      - name: Validate version and tag
+        run: >
+          node --experimental-strip-types scripts/validate-release.ts
+          --version "${{ inputs.version }}"
+          --require-ref refs/heads/main
+          --assert-tag-absent
+          --assert-remote-tag-absent
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint code
+        run: pnpm lint
+
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Build project
+        run: pnpm build
+
+      - name: Run tests
+        run: pnpm test:run
+
+      - name: Set up Java for EPUBCheck
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install EPUBCheck
+        run: |
+          EPUBCHECK_VERSION=5.3.0
+          curl -L "https://github.com/w3c/epubcheck/releases/download/v${EPUBCHECK_VERSION}/epubcheck-${EPUBCHECK_VERSION}.zip" -o /tmp/epubcheck.zip
+          unzip -q /tmp/epubcheck.zip -d /tmp
+          mv "/tmp/epubcheck-${EPUBCHECK_VERSION}" epubcheck
+
+      - name: Run EPUBCheck E2E fixture
+        run: pnpm test:e2e
+
+      - name: Validate Docker Compose file
+        run: docker compose config --quiet
+
+      - name: Build Docker image with Compose
+        run: docker compose build
+
+      - name: Run Docker E2E fixture
+        run: pnpm test:docker
+
+  publish:
+    name: Publish release
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+
+      - name: Validate version and tag
+        run: >
+          node --experimental-strip-types scripts/validate-release.ts
+          --version "${{ inputs.version }}"
+          --require-ref refs/heads/main
+          --assert-tag-absent
+          --assert-remote-tag-absent
+
+      - name: Create and push release tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ inputs.version }}" -m "Release v${{ inputs.version }}"
+          git push origin "v${{ inputs.version }}"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FLAGS=()
+          if [ "${{ inputs.prerelease }}" = "true" ]; then
+            FLAGS+=(--prerelease)
+          fi
+          gh release create "v${{ inputs.version }}" \
+            --title "v${{ inputs.version }}" \
+            --generate-notes \
+            --verify-tag \
+            "${FLAGS[@]}"

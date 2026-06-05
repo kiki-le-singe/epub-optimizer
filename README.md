@@ -31,6 +31,7 @@ A Node.js utility to optimize EPUB files by compressing HTML, CSS, images and re
   - [Modern Workflow](#modern-workflow)
   - [Command Line Options](#command-line-options)
   - [Modes and Presets](#modes-and-presets)
+  - [Doctor / Inspect Mode](#doctor--inspect-mode)
   - [Structured Reports and Profiling](#structured-reports-and-profiling)
   - [Safety Model](#safety-model)
   - [Docker Usage](#docker-usage)
@@ -164,6 +165,7 @@ Version 3 makes the default command safer and less specific to this project's or
 - **Optional author workflow preset** (syncs subsections from a manual summary page, updates cover navigation, and applies the project author's structure fixes)
 - **Balanced, lossless, and author presets**
 - Strict failure mode, per-step profiling, and JSON run reports
+- Non-destructive doctor/inspect mode for OPF, navigation, internal reference, image weight, and optimization-risk summaries
 - Archive extraction limits, zip-slip and symlink rejection, and safe OPF/manifest/navigation path resolution
 - Modular fix scripts for EPUB and OPF structure
 - Command-line interface with customizable options
@@ -212,9 +214,7 @@ CI and Docker currently pin EPUBCheck 5.3.0.
 
 You must have [Docker installed](https://docs.docker.com/get-docker/) with Docker Compose v2. Docker Desktop includes both.
 
-Docker Compose provides a containerized environment with all dependencies pre-installed. It automatically mounts the repository directory, so the same relative EPUB paths work on Windows, macOS, and Linux.
-
-You can build the image locally or use the Linux AMD64/ARM64 image automatically published to GitHub Container Registry for every `v*` release tag.
+Docker Compose provides a containerized environment with all dependencies pre-installed. It automatically mounts the repository directory, so the same relative EPUB paths work on Windows, macOS, and Linux. Users build the image locally from the cloned repository.
 
 ### Docker Requirements
 
@@ -268,7 +268,8 @@ docker compose run --build --rm optimizer \
 | `test:run`          | Run tests once and exit                                                                           |
 | `test:coverage`     | Run tests with coverage report                                                                    |
 | `test:e2e`          | Validate every public pnpm optimization workflow with fixtures and EPUBCheck                      |
-| `test:docker`       | Validate raw Docker plus the complete Docker Compose workflow matrix with EPUBCheck               |
+| `test:docker`       | Validate raw Docker and the complete Docker Compose workflow matrix with EPUBCheck                |
+| `release:check`     | Validate a requested release version against `package.json` and optional tag/ref guards           |
 | `lint`              | Lint TypeScript files in src and scripts directories                                              |
 | `lint:fix`          | Lint and auto-fix TypeScript files in src and scripts                                             |
 | `format`            | Auto-format all .ts, .json, and .md files with Prettier                                           |
@@ -301,6 +302,10 @@ pnpm optimize:repair -i YourBook.epub -o YourBook-optimized.epub
 pnpm optimize -i YourBook.epub -o YourBook-optimized.epub \
   --strict --profile --report-json reports/optimization-report.json
 
+# Inspect an EPUB without writing an optimized output
+pnpm optimize --doctor -i YourBook.epub \
+  --report-json reports/doctor-report.json
+
 # Run tests
 pnpm test
 # or run tests once and exit
@@ -308,7 +313,7 @@ pnpm test:run
 # run the EPUBCheck end-to-end fixture after pnpm build
 pnpm test:e2e
 
-# after docker compose build, run the raw Docker and Compose fixture
+# after docker compose build, run the raw Docker and Compose fixtures
 pnpm test:docker
 ```
 
@@ -337,6 +342,8 @@ Options:
   --strict          Fail when a step emits warnings or errors
   --profile         Print execution time for each pipeline step
   --report-json     Write a structured pipeline report to a JSON file
+  --doctor, --inspect
+                    Inspect an EPUB without optimizing or writing an output EPUB
   --clean           Clean temporary files after processing  [boolean] [default: false]
   -h, --help        Show help message                       [boolean]
   -v, --version     Show version number                     [boolean]
@@ -351,6 +358,7 @@ Examples:
   pnpm optimize:repair -i book.epub -o book-opt.epub           Apply XHTML repair passes
   pnpm optimize:author -i book.epub -o book-opt.epub           Use the author's Pages/manual-summary workflow
   pnpm optimize -i input.epub -o output.epub --jpg-quality 85 --png-quality 0.8 Custom image settings
+  pnpm optimize --doctor -i input.epub                         Inspect without modifying the EPUB
 ```
 
 > **Script Differences:**
@@ -384,6 +392,19 @@ Examples:
 - Font subsetting is opt-in through `--fonts` and is not enabled by any preset.
 
 Applicable CLI options override preset defaults. For example, `--preset balanced --no-convert-png` disables PNG-to-JPEG conversion. The `lossless` preset always skips lossy raster processing, and the author workflow always includes repairs and author structure updates.
+
+### Doctor / Inspect Mode
+
+Use `--doctor` or `--inspect` to analyze an EPUB without publishing a candidate output and without modifying the input archive:
+
+```bash
+pnpm optimize --doctor -i book.epub
+pnpm optimize --inspect -i book.epub --report-json reports/book-doctor.json
+```
+
+Doctor mode extracts the EPUB to a system temporary directory, reads `container.xml` and the OPF manifest, prints a console summary, writes JSON when `--report-json` is provided, and removes its temporary extraction directory. It does not run the optimizing processors and it does not replace EPUBCheck.
+
+The report includes OPF path/version, manifest and spine counts, EPUB3/NCX navigation presence, internal reference counts and missing targets, image byte totals and largest images, duplicate image basenames, large raster images, opaque PNG conversion candidates, and other optimization-risk hints.
 
 #### Optional Author Workflow Configuration
 
@@ -533,7 +554,7 @@ docker compose run --rm optimizer \
 By default, Compose shares the repository directory with the container. Place EPUB files in that directory and use their normal relative names. Temporary files also appear there unless `--clean` is used.
 
 <details>
-<summary>Advanced: raw Docker and published images</summary>
+<summary>Advanced: raw Docker</summary>
 
 Raw `docker run` remains supported, but its bind-mount syntax varies by shell. The image now works from `/epub-files`, so the EPUB arguments themselves remain relative:
 
@@ -542,14 +563,6 @@ docker build -t epub-optimizer .
 docker run --rm -v "$PWD:/epub-files" epub-optimizer \
   -i book.epub -o book-optimized.epub
 ```
-
-Release tags publish multi-architecture images to GitHub Container Registry:
-
-```bash
-docker pull ghcr.io/kiki-le-singe/epub-optimizer:v3.0.0
-```
-
-Use a versioned image tag for reproducible runs. `latest` tracks the newest published release.
 
 </details>
 
@@ -606,7 +619,8 @@ Failures before successful cleanup preserve temporary files even when `--clean` 
 epub-optimizer/
 ├── .github/workflows/
 │   ├── ci.yml                 # Node 22/24, EPUBCheck, and Docker E2E validation
-│   └── publish-docker.yml     # Publish multi-architecture GHCR images on v* tags
+│   ├── publish-release.yml    # Create GitHub releases for manually pushed v* tags
+│   └── release.yml            # Manual release automation with CI gates, tag, and GitHub Release
 ├── compose.yaml            # Recommended cross-platform Docker interface
 ├── Dockerfile              # Multi-stage production container image
 ├── docker-entrypoint.sh    # Docker defaults and CLI entrypoint
@@ -657,6 +671,7 @@ epub-optimizer/
         ├── epub-utils.ts   # OPF / TOC file discovery
         ├── output-transaction.ts # Candidate output commit/rollback
         ├── author-workflow-config.ts # Optional validated author workflow mapping
+        ├── epub-doctor.ts    # Non-destructive EPUB inspection and optimization-risk summary
         ├── epub-integrity.ts # Before/after content metrics and regression checks
         ├── path-safety.ts  # Safe path resolution inside the extracted EPUB
         ├── pipeline-options.ts # Preset resolution
@@ -702,16 +717,21 @@ This project is built with TypeScript and uses modern ESM modules. Here's how th
 - `pnpm test:e2e` runs the public `optimize`, `optimize:clean`, `optimize:lossless`, `optimize:repair`, and `optimize:author` commands, including a configured author workflow
 - Every pnpm E2E output is checked for content integrity and validated with EPUBCheck; clean/keep-temp behavior and workflow-specific transformations are also verified
 - The author E2E fixture also checks before/after content integrity, sequential NCX navigation, and a maximum output-size ratio to catch compression regressions
-- `pnpm test:docker` validates raw Docker plus Docker Compose balanced, lossless, repair, author, and configured-author workflows
+- `pnpm test:docker` validates raw Docker balanced/author plus Docker Compose balanced, lossless, repair, author, and configured-author workflows
 - Docker E2E verifies reports, content integrity, EPUBCheck output, workflow-specific transformations, and clean/keep-temp behavior
 - CI validates the project on Node.js 22 and 24, and runs the Docker E2E workflow on Node.js 24
 - Unit tests run in a Node.js environment and mock external dependencies where appropriate
 
 ### Release Validation
 
-Before creating a release, run the CI quality gates plus coverage, audit, and local Docker checks:
+Releases can be cut from GitHub Actions with the manual **Release** workflow. Dispatch it from `main` with the package version without the `v` prefix. The workflow verifies that the requested version matches `package.json`, checks that the tag does not already exist, runs the CI quality gates and E2E suites, creates the annotated `v*` tag, and creates the GitHub release.
+
+Pushing a `v*` tag manually remains supported. The tag workflow verifies that the tag matches `package.json` and creates the GitHub release if it does not already exist.
+
+Before creating a release manually, run the CI quality gates plus coverage, audit, and local Docker checks:
 
 ```bash
+pnpm release:check --version 3.1.1
 pnpm lint
 pnpm format:check
 pnpm build

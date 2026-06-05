@@ -20,6 +20,8 @@ export interface Args {
   preset: Preset;
   "report-json"?: string;
   reportJson?: string;
+  doctor: boolean;
+  inspect: boolean;
   "max-image-dim": number;
   maxImageDim: number;
   "convert-png": boolean;

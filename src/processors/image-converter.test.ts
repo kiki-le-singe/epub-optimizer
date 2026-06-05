@@ -202,6 +202,70 @@ describe("PNG to JPEG converter", () => {
     expect(opf).not.toContain('href="images/cat.jpg"');
   });
 
+  it("rewrites URL-encoded paths with spaces while preserving query and fragment suffixes", async () => {
+    const epubDir = path.join(tempDir, "space-paths");
+    const contentDir = path.join(epubDir, "OPS");
+    const spacedDir = path.join(contentDir, "images", "space dir");
+    const spacedPng = path.join(spacedDir, "cat copy.png");
+    const spacedJpg = path.join(spacedDir, "cat copy.jpg");
+
+    await createEpubTree(epubDir);
+    await fs.ensureDir(spacedDir);
+    await createLargeOpaquePng(spacedPng);
+
+    const opfPath = path.join(contentDir, "content.opf");
+    await fs.writeFile(
+      opfPath,
+      (await fs.readFile(opfPath, "utf8")).replace(
+        '<item id="scat" href="images/scat.png" media-type="image/png"/>',
+        `<item id="space-cat" href="images/space%20dir/cat%20copy.png" media-type="image/png"/>
+        <item id="scat" href="images/scat.png" media-type="image/png"/>`
+      )
+    );
+
+    const chapterPath = path.join(contentDir, "chapters", "chapter-1.xhtml");
+    await fs.writeFile(
+      chapterPath,
+      (await fs.readFile(chapterPath, "utf8")).replace(
+        "</body>",
+        `<img src="../images/space%20dir/cat%20copy.png?space=1#frag" alt="space cat" /></body>`
+      )
+    );
+
+    const cssPath = path.join(contentDir, "styles", "book.css");
+    await fs.appendFile(
+      cssPath,
+      `.space { background-image: url("../images/space%20dir/cat%20copy.png?css=1#frag"); }`
+    );
+
+    const svgPath = path.join(contentDir, "vector", "graphic.svg");
+    await fs.writeFile(
+      svgPath,
+      (await fs.readFile(svgPath, "utf8")).replace(
+        "</svg>",
+        `<image href="../images/space%20dir/cat%20copy.png?svg=1#frag" /></svg>`
+      )
+    );
+
+    const converted = await convertPngToJpeg(epubDir, 70, 1);
+
+    expect(Array.from(converted)).toContain(spacedJpg);
+    expect(await fs.pathExists(spacedPng)).toBe(false);
+    expect(await fs.pathExists(spacedJpg)).toBe(true);
+
+    const chapter = await fs.readFile(chapterPath, "utf8");
+    expect(chapter).toContain("../images/space%20dir/cat%20copy.jpg?space=1#frag");
+
+    const css = await fs.readFile(cssPath, "utf8");
+    expect(css).toContain("../images/space%20dir/cat%20copy.jpg?css=1#frag");
+
+    const svg = await fs.readFile(svgPath, "utf8");
+    expect(svg).toContain("../images/space%20dir/cat%20copy.jpg?svg=1#frag");
+
+    const opf = await fs.readFile(opfPath, "utf8");
+    expect(opf).toContain('href="images/space%20dir/cat%20copy.jpg"');
+  });
+
   it("rolls back a JPEG candidate when the PNG has no OPF manifest item", async () => {
     const epubDir = path.join(tempDir, "missing-opf-item");
     const contentDir = path.join(epubDir, "OPS");

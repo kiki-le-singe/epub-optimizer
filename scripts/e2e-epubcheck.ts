@@ -41,6 +41,8 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
   const oebps = path.join(root, "OEBPS");
   await fs.ensureDir(path.join(root, "META-INF"));
   await fs.ensureDir(path.join(oebps, "chapters"));
+  await fs.ensureDir(path.join(oebps, "images", "dupes"));
+  await fs.ensureDir(path.join(oebps, "images", "encoded%dir"));
   await fs.ensureDir(path.join(oebps, "images"));
   await fs.ensureDir(path.join(oebps, "styles"));
 
@@ -72,6 +74,8 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
     <item id="chapter-1" href="chapters/chapter-1.xhtml" media-type="application/xhtml+xml" properties="scripted"/>
     <item id="styles" href="styles/book.css" media-type="text/css"/>
     <item id="photo" href="images/photo.png" media-type="image/png" properties="cover-image"/>
+    <item id="encoded-photo" href="images/encoded%25dir/encoded%25photo.png" media-type="image/png"/>
+    <item id="dupe-photo" href="images/dupes/photo.png" media-type="image/png"/>
     <item id="diagram" href="images/diagram.svg" media-type="image/svg+xml"/>
   </manifest>
   <spine>
@@ -126,7 +130,10 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
       <p class="hero">Nested XHTML image references should migrate safely.</p>
       <script>console.log("generic scripted content is preserved");</script>
       <img src="../images/photo.png" srcset="../images/photo.png 1x, ../images/photo.png 2x" alt="Nested photo"/>
-      <div style="background-image: url('../images/photo.png#inline')">Inline style reference</div>
+      <img src="../images/encoded%25dir/encoded%25photo.png" srcset="../images/encoded%25dir/encoded%25photo.png 2x, ../images/dupes/photo.png 1x" alt="Encoded photo path"/>
+      <img src="../images/dupes/photo.png" alt="Duplicate basename photo"/>
+      <div style="background-image: url('../images/photo.png')">Inline style reference</div>
+      <div style="background-image: url('../images/encoded%25dir/encoded%25photo.png')">Encoded inline style reference</div>
       <img src="../images/diagram.svg" alt="SVG wrapper"/>
     </section>
   </body>
@@ -137,10 +144,16 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
   await fs.writeFile(
     path.join(oebps, "styles", "book.css"),
     `.hero {
-  background-image: url("../images/photo.png#hero");
+  background-image: url("../images/photo.png");
 }
 .poster {
   background-image: image-set("../images/photo.png" 1x, url("../images/photo.png") 2x);
+}
+.encoded {
+  background-image: url("../images/encoded%25dir/encoded%25photo.png");
+}
+.dupe {
+  background-image: url("../images/dupes/photo.png");
 }
 `
   );
@@ -149,11 +162,15 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
     path.join(oebps, "images", "diagram.svg"),
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="400" height="300" viewBox="0 0 400 300">
   <image href="photo.png" xlink:href="photo.png" width="400" height="300"/>
+  <image href="encoded%25dir/encoded%25photo.png" xlink:href="encoded%25dir/encoded%25photo.png" x="10" y="10" width="120" height="90"/>
 </svg>
 `
   );
 
-  await fs.writeFile(path.join(oebps, "images", "photo.png"), await createOpaquePng());
+  const opaquePng = await createOpaquePng();
+  await fs.writeFile(path.join(oebps, "images", "photo.png"), opaquePng);
+  await fs.writeFile(path.join(oebps, "images", "dupes", "photo.png"), opaquePng);
+  await fs.writeFile(path.join(oebps, "images", "encoded%dir", "encoded%photo.png"), opaquePng);
 }
 
 async function createAuthorFixtureEpubStructure(root: string): Promise<void> {
@@ -178,6 +195,8 @@ async function createAuthorFixtureEpubStructure(root: string): Promise<void> {
     <item id="chapter-1" href="chapters/chapter-1.xhtml" media-type="application/xhtml+xml" properties="scripted"/>
     <item id="styles" href="styles/book.css" media-type="text/css"/>
     <item id="photo" href="images/photo.png" media-type="image/png" properties="cover-image"/>
+    <item id="encoded-photo" href="images/encoded%25dir/encoded%25photo.png" media-type="image/png"/>
+    <item id="dupe-photo" href="images/dupes/photo.png" media-type="image/png"/>
     <item id="diagram" href="images/diagram.svg" media-type="image/svg+xml"/>
   </manifest>
   <spine toc="ncx">
@@ -372,12 +391,20 @@ async function assertOptimizedOutput(outputEpub: string, tempDir: string): Promi
   const contentDir = path.join(inspectedDir, "OEBPS");
   const photoPng = path.join(contentDir, "images", "photo.png");
   const photoJpg = path.join(contentDir, "images", "photo.jpg");
+  const dupePhotoPng = path.join(contentDir, "images", "dupes", "photo.png");
+  const dupePhotoJpg = path.join(contentDir, "images", "dupes", "photo.jpg");
+  const encodedPhotoPng = path.join(contentDir, "images", "encoded%dir", "encoded%photo.png");
+  const encodedPhotoJpg = path.join(contentDir, "images", "encoded%dir", "encoded%photo.jpg");
 
-  if (await fs.pathExists(photoPng)) {
-    throw new Error("Expected original photo.png to be removed after safe conversion.");
+  for (const pngPath of [photoPng, dupePhotoPng, encodedPhotoPng]) {
+    if (await fs.pathExists(pngPath)) {
+      throw new Error(`Expected original PNG to be removed after safe conversion: ${pngPath}`);
+    }
   }
-  if (!(await fs.pathExists(photoJpg))) {
-    throw new Error("Expected converted photo.jpg to exist in optimized EPUB.");
+  for (const jpgPath of [photoJpg, dupePhotoJpg, encodedPhotoJpg]) {
+    if (!(await fs.pathExists(jpgPath))) {
+      throw new Error(`Expected converted JPEG to exist in optimized EPUB: ${jpgPath}`);
+    }
   }
 
   const filesToInspect = [
@@ -396,13 +423,45 @@ async function assertOptimizedOutput(outputEpub: string, tempDir: string): Promi
   }
 
   const opf = await fs.readFile(path.join(contentDir, "content.opf"), "utf8");
-  if (!opf.includes('href="images/photo.jpg"') || !opf.includes('media-type="image/jpeg"')) {
-    throw new Error("Expected OPF manifest to point to image/jpeg photo.jpg.");
+  for (const href of [
+    "images/photo.jpg",
+    "images/dupes/photo.jpg",
+    "images/encoded%25dir/encoded%25photo.jpg",
+  ]) {
+    if (!opf.includes(`href="${href}"`)) {
+      throw new Error(`Expected OPF manifest to point to ${href}.`);
+    }
+  }
+  if (!opf.includes('media-type="image/jpeg"')) {
+    throw new Error("Expected OPF manifest to update converted images to image/jpeg.");
   }
 
   const chapter = await fs.readFile(path.join(contentDir, "chapters", "chapter-1.xhtml"), "utf8");
   if (!chapter.includes("<script")) {
     throw new Error("Expected generic optimization to preserve valid scripted EPUB content.");
+  }
+  for (const reference of [
+    "../images/encoded%25dir/encoded%25photo.jpg",
+    "../images/dupes/photo.jpg",
+  ]) {
+    if (!chapter.includes(reference)) {
+      throw new Error(`Expected nested XHTML reference to be rewritten: ${reference}`);
+    }
+  }
+
+  const css = await fs.readFile(path.join(contentDir, "styles", "book.css"), "utf8");
+  for (const reference of [
+    "../images/encoded%25dir/encoded%25photo.jpg",
+    "../images/dupes/photo.jpg",
+  ]) {
+    if (!css.includes(reference)) {
+      throw new Error(`Expected CSS reference to be rewritten: ${reference}`);
+    }
+  }
+
+  const svg = await fs.readFile(path.join(contentDir, "images", "diagram.svg"), "utf8");
+  if (!svg.includes("encoded%25dir/encoded%25photo.jpg")) {
+    throw new Error("Expected SVG href/xlink image reference with encoded path to be rewritten.");
   }
 }
 

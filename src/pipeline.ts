@@ -30,9 +30,18 @@ import {
   compareEpubContentMetrics,
 } from "./utils/epub-integrity.js";
 import { loadAuthorWorkflowConfig } from "./utils/author-workflow-config.js";
+import { runDoctor } from "./utils/epub-doctor.js";
 
 export async function main(): Promise<void> {
   const args = await parseArguments();
+  if (args.doctor || args.inspect) {
+    if (args.reportJson) {
+      assertSafeReportPath(args.reportJson, args.input, args.output);
+    }
+    await runDoctor({ input: args.input, reportJson: args.reportJson });
+    return;
+  }
+
   assertDistinctInputOutput(args.input, args.output);
   await assertSafeOutputTarget(args.output);
   if (args.reportJson) {
