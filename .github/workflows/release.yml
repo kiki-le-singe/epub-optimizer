@@ -117,6 +117,26 @@ jobs:
           git tag -a "v${{ inputs.version }}" -m "Release v${{ inputs.version }}"
           git push origin "v${{ inputs.version }}"
 
+      - name: Build draft release notes from commit history
+        run: |
+          VERSION="${{ inputs.version }}"
+          PREV_TAG="$(git describe --tags --abbrev=0 "v${VERSION}^" 2>/dev/null || true)"
+          {
+            echo "## What's Changed"
+            echo ""
+            if [ -n "$PREV_TAG" ]; then
+              git log --no-merges --pretty='- %s' "${PREV_TAG}..v${VERSION}" \
+                | { grep -viE '^- (Bump version|Merge )' || true; }
+              echo ""
+              echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...v${VERSION}"
+            else
+              git log --no-merges --pretty='- %s' "v${VERSION}" \
+                | { grep -viE '^- (Bump version|Merge )' || true; }
+            fi
+          } > release-notes.md
+          echo "----- Draft release notes -----"
+          cat release-notes.md
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -127,6 +147,6 @@ jobs:
           fi
           gh release create "v${{ inputs.version }}" \
             --title "v${{ inputs.version }}" \
-            --generate-notes \
+            --notes-file release-notes.md \
             --verify-tag \
             "${FLAGS[@]}"
