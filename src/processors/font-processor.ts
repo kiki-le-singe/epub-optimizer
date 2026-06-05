@@ -2,12 +2,22 @@ import fs from "fs-extra";
 import path from "node:path";
 import * as cheerio from "cheerio";
 import { createRequire } from "node:module";
-import { getContentPath } from "../utils/epub-utils.js";
+import { collectManifestResources, getContentPath } from "../utils/epub-utils.js";
 import { collectFiles, hasExtension } from "../utils/files.js";
 
 const require = createRequire(import.meta.url);
 const XHTML_EXTENSIONS = new Set([".xhtml"]);
 const FONT_EXTENSIONS = new Set([".ttf", ".otf"]);
+const FONT_MEDIA_TYPES = new Set([
+  "application/vnd.ms-opentype",
+  "application/font-sfnt",
+  "application/x-font-ttf",
+  "application/x-font-opentype",
+  "application/x-font-otf",
+  "font/ttf",
+  "font/otf",
+  "font/sfnt",
+]);
 
 interface FontSubsetOptions {
   enabled?: boolean;
@@ -47,13 +57,6 @@ async function subsetFonts(epubDir: string, options: FontSubsetOptions = {}): Pr
       return;
     }
 
-    // Check if fonts directory exists
-    const fontsDir = path.join(contentDir, "fonts");
-    if (!(await fs.pathExists(fontsDir))) {
-      console.log("No fonts directory found, skipping font subsetting");
-      return;
-    }
-
     // Get all XHTML files
     const xhtmlFiles = await collectFiles(contentDir, (filePath) =>
       hasExtension(filePath, XHTML_EXTENSIONS)
@@ -76,10 +79,12 @@ async function subsetFonts(epubDir: string, options: FontSubsetOptions = {}): Pr
     const uniqueCharsString = Array.from(uniqueChars).join("");
     console.log(`Found ${uniqueChars.size} unique characters in EPUB content`);
 
-    // Get all font files
-    const fontFiles = await collectFiles(fontsDir, (filePath) =>
-      hasExtension(filePath, FONT_EXTENSIONS)
-    );
+    // Discover fonts via the OPF manifest (any folder/case), not a hardcoded
+    // `fonts/` folder.
+    const fontFiles = await collectManifestResources(epubDir, {
+      mediaTypes: FONT_MEDIA_TYPES,
+      extensions: FONT_EXTENSIONS,
+    });
     if (fontFiles.length === 0) {
       console.log("No font files found");
       return;
@@ -103,6 +108,7 @@ async function subsetFonts(epubDir: string, options: FontSubsetOptions = {}): Pr
         const originalSize = (await fs.stat(fontFile)).size;
         const fileName = path.basename(fontFile);
         const fileExt = path.extname(fontFile).toLowerCase();
+        const fontDir = path.dirname(fontFile);
 
         // Skip OTF files - fontmin's OTF support is unreliable
         if (fileExt === ".otf") {
@@ -120,7 +126,7 @@ async function subsetFonts(epubDir: string, options: FontSubsetOptions = {}): Pr
                 hinting: false, // Remove hinting to reduce size further
               })
             )
-            .dest(fontsDir);
+            .dest(fontDir);
 
           fontmin.run((err: Error | null, files: unknown) => {
             if (err) {
@@ -137,13 +143,13 @@ async function subsetFonts(epubDir: string, options: FontSubsetOptions = {}): Pr
         });
 
         // Check if output exists and replace original
-        const outputFiles = await fs.readdir(fontsDir);
+        const outputFiles = await fs.readdir(fontDir);
         const subsetFile = outputFiles.find(
           (f) => f.includes(path.basename(fontFile, fileExt)) && f !== fileName
         );
 
         if (subsetFile) {
-          const subsetPath = path.join(fontsDir, subsetFile);
+          const subsetPath = path.join(fontDir, subsetFile);
           const newSize = (await fs.stat(subsetPath)).size;
 
           // Only replace if the subset is actually smaller
