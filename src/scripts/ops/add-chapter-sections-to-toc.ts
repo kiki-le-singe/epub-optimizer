@@ -102,7 +102,7 @@ async function extractChapterStructure(
  * @returns Base href without fragment
  */
 function getBaseHref(href: string): string {
-  return href.split("#")[0];
+  return href.split("#")[0] ?? "";
 }
 
 /**
@@ -205,7 +205,7 @@ async function updateEPUB2NCXWithSections(ncxFilePath: string, chapters: Chapter
 
       if ($chapterNavPoint.length === 0) {
         // Try to match by chapter title in text
-        const chapterTitle = chapter.text.split(" - ")[0].trim();
+        const chapterTitle = chapter.text.split(" - ")[0]?.trim() ?? "";
         const matchedText = $(`navPoint navLabel text:contains("${chapterTitle}")`);
         $chapterNavPoint = matchedText.parent().parent();
       }
@@ -216,8 +216,7 @@ async function updateEPUB2NCXWithSections(ncxFilePath: string, chapters: Chapter
 
         if (existingSubNavPoints.length === 0) {
           // Add subsections as nested navPoints
-          for (let i = 0; i < chapter.sections.length; i++) {
-            const section = chapter.sections[i];
+          for (const [i, section] of chapter.sections.entries()) {
             globalPlayOrder++;
 
             const navPointId = `${$chapterNavPoint.attr("id")}-section-${i + 1}`;

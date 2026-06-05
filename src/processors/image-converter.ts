@@ -452,8 +452,9 @@ function scanMarkupReferences(
   let attrMatch: RegExpExecArray | null;
 
   while ((attrMatch = attributeRegex.exec(content)) !== null) {
-    const attrName = attrMatch[1].toLowerCase();
+    const attrName = attrMatch[1]?.toLowerCase();
     const value = attrMatch[3];
+    if (attrName === undefined || value === undefined) continue;
     const valueOffset = attrMatch.index + attrMatch[0].indexOf(value);
 
     if (attrName === "style") {

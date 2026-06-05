@@ -1,5 +1,9 @@
 # EPUB Optimizer
 
+[![CI](https://github.com/kiki-le-singe/epub-optimizer/actions/workflows/ci.yml/badge.svg)](https://github.com/kiki-le-singe/epub-optimizer/actions/workflows/ci.yml)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A Node.js utility to optimize EPUB files by compressing HTML, CSS, images and recompressing the archive. This tool can significantly reduce EPUB file sizes while maintaining compatibility with e-readers and ensuring EPUB specification compliance.
 
 ## Why Use EPUB Optimizer?
@@ -8,12 +12,26 @@ A Node.js utility to optimize EPUB files by compressing HTML, CSS, images and re
 - ✅ **Validates before publishing** - EPUBCheck must succeed before the requested output is replaced
 - ✅ **Offers explicit quality trade-offs** - Choose balanced, lossless, or the complete author workflow
 - ✅ **Uses the EPUB package as source of truth** - Discovers modern and legacy content through `container.xml` and the OPF manifest
+- ✅ **Handles tricky EPUBs gracefully** - Refuses DRM-encrypted books, leaves obfuscated/embedded fonts intact, and skips downscaling for fixed-layout titles instead of corrupting them
 - ✅ **Zero setup with Docker** - No need to install Node.js, Java, or other dependencies
 - ✅ **Battle-tested** - Used for real book publishing workflows
 - ✅ **Structured results** - Optional JSON reports, strict mode, and per-step profiling
 - ✅ **Explicit controls** - Generic, lossless, repair, and complete author workflows
 
 ![EPUB Optimizer Terminal Output](assets/epub-optimizer-demo.png)
+
+### Results
+
+Measured on a 57 MB image-heavy EPUB (12 full-page PNGs), with EPUBCheck-clean output:
+
+| Preset               | Output     | Reduction                          | EPUBCheck             |
+| -------------------- | ---------- | ---------------------------------- | --------------------- |
+| `balanced` (default) | 8.3 MB     | **−85.5%**                         | 0 errors / 0 warnings |
+| `author`             | 8.3 MB     | **−85.5%**                         | 0 errors / 0 warnings |
+| `repair`             | 8.3 MB     | **−85.5%**                         | 0 errors / 0 warnings |
+| `lossless`           | ~unchanged | by design (no lossy image changes) | 0 errors / 0 warnings |
+
+Most of the savings come from image optimization (PNG→JPEG + recompression), so results scale with how image-heavy your book is. Peak memory stays bounded (~0.5 GB on this 57 MB input).
 
 ## Table of Contents
 
@@ -167,6 +185,9 @@ Version 3 makes the default command safer and less specific to this project's or
 - Strict failure mode, per-step profiling, and JSON run reports
 - Non-destructive doctor/inspect mode for OPF, navigation, internal reference, image weight, and optimization-risk summaries
 - Archive extraction limits, zip-slip and symlink rejection, and safe OPF/manifest/navigation path resolution
+- **Graceful handling of special EPUBs**: detects `META-INF/encryption.xml` and refuses DRM-encrypted books instead of silently corrupting them, while still optimizing books whose only encrypted resources are fonts (the fonts are left byte-for-byte intact)
+- **Fixed-layout aware**: automatically disables image downscaling for pre-paginated (`rendition:layout`) EPUBs so page images stay aligned with the declared viewport
+- **Animation-safe image processing**: preserves every frame of animated GIF/WebP/AVIF and caps image-processing memory to avoid blow-ups on image-heavy books
 - Modular fix scripts for EPUB and OPF structure
 - Command-line interface with customizable options
 - File size comparison reporting
@@ -174,7 +195,7 @@ Version 3 makes the default command safer and less specific to this project's or
 
 > **Note:**
 >
-> - **Font subsetting limitation:** Apple Pages EPUBs with embedded fonts are encrypted by Apple for DRM protection, preventing font optimization. Font subsetting is disabled by default and `fontmin` is not installed as a runtime dependency because its legacy dependency tree currently produces production audit findings. Use `--fonts` only for trusted local workflows after installing `fontmin` yourself.
+> - **Font subsetting limitation:** Apple Pages EPUBs with embedded fonts are encrypted by Apple for DRM protection, preventing font optimization. Font subsetting is disabled by default and `fontmin` is not installed as a runtime dependency because its legacy dependency tree currently produces production audit findings. Use `--fonts` only for trusted local workflows after installing `fontmin` yourself. The optimizer detects these encrypted fonts automatically: it optimizes everything else and leaves the encrypted fonts untouched, so books exported with "Embed fonts" are still optimized safely (only books that encrypt actual content are refused).
 > - Lazy loading is enabled by the author preset or explicitly with `--lazy-loading`.
 
 ## Requirements
@@ -725,12 +746,10 @@ This project is built with TypeScript and uses modern ESM modules. Here's how th
 
 Releases can be cut from GitHub Actions with the manual **Release** workflow. Dispatch it from `main` with the package version without the `v` prefix. The workflow verifies that the requested version matches `package.json`, checks that the tag does not already exist, runs the CI quality gates and E2E suites, creates the annotated `v*` tag, and creates the GitHub release.
 
-Pushing a `v*` tag manually remains supported. The tag workflow verifies that the tag matches `package.json` and creates the GitHub release if it does not already exist.
-
 Before creating a release manually, run the CI quality gates plus coverage, audit, and local Docker checks:
 
 ```bash
-pnpm release:check --version 3.1.1
+pnpm release:check --version 3.3.1
 pnpm lint
 pnpm format:check
 pnpm build

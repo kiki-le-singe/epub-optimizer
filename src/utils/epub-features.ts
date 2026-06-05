@@ -13,6 +13,14 @@ const FONT_OBFUSCATION_ALGORITHMS = new Set([
   "http://ns.adobe.com/pdf/enc#RC", // Adobe font obfuscation
 ]);
 
+const FONT_EXTENSIONS = new Set([".ttf", ".otf", ".woff", ".woff2", ".ttc", ".dfont"]);
+
+function isFontHref(href: string): boolean {
+  const clean = href.split(/[?#]/, 1)[0] ?? href;
+  const dot = clean.lastIndexOf(".");
+  return dot >= 0 && FONT_EXTENSIONS.has(clean.slice(dot).toLowerCase());
+}
+
 /**
  * - `none`: no `META-INF/encryption.xml`.
  * - `obfuscation`: every encrypted entry uses a known font-obfuscation
@@ -71,14 +79,24 @@ async function detectEncryption(
     if (uri) hrefs.push(safeDecodeURIComponent(uri));
   });
 
-  // encryption.xml exists but we found no algorithm we understand → be
+  // encryption.xml exists but we couldn't read any algorithm or resource → be
   // conservative and treat it as DRM rather than risk corrupting content.
-  if (algorithms.length === 0) {
+  if (algorithms.length === 0 && hrefs.length === 0) {
     return { kind: "drm", hrefs };
   }
 
-  const everyEntryIsObfuscation = algorithms.every((a) => FONT_OBFUSCATION_ALGORITHMS.has(a));
-  return { kind: everyEntryIsObfuscation ? "obfuscation" : "drm", hrefs };
+  // Font obfuscation is safe to skip-and-optimize-the-rest. We classify it as
+  // obfuscation when every encrypted entry is either a known obfuscation
+  // algorithm OR a font file (covers producers like Pages that encrypt only the
+  // embedded fonts). Anything else encrypted means real content DRM → refuse.
+  const allObfuscationAlgorithms =
+    algorithms.length > 0 && algorithms.every((a) => FONT_OBFUSCATION_ALGORITHMS.has(a));
+  const allEncryptedAreFonts = hrefs.length > 0 && hrefs.every(isFontHref);
+
+  if (allObfuscationAlgorithms || allEncryptedAreFonts) {
+    return { kind: "obfuscation", hrefs };
+  }
+  return { kind: "drm", hrefs };
 }
 
 /** Reads the OPF and detects a pre-paginated (fixed-layout) rendition. */

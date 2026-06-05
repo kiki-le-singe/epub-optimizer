@@ -70,6 +70,22 @@ describe("detectEpubFeatures — encryption", () => {
     expect(features.encryptedHrefs).toContain("OEBPS/fonts/font.otf");
   });
 
+  it("treats font-only encryption as obfuscation even with an unknown algorithm", async () => {
+    const encryption = `<?xml version="1.0" encoding="UTF-8"?>
+<encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container"
+            xmlns:enc="http://www.w3.org/2001/04/xmlenc#">
+  <enc:EncryptedData>
+    <enc:EncryptionMethod Algorithm="http://example.com/proprietary-font-scheme"/>
+    <enc:CipherData>
+      <enc:CipherReference URI="OEBPS/fonts/Embedded.ttf"/>
+    </enc:CipherData>
+  </enc:EncryptedData>
+</encryption>`;
+    const dir = await makeEpub({ "META-INF/encryption.xml": encryption });
+    const features = await detectEpubFeatures(dir);
+    expect(features.encryptionKind).toBe("obfuscation");
+  });
+
   it("classifies real content encryption as drm", async () => {
     const encryption = `<?xml version="1.0" encoding="UTF-8"?>
 <encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
