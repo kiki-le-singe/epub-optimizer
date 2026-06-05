@@ -746,12 +746,10 @@ This project is built with TypeScript and uses modern ESM modules. Here's how th
 
 Releases can be cut from GitHub Actions with the manual **Release** workflow. Dispatch it from `main` with the package version without the `v` prefix. The workflow verifies that the requested version matches `package.json`, checks that the tag does not already exist, runs the CI quality gates and E2E suites, creates the annotated `v*` tag, and creates the GitHub release.
 
-Pushing a `v*` tag manually remains supported. The tag workflow verifies that the tag matches `package.json` and creates the GitHub release if it does not already exist.
-
 Before creating a release manually, run the CI quality gates plus coverage, audit, and local Docker checks:
 
 ```bash
-pnpm release:check --version 3.1.1
+pnpm release:check --version 3.3.1
 pnpm lint
 pnpm format:check
 pnpm build
