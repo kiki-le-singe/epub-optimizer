@@ -6,10 +6,13 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   prettierConfig,
+  // Global ignores (a config object with only `ignores` applies everywhere).
+  // Declaration files have no runtime code, so type-aware linting skips them.
+  { ignores: ["**/*.d.ts"] },
   {
     ignores: ["node_modules/**", "dist/**", "build/**", "coverage/**", "temp_epub/**"],
     languageOptions: {
-      ecmaVersion: 2020,
+      ecmaVersion: 2022,
       sourceType: "module",
     },
     rules: {
@@ -24,15 +27,14 @@ export default tseslint.config(
     files: ["**/*.ts", "**/*.d.ts"],
     languageOptions: {
       parser: tseslint.parser,
-      // Disable the project option since it's causing issues with test files
-      // parserOptions: {
-      //   project: true,
-      //   tsconfigRootDir: ".",
-      // },
+      parserOptions: {
+        project: "./tsconfig.eslint.json",
+        tsconfigRootDir: import.meta.dirname,
+      },
     },
     rules: {
-      // Disable rules that require type information since we're not using the project option
-      "@typescript-eslint/no-floating-promises": "off",
+      // Catch unawaited promises in the async-heavy pipeline.
+      "@typescript-eslint/no-floating-promises": "error",
     },
   }
 );

@@ -86,11 +86,13 @@ function collectMarkupReferences(content: string): string[] {
   let match: RegExpExecArray | null;
 
   while ((match = attributeRegex.exec(content)) !== null) {
-    references.push(match[2]);
+    if (match[2] !== undefined) references.push(match[2]);
   }
 
   while ((match = srcsetRegex.exec(content)) !== null) {
-    for (const candidate of match[2].split(",")) {
+    const srcset = match[2];
+    if (srcset === undefined) continue;
+    for (const candidate of srcset.split(",")) {
       const reference = candidate.trim().split(/\s+/, 1)[0];
       if (reference) references.push(reference);
     }
@@ -106,10 +108,11 @@ function collectCssReferences(content: string): string[] {
   let match: RegExpExecArray | null;
 
   while ((match = urlRegex.exec(content)) !== null) {
-    references.push(match[2] ?? match[3]);
+    const reference = match[2] ?? match[3];
+    if (reference !== undefined) references.push(reference);
   }
   while ((match = importRegex.exec(content)) !== null) {
-    references.push(match[2]);
+    if (match[2] !== undefined) references.push(match[2]);
   }
 
   return references;

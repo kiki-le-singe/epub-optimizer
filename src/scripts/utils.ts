@@ -87,8 +87,9 @@ export function getLang(): string {
   const args = process.argv.slice(2);
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg.startsWith("--lang=")) return arg.split("=")[1];
-    if (arg === "--lang" && i + 1 < args.length) return args[i + 1];
+    if (arg === undefined) continue;
+    if (arg.startsWith("--lang=")) return arg.split("=")[1] ?? config.lang;
+    if (arg === "--lang" && i + 1 < args.length) return args[i + 1] ?? config.lang;
   }
   return config.lang;
 }
@@ -104,16 +105,17 @@ export function getTempDir(): string {
   // Look for --temp or -t in the arguments array
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+    if (arg === undefined) continue;
 
     // Check for --temp=value or -t=value
     if (arg.startsWith("--temp=") || arg.startsWith("-t=")) {
-      const tempPath = arg.split("=")[1];
+      const tempPath = arg.split("=")[1] ?? "";
       return path.isAbsolute(tempPath) ? tempPath : path.join(process.cwd(), tempPath);
     }
 
     // Check for --temp value or -t value (next arg is the value)
     if ((arg === "--temp" || arg === "-t") && i + 1 < args.length) {
-      const tempPath = args[i + 1];
+      const tempPath = args[i + 1] ?? "";
       return path.isAbsolute(tempPath) ? tempPath : path.join(process.cwd(), tempPath);
     }
   }

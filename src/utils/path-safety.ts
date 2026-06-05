@@ -21,7 +21,7 @@ export function resolvePathInside(
   rawReference: string,
   label = "EPUB path"
 ): string {
-  const pathPart = rawReference.split(/[?#]/, 1)[0];
+  const pathPart = rawReference.split(/[?#]/, 1)[0] ?? "";
   const decoded = safeDecodeUri(pathPart).replace(/\\/g, "/");
 
   if (

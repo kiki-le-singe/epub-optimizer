@@ -83,7 +83,7 @@ function formatBytes(bytes: number): string {
 }
 
 function basenameFromHref(href: string): string {
-  const pathPart = href.split(/[?#]/, 1)[0];
+  const pathPart = href.split(/[?#]/, 1)[0] ?? "";
   try {
     return path.posix.basename(decodeURI(pathPart));
   } catch {
