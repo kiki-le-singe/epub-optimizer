@@ -137,6 +137,55 @@ async function runDockerWorkflowCase(
   return { outputEpub, report };
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function removeDockerE2ERunDir(runDir: string): Promise<void> {
+  if (!(await fs.pathExists(runDir))) {
+    return;
+  }
+
+  try {
+    await fs.remove(runDir);
+    return;
+  } catch (error) {
+    const chmodResult = spawnSync(
+      "docker",
+      [
+        "run",
+        "--rm",
+        "--user",
+        "0",
+        "--entrypoint",
+        "/bin/sh",
+        "-v",
+        `${runDir}:/epub-files`,
+        imageName,
+        "-c",
+        "chmod -R a+rwX /epub-files",
+      ],
+      { stdio: "ignore" }
+    );
+
+    if (chmodResult.status === 0) {
+      try {
+        await fs.remove(runDir);
+        return;
+      } catch (retryError) {
+        console.warn(
+          `Warning: could not remove Docker E2E temp dir ${runDir}: ${getErrorMessage(retryError)}`
+        );
+        return;
+      }
+    }
+
+    console.warn(
+      `Warning: could not remove Docker E2E temp dir ${runDir}: ${getErrorMessage(error)}`
+    );
+  }
+}
+
 async function main(): Promise<void> {
   assertDockerAvailable();
 
@@ -279,7 +328,7 @@ async function main(): Promise<void> {
       "Docker workflows passed E2E validation: raw run, Compose balanced, lossless, repair, author, and configured author."
     );
   } finally {
-    await fs.remove(runDir);
+    await removeDockerE2ERunDir(runDir);
   }
 }
 
