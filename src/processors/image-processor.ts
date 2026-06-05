@@ -4,6 +4,12 @@ import sharp from "sharp";
 import pLimit from "p-limit";
 import config from "../utils/config.js";
 
+// Bound libvips so parallel encodes don't oversubscribe CPU threads or retain
+// decoded-image memory. File-level parallelism is handled by p-limit below, so
+// each sharp op runs single-threaded and the operation cache is disabled.
+sharp.concurrency(1);
+sharp.cache(false);
+
 export interface ImageOpts {
   /** JPEG quality 0-100 */
   jpegQuality?: number;
@@ -66,20 +72,25 @@ async function compressImage(imagePath: string, opts: ImageOpts = {}): Promise<v
 
   try {
     const extension = path.extname(imagePath).toLowerCase();
-    const imageBuffer = await fs.readFile(imagePath);
-
-    // Skip if image is already small (less than 10KB)
-    if (imageBuffer.length < 10 * 1024) {
-      console.log(`⏩ Skipping small image: ${filename}`);
-      return;
-    }
 
     // Skip SVG files as they're already text/XML
     if (extension === ".svg") {
       return;
     }
 
-    let processedImage = sharp(imageBuffer);
+    // Read the size cheaply first and skip tiny images without loading them.
+    const originalSize = (await fs.stat(imagePath)).size;
+    if (originalSize < 10 * 1024) {
+      console.log(`⏩ Skipping small image: ${filename}`);
+      return;
+    }
+
+    // Preserve every frame of multi-frame formats instead of collapsing to the
+    // first one. `animated` is a harmless no-op for single-frame images.
+    const isMultiFrame = extension === ".gif" || extension === ".webp" || extension === ".avif";
+    // Read straight from the path (sharp streams it) instead of buffering the
+    // whole compressed file in memory on top of the decoded raster.
+    let processedImage = sharp(imagePath, isMultiFrame ? { animated: true } : undefined);
 
     // Resize step (merged from the old image-downscale pass). Sharp with
     // `fit: inside, withoutEnlargement: true` is a no-op for already-small
@@ -143,9 +154,9 @@ async function compressImage(imagePath: string, opts: ImageOpts = {}): Promise<v
 
     // Log optimization result
     const newSize = (await fs.stat(imagePath)).size;
-    const savings = (((imageBuffer.length - newSize) / imageBuffer.length) * 100).toFixed(1);
+    const savings = (((originalSize - newSize) / originalSize) * 100).toFixed(1);
 
-    if (newSize < imageBuffer.length) {
+    if (newSize < originalSize) {
       console.log(`💾 Optimized ${filename}: ${savings}% smaller`);
     }
   } catch (error) {
