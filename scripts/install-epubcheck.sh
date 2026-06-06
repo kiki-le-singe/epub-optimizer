@@ -14,10 +14,11 @@ ZIP_URL="https://github.com/w3c/epubcheck/releases/download/v${EPUBCHECK_VERSION
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
+# Retry transient download failures (e.g. GitHub CDN 5xx/timeouts).
 if command -v curl >/dev/null 2>&1; then
-  curl -fsSL "$ZIP_URL" -o "$tmp/epubcheck.zip"
+  curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors "$ZIP_URL" -o "$tmp/epubcheck.zip"
 else
-  wget -q "$ZIP_URL" -O "$tmp/epubcheck.zip"
+  wget -q --tries=5 --waitretry=3 --retry-connrefused "$ZIP_URL" -O "$tmp/epubcheck.zip"
 fi
 
 unzip -q "$tmp/epubcheck.zip" -d "$tmp"
