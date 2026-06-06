@@ -229,7 +229,7 @@ This tool requires EPUBCheck to validate EPUB files. Follow these steps:
 3. Copy the extracted `epubcheck-x.x.x` folder (where x.x.x is the version) to the root of this project
 4. Make sure the folder is named `epubcheck` to match the path in `epubcheckPath` in src/utils/config.ts
 
-CI and Docker currently pin EPUBCheck 5.3.0.
+CI and Docker pin the EPUBCheck version centrally in `scripts/install-epubcheck.sh` (single source of truth).
 
 ## Docker Alternative
 
