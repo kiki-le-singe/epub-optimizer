@@ -144,8 +144,9 @@ jobs:
           if [ "${{ inputs.prerelease }}" = "true" ]; then
             FLAGS+=(--prerelease)
           fi
+          RELEASE_TITLE="$VERSION ($(date -u +'%b %e, %Y' | tr -s ' '))"
           gh release create "v$VERSION" \
-            --title "v$VERSION" \
+            --title "$RELEASE_TITLE" \
             --notes-file release-notes.md \
             --verify-tag \
             --draft \
