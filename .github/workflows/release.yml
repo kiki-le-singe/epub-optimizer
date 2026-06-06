@@ -3,10 +3,6 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "package.json version to release, without the v prefix"
-        required: true
-        type: string
       prerelease:
         description: "Mark the GitHub release as a prerelease"
         required: true
@@ -17,7 +13,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ inputs.version }}
+  group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -39,10 +35,14 @@ jobs:
           node-version: 24.x
           cache: "pnpm"
 
+      - name: Resolve version from package.json
+        run: |
+          echo "VERSION=$(node -p 'require("./package.json").version')" >> "$GITHUB_ENV"
+
       - name: Validate version and tag
         run: >
           node --experimental-strip-types scripts/validate-release.ts
-          --version "${{ inputs.version }}"
+          --version "$VERSION"
           --require-ref refs/heads/main
           --assert-tag-absent
           --assert-remote-tag-absent
@@ -102,10 +102,14 @@ jobs:
         with:
           node-version: 24.x
 
+      - name: Resolve version from package.json
+        run: |
+          echo "VERSION=$(node -p 'require("./package.json").version')" >> "$GITHUB_ENV"
+
       - name: Validate version and tag
         run: >
           node --experimental-strip-types scripts/validate-release.ts
-          --version "${{ inputs.version }}"
+          --version "$VERSION"
           --require-ref refs/heads/main
           --assert-tag-absent
           --assert-remote-tag-absent
@@ -114,12 +118,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${{ inputs.version }}" -m "Release v${{ inputs.version }}"
-          git push origin "v${{ inputs.version }}"
+          git tag -a "v$VERSION" -m "Release v$VERSION"
+          git push origin "v$VERSION"
 
       - name: Build draft release notes from commit history
         run: |
-          VERSION="${{ inputs.version }}"
           PREV_TAG="$(git describe --tags --abbrev=0 "v${VERSION}^" 2>/dev/null || true)"
           {
             echo "## What's Changed"
@@ -145,8 +148,9 @@ jobs:
           if [ "${{ inputs.prerelease }}" = "true" ]; then
             FLAGS+=(--prerelease)
           fi
-          gh release create "v${{ inputs.version }}" \
-            --title "v${{ inputs.version }}" \
+          gh release create "v$VERSION" \
+            --title "v$VERSION" \
             --notes-file release-notes.md \
             --verify-tag \
+            --draft \
             "${FLAGS[@]}"
