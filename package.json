@@ -32,6 +32,7 @@
     "test:e2e": "node --experimental-strip-types scripts/e2e-epubcheck.ts",
     "test:docker": "node --experimental-strip-types scripts/docker-e2e.ts",
     "release:check": "node --experimental-strip-types scripts/validate-release.ts",
+    "release:prepare": "node --experimental-strip-types scripts/prepare-release.ts",
     "lint": "eslint src scripts --ext .ts",
     "lint:fix": "eslint src scripts --ext .ts --fix",
     "format": "prettier --write \"**/*.{ts,json,md}\"",

@@ -744,7 +744,7 @@ This project is built with TypeScript and uses modern ESM modules. Here's how th
 
 ### Release Validation
 
-Releases are cut from GitHub Actions with the manual **Release** workflow. Bump `package.json` on `main`, then dispatch the workflow from `main` — there is no version input; it reads the version from `package.json`. The workflow validates that the run is on `main` and the `vX.Y.Z` tag does not already exist (locally or remotely), runs the CI quality gates and E2E suites, creates the annotated tag, and creates the GitHub release **as a draft** — review/polish the auto-drafted notes, then click Publish.
+Releases are cut from GitHub Actions with the manual **Release** workflow. Prepare `main` with `pnpm release:prepare X.Y.Z` (merges `develop` → `main`, bumps `package.json`, pushes `main`; add `--dry-run` to preview), then dispatch the workflow from `main` — there is no version input; it reads the version from `package.json`. The workflow validates that the run is on `main` and the `vX.Y.Z` tag does not already exist (locally or remotely), runs the CI quality gates and E2E suites, creates the annotated tag, and creates the GitHub release **as a draft** — review/polish the auto-drafted notes, then click Publish.
 
 Before creating a release manually, run the CI quality gates plus coverage, audit, and local Docker checks:
 
