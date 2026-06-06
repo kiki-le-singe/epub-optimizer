@@ -35,15 +35,13 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
 # Stage 5: epubcheck — download EPUBCheck (cached separately)
 # ============================================================
 FROM debian:bookworm-slim AS epubcheck
-ARG EPUBCHECK_VERSION=5.3.0
 RUN apt-get update \
- && apt-get install -y --no-install-recommends wget unzip ca-certificates \
+ && apt-get install -y --no-install-recommends curl unzip ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /opt
-RUN wget -q "https://github.com/w3c/epubcheck/releases/download/v${EPUBCHECK_VERSION}/epubcheck-${EPUBCHECK_VERSION}.zip" \
- && unzip -q "epubcheck-${EPUBCHECK_VERSION}.zip" \
- && mv "epubcheck-${EPUBCHECK_VERSION}" epubcheck \
- && rm "epubcheck-${EPUBCHECK_VERSION}.zip"
+# Use the single-source install script so the EPUBCheck version matches CI.
+COPY scripts/install-epubcheck.sh ./install-epubcheck.sh
+RUN bash ./install-epubcheck.sh /opt/epubcheck
 
 # ============================================================
 # Stage 6: runtime — slim final image (no build tooling)

@@ -229,7 +229,9 @@ This tool requires EPUBCheck to validate EPUB files. Follow these steps:
 3. Copy the extracted `epubcheck-x.x.x` folder (where x.x.x is the version) to the root of this project
 4. Make sure the folder is named `epubcheck` to match the path in `epubcheckPath` in src/utils/config.ts
 
-CI and Docker currently pin EPUBCheck 5.3.0.
+Or simply run `bash scripts/install-epubcheck.sh` from the project root — it downloads and installs the pinned EPUBCheck version into `epubcheck/` for you.
+
+CI and Docker pin the EPUBCheck version centrally in `scripts/install-epubcheck.sh` (single source of truth).
 
 ## Docker Alternative
 
@@ -273,28 +275,29 @@ docker compose run --build --rm optimizer \
 
 ### Available Scripts
 
-| Script              | Description                                                                                       |
-| ------------------- | ------------------------------------------------------------------------------------------------- |
-| `build`             | Build TypeScript for production (with minification)                                               |
-| `build:dev`         | Build TypeScript for development (no minification)                                                |
-| `build:prod`        | Build TypeScript with minification for production                                                 |
-| `minify:safe`       | Safely minify JavaScript in dist/ directory (runs the TS source via Node's native type-stripping) |
-| `optimize`          | Run optimizer, keeping temp files                                                                 |
-| `optimize:author`   | Run the complete project-author workflow, including repairs and structure updates                 |
-| `optimize:repair`   | Run generic optimization plus modifying XHTML repair passes                                       |
-| `optimize:lossless` | Avoid lossy image conversion, recompression, and resizing                                         |
-| `optimize:clean`    | Run optimizer, removing temp files afterward                                                      |
-| `cleanup`           | Remove temporary files                                                                            |
-| `test`              | Run tests in watch mode                                                                           |
-| `test:run`          | Run tests once and exit                                                                           |
-| `test:coverage`     | Run tests with coverage report                                                                    |
-| `test:e2e`          | Validate every public pnpm optimization workflow with fixtures and EPUBCheck                      |
-| `test:docker`       | Validate raw Docker and the complete Docker Compose workflow matrix with EPUBCheck                |
-| `release:check`     | Validate a requested release version against `package.json` and optional tag/ref guards           |
-| `lint`              | Lint TypeScript files in src and scripts directories                                              |
-| `lint:fix`          | Lint and auto-fix TypeScript files in src and scripts                                             |
-| `format`            | Auto-format all .ts, .json, and .md files with Prettier                                           |
-| `format:check`      | Check formatting of all .ts, .json, and .md files with Prettier                                   |
+| Script              | Description                                                                                        |
+| ------------------- | -------------------------------------------------------------------------------------------------- |
+| `build`             | Build TypeScript for production (with minification)                                                |
+| `build:dev`         | Build TypeScript for development (no minification)                                                 |
+| `build:prod`        | Build TypeScript with minification for production                                                  |
+| `minify:safe`       | Safely minify JavaScript in dist/ directory (runs the TS source via Node's native type-stripping)  |
+| `optimize`          | Run optimizer, keeping temp files                                                                  |
+| `optimize:author`   | Run the complete project-author workflow, including repairs and structure updates                  |
+| `optimize:repair`   | Run generic optimization plus modifying XHTML repair passes                                        |
+| `optimize:lossless` | Avoid lossy image conversion, recompression, and resizing                                          |
+| `optimize:clean`    | Run optimizer, removing temp files afterward                                                       |
+| `cleanup`           | Remove temporary files                                                                             |
+| `test`              | Run tests in watch mode                                                                            |
+| `test:run`          | Run tests once and exit                                                                            |
+| `test:coverage`     | Run tests with coverage report                                                                     |
+| `test:e2e`          | Validate every public pnpm optimization workflow with fixtures and EPUBCheck                       |
+| `test:docker`       | Validate raw Docker and the complete Docker Compose workflow matrix with EPUBCheck                 |
+| `release:check`     | Validate a requested release version against `package.json` and optional tag/ref guards            |
+| `release:prepare`   | Merge develop → main, bump `package.json`, and push `main` in one command (`--dry-run` to preview) |
+| `lint`              | Lint TypeScript files in src and scripts directories                                               |
+| `lint:fix`          | Lint and auto-fix TypeScript files in src and scripts                                              |
+| `format`            | Auto-format all .ts, .json, and .md files with Prettier                                            |
+| `format:check`      | Check formatting of all .ts, .json, and .md files with Prettier                                    |
 
 ### Modern Workflow
 
@@ -640,6 +643,7 @@ Failures before successful cleanup preserve temporary files even when `--clean` 
 epub-optimizer/
 ├── .github/workflows/
 │   ├── ci.yml                 # Node 22/24, EPUBCheck, and Docker E2E validation
+│   ├── epubcheck-watch.yml    # Weekly check for new EPUBCheck releases (opens an issue)
 │   └── release.yml            # Manual release automation with CI gates, tag, and GitHub Release
 ├── compose.yaml            # Recommended cross-platform Docker interface
 ├── Dockerfile              # Multi-stage production container image
@@ -651,10 +655,13 @@ epub-optimizer/
 ├── vitest.config.ts        # Test configuration
 ├── epubcheck/              # EPUBCheck for EPUB validation (not included in repo)
 ├── scripts/                # Build and maintenance scripts
-│   ├── clean-path.ts       # Guarded cleanup helper used instead of rm -rf
-│   ├── docker-e2e.ts       # Docker fixture test runner
-│   ├── e2e-epubcheck.ts    # Local fixture test runner with EPUBCheck
-│   └── minify-dist.ts      # Smart minification script for JavaScript files
+│   ├── clean-path.ts          # Guarded cleanup helper used instead of rm -rf
+│   ├── docker-e2e.ts          # Docker fixture test runner
+│   ├── e2e-epubcheck.ts       # Local fixture test runner with EPUBCheck
+│   ├── install-epubcheck.sh   # Single source of the EPUBCheck version (CI + Docker)
+│   ├── minify-dist.ts         # Smart minification script for JavaScript files
+│   ├── prepare-release.ts     # Merge develop→main + bump (pnpm release:prepare)
+│   └── validate-release.ts    # Release version/tag/ref guards (pnpm release:check)
 └── src/                    # Source code directory
     ├── index.ts            # optimizeEPUB(): extract + run every content processor
     ├── pipeline.ts         # In-process CLI orchestrator (bin entry point)
@@ -744,7 +751,7 @@ This project is built with TypeScript and uses modern ESM modules. Here's how th
 
 ### Release Validation
 
-Releases can be cut from GitHub Actions with the manual **Release** workflow. Dispatch it from `main` with the package version without the `v` prefix. The workflow verifies that the requested version matches `package.json`, checks that the tag does not already exist, runs the CI quality gates and E2E suites, creates the annotated `v*` tag, and creates the GitHub release.
+Releases are cut from GitHub Actions with the manual **Release** workflow. Prepare `main` with `pnpm release:prepare X.Y.Z` (merges `develop` → `main`, bumps `package.json`, pushes `main`; add `--dry-run` to preview), then dispatch the workflow from `main` — there is no version input; it reads the version from `package.json`. The workflow validates that the run is on `main` and the `vX.Y.Z` tag does not already exist (locally or remotely), runs the CI quality gates and E2E suites, creates the annotated tag, and creates the GitHub release **as a draft** — review/polish the auto-drafted notes, then click Publish.
 
 Before creating a release manually, run the CI quality gates plus coverage, audit, and local Docker checks:
 

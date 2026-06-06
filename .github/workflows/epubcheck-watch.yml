@@ -1,0 +1,52 @@
+name: EPUBCheck version watch
+
+# Opens an issue when a newer EPUBCheck release is available. EPUBCheck is
+# downloaded by curl (not an npm/Actions dependency), so Dependabot cannot see
+# it — this scheduled job fills that gap. It only notifies; bumping is manual
+# and deliberate, because EPUBCheck updates can add new validation rules.
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays, 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Compare pinned vs latest EPUBCheck
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PINNED="$(grep -oE 'EPUBCHECK_VERSION="[^"]+"' scripts/install-epubcheck.sh | head -1 | sed -E 's/.*"([^"]+)".*/\1/')"
+          LATEST="$(gh api repos/w3c/epubcheck/releases/latest --jq .tag_name | sed 's/^v//')"
+          echo "Pinned: ${PINNED:-?} | Latest: ${LATEST:-?}"
+
+          if [ -z "$PINNED" ] || [ -z "$LATEST" ] || [ "$PINNED" = "$LATEST" ]; then
+            echo "Up to date or unresolved — nothing to do."
+            exit 0
+          fi
+
+          TITLE="EPUBCheck $LATEST is available (pinned: $PINNED)"
+          OPEN="$(gh issue list --state open --limit 100 --json title --jq '.[].title' | { grep -Fxc "$TITLE" || true; })"
+          if [ "${OPEN:-0}" != "0" ]; then
+            echo "An issue for this version is already open."
+            exit 0
+          fi
+
+          gh issue create \
+            --title "$TITLE" \
+            --body "$(printf '%s\n' \
+              "A newer EPUBCheck release is available." \
+              "" \
+              "- Pinned: \`$PINNED\` (in \`scripts/install-epubcheck.sh\`)" \
+              "- Latest: \`$LATEST\`" \
+              "- Release notes: https://github.com/w3c/epubcheck/releases/tag/v$LATEST" \
+              "" \
+              "EPUBCheck updates can add new validation rules, so review the release notes before bumping. To update: change \`EPUBCHECK_VERSION\` in \`scripts/install-epubcheck.sh\` on \`develop\`, push, and let CI (EPUBCheck + Docker E2E) validate.")"
