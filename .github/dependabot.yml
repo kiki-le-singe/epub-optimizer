@@ -19,3 +19,11 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+
+  # Docker base images (keeps the digest-pinned FROM lines in the Dockerfile updated)
+  - package-ecosystem: "docker"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
