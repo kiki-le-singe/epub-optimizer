@@ -49,4 +49,4 @@ jobs:
               "- Latest: \`$LATEST\`" \
               "- Release notes: https://github.com/w3c/epubcheck/releases/tag/v$LATEST" \
               "" \
-              "EPUBCheck updates can add new validation rules, so review the release notes before bumping. To update: change \`EPUBCHECK_VERSION\` in \`scripts/install-epubcheck.sh\` on \`develop\`, push, and let CI (EPUBCheck + Docker E2E) validate.")"
+              "EPUBCheck updates can add new validation rules, so review the release notes before bumping. To update: change \`EPUBCHECK_VERSION\` and \`EPUBCHECK_SHA256\` in \`scripts/install-epubcheck.sh\` on \`develop\` (compute the new hash from the official zip), push, and let CI (EPUBCheck + Docker E2E) validate.")"

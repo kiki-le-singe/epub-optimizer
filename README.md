@@ -240,7 +240,7 @@ This tool requires EPUBCheck to validate EPUB files. Follow these steps:
 
 Or simply run `bash scripts/install-epubcheck.sh` from the project root — it downloads and installs the pinned EPUBCheck version into `epubcheck/` for you.
 
-CI and Docker pin the EPUBCheck version centrally in `scripts/install-epubcheck.sh` (single source of truth).
+CI and Docker pin the EPUBCheck version and its sha256 checksum centrally in `scripts/install-epubcheck.sh` (single source of truth); the download is verified against the checksum before installation.
 
 ## Docker Alternative
 
