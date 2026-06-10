@@ -21,6 +21,7 @@ coverage/
 .git
 .gitignore
 .github/
+.claude/
 README.md
 Dockerfile
 compose.yaml
