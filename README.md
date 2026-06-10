@@ -255,7 +255,7 @@ docker run --rm -v "$PWD:/epub-files" ghcr.io/kiki-le-singe/epub-optimizer \
   -i your-book.epub -o your-book-optimized.epub
 ```
 
-Pin a specific release with a version tag, e.g. `ghcr.io/kiki-le-singe/epub-optimizer:3.2.0`. Building locally with Compose (below) remains fully supported and is the right choice when modifying the source.
+Pin a specific release with a version tag, e.g. `ghcr.io/kiki-le-singe/epub-optimizer:3.5.0` (images are published starting with v3.5.0). Building locally with Compose (below) remains fully supported and is the right choice when modifying the source.
 
 Docker Compose provides a containerized environment with all dependencies pre-installed. It automatically mounts the repository directory, so the same relative EPUB paths work on Windows, macOS, and Linux. When working from a clone, Compose builds the image locally.
 
