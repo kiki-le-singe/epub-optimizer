@@ -124,6 +124,15 @@ This depends on whether preserving your book's design and typography is importan
 
 > **Note:** Traditional usage accepts absolute or relative file paths. Docker Compose automatically shares the repository directory with the container, so Docker commands also use simple relative paths.
 
+**Fastest: run the published image (no clone, no build):**
+
+```bash
+docker run --rm -v "$PWD:/epub-files" ghcr.io/kiki-le-singe/epub-optimizer \
+  -i YourBook.epub -o YourBook-optimized.epub
+```
+
+The image ships Node.js, Java, and EPUBCheck pre-installed and supports amd64 and arm64 (Apple Silicon).
+
 **Traditional installation:**
 
 ```bash
@@ -134,7 +143,7 @@ pnpm optimize -i YourBook.epub -o YourBook-optimized.epub
 
 The default `balanced` preset performs generic optimization without running the modifying XHTML repair or author workflow passes.
 
-**Or use Docker Compose (recommended):**
+**Or use Docker Compose (recommended if you cloned the repository):**
 
 ```bash
 git clone https://github.com/kiki-le-singe/epub-optimizer.git
@@ -231,13 +240,24 @@ This tool requires EPUBCheck to validate EPUB files. Follow these steps:
 
 Or simply run `bash scripts/install-epubcheck.sh` from the project root — it downloads and installs the pinned EPUBCheck version into `epubcheck/` for you.
 
-CI and Docker pin the EPUBCheck version centrally in `scripts/install-epubcheck.sh` (single source of truth).
+CI and Docker pin the EPUBCheck version and its sha256 checksum centrally in `scripts/install-epubcheck.sh` (single source of truth); the download is verified against the checksum before installation.
 
 ## Docker Alternative
 
 You must have [Docker installed](https://docs.docker.com/get-docker/) with Docker Compose v2. Docker Desktop includes both.
 
-Docker Compose provides a containerized environment with all dependencies pre-installed. It automatically mounts the repository directory, so the same relative EPUB paths work on Windows, macOS, and Linux. Users build the image locally from the cloned repository.
+### Pre-built Image (GHCR)
+
+Every release publishes a multi-arch image (amd64 and arm64, including Apple Silicon) to GitHub Container Registry. It is the fastest way to use the optimizer — no clone, no build, no Node.js or Java to install:
+
+```bash
+docker run --rm -v "$PWD:/epub-files" ghcr.io/kiki-le-singe/epub-optimizer \
+  -i your-book.epub -o your-book-optimized.epub
+```
+
+Pin a specific release with a version tag, e.g. `ghcr.io/kiki-le-singe/epub-optimizer:3.5.0` (images are published starting with v3.5.0). Building locally with Compose (below) remains fully supported and is the right choice when modifying the source.
+
+Docker Compose provides a containerized environment with all dependencies pre-installed. It automatically mounts the repository directory, so the same relative EPUB paths work on Windows, macOS, and Linux. When working from a clone, Compose builds the image locally.
 
 ### Docker Requirements
 
@@ -644,7 +664,7 @@ epub-optimizer/
 ├── .github/workflows/
 │   ├── ci.yml                 # Node 22/24, EPUBCheck, and Docker E2E validation
 │   ├── epubcheck-watch.yml    # Weekly check for new EPUBCheck releases (opens an issue)
-│   └── release.yml            # Manual release automation with CI gates, tag, and GitHub Release
+│   └── release.yml            # Manual release automation with CI gates, GHCR image, tag, and GitHub Release
 ├── compose.yaml            # Recommended cross-platform Docker interface
 ├── Dockerfile              # Multi-stage production container image
 ├── docker-entrypoint.sh    # Docker defaults and CLI entrypoint
@@ -751,7 +771,7 @@ This project is built with TypeScript and uses modern ESM modules. Here's how th
 
 ### Release Validation
 
-Releases are cut from GitHub Actions with the manual **Release** workflow. Prepare `main` with `pnpm release:prepare X.Y.Z` (merges `develop` → `main`, bumps `package.json`, pushes `main`; add `--dry-run` to preview), then dispatch the workflow from `main` — there is no version input; it reads the version from `package.json`. The workflow validates that the run is on `main` and the `vX.Y.Z` tag does not already exist (locally or remotely), runs the CI quality gates and E2E suites, creates the annotated tag, and creates the GitHub release **as a draft** — review/polish the auto-drafted notes, then click Publish.
+Releases are cut from GitHub Actions with the manual **Release** workflow. Prepare `main` with `pnpm release:prepare X.Y.Z` (merges `develop` → `main`, bumps `package.json`, pushes `main`; add `--dry-run` to preview), then dispatch the workflow from `main` — there is no version input; it reads the version from `package.json`. The workflow validates that the run is on `main` and the `vX.Y.Z` tag does not already exist (locally or remotely), runs the CI quality gates and E2E suites, pushes the multi-arch image to GHCR (`ghcr.io/kiki-le-singe/epub-optimizer`, tagged `X.Y.Z` and `latest`), creates the annotated tag, and creates the GitHub release **as a draft** — review/polish the auto-drafted notes, then click Publish.
 
 Before creating a release manually, run the CI quality gates plus coverage, audit, and local Docker checks:
 

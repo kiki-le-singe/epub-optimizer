@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, develop]
 
+# CI only lints, builds, and tests — the token never needs write access.
+permissions:
+  contents: read
+
 # Cancel superseded runs on the same ref (a new push aborts the in-flight run).
 concurrency:
   group: ci-${{ github.ref }}
@@ -43,8 +47,8 @@ jobs:
       - name: Build project
         run: pnpm build
 
-      - name: Run tests
-        run: pnpm test:run
+      - name: Run tests with coverage thresholds
+        run: pnpm test:coverage
 
       - name: Set up Java for EPUBCheck
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4.8.0
