@@ -11,8 +11,10 @@ export interface ImageOpts {
   pngQuality?: number;
   /** Max concurrent image encodes. Default 8 — libvips is thread-safe. */
   concurrency?: number;
-  /** Max width/height in px; larger images are shrunk. Skip when unset. */
-  maxDim?: number;
+  /** Max width in px; larger images are shrunk. Skip when unset. */
+  maxWidth?: number;
+  /** Max height in px; larger images are shrunk. Skip when unset. */
+  maxHeight?: number;
   /** Absolute paths that should be skipped (e.g. freshly converted elsewhere). */
   skip?: ReadonlySet<string>;
 }
@@ -38,7 +40,7 @@ async function collectImages(dir: string): Promise<string[]> {
 
 /**
  * Optimize images in a directory recursively, in parallel.
- * Combines resize (if `maxDim` is set) and re-encode into a single sharp pass.
+ * Combines resize (if `maxWidth`/`maxHeight` is set) and re-encode into a single sharp pass.
  * @param opts Quality overrides; falls back to config defaults.
  */
 async function optimizeImages(dir: string, opts: ImageOpts = {}): Promise<void> {
@@ -84,10 +86,11 @@ async function compressImage(imagePath: string, opts: ImageOpts = {}): Promise<v
     // Resize step (merged from the old image-downscale pass). Sharp with
     // `fit: inside, withoutEnlargement: true` is a no-op for already-small
     // images, so we can apply it unconditionally — saves a separate pass.
-    if (opts.maxDim && extension !== ".gif") {
+    const { maxWidth, maxHeight } = opts;
+    if ((maxWidth || maxHeight) && extension !== ".gif") {
       processedImage = processedImage.resize({
-        width: opts.maxDim,
-        height: opts.maxDim,
+        width: maxWidth,
+        height: maxHeight,
         fit: "inside",
         withoutEnlargement: true,
       });

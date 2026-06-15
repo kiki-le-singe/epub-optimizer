@@ -96,4 +96,31 @@ describe("Image Processor", () => {
     // Should log that it's skipping the small image
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Skipping small image"));
   });
+
+  it("resizes image according to maxWidth and maxHeight", async () => {
+    const testJpeg = path.join(tempDir, "to_resize.jpg");
+    // Create a 2000x2000 JPEG (which will be > 10KB to bypass small file skip)
+    const jpegBuffer = await sharp({
+      create: {
+        width: 2000,
+        height: 2000,
+        channels: 3,
+        background: { r: 255, g: 0, b: 0 },
+      },
+    })
+      .jpeg({ quality: 95 })
+      .toBuffer();
+    await fs.writeFile(testJpeg, jpegBuffer);
+
+    // Call compressImage with maxWidth and maxHeight that are smaller than 2000
+    await compressImage(testJpeg, { maxWidth: 200, maxHeight: 150 });
+
+    // Read resized image metadata
+    const metadata = await sharp(testJpeg).metadata();
+    // Since it's a 2000x2000 image, resizing to fit inside 200x150 should make it 150x150
+    expect(metadata.width).toBeLessThanOrEqual(200);
+    expect(metadata.height).toBeLessThanOrEqual(150);
+    expect(metadata.width).toBe(150);
+    expect(metadata.height).toBe(150);
+  });
 });

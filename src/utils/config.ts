@@ -33,6 +33,12 @@ const config = {
     quality: 0.6,
   },
 
+  // Image downscaling options
+  imageDownscaleOptions: {
+    maxWidth: 1600,
+    maxHeight: 1600,
+  },
+
   // Archive options
   archiveOptions: {
     zlib: { level: 9 },

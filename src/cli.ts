@@ -50,6 +50,16 @@ async function parseArguments(): Promise<Args> {
       type: "number",
       default: config.jpegOptions.quality,
     })
+    .option("max-width", {
+      describe: "Maximum image width in pixels (for downscaling)",
+      type: "number",
+      default: config.imageDownscaleOptions.maxWidth,
+    })
+    .option("max-height", {
+      describe: "Maximum image height in pixels (for downscaling)",
+      type: "number",
+      default: config.imageDownscaleOptions.maxHeight,
+    })
     .option("png-quality", {
       describe: "PNG compression quality (0-1 scale, use decimal)",
       type: "number",
@@ -72,6 +82,14 @@ async function parseArguments(): Promise<Args> {
     .example(
       "pnpm build -i input.epub -o output.epub --jpg-quality 85 --png-quality 0.8",
       "Custom image settings"
+    )
+    .example(
+      "pnpm build -i input.epub -o output.epub --max-width 1200 --max-height 1200",
+      "Custom image dimensions"
+    )
+    .example(
+      "pnpm build -i input.epub -o output.epub --jpg-quality 85 --png-quality 0.8 --max-width 1600 --max-height 1400",
+      "Custom image and dimension settings"
     )
     .help()
     .alias("help", "h")

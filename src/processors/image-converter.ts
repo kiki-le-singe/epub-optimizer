@@ -18,7 +18,8 @@ interface Conversion {
 async function maybeConvertOne(
   pngFile: string,
   quality: number,
-  maxDim?: number
+  maxWidth?: number,
+  maxHeight?: number
 ): Promise<Conversion | null> {
   try {
     const originalSize = (await fs.stat(pngFile)).size;
@@ -38,10 +39,10 @@ async function maybeConvertOne(
     // downscale step on the freshly-written JPEG (which would otherwise be
     // skipped by optimizeImages and stay at its original dimensions).
     let pipeline = sharp(pngFile);
-    if (maxDim) {
+    if (maxWidth || maxHeight) {
       pipeline = pipeline.resize({
-        width: maxDim,
-        height: maxDim,
+        width: maxWidth,
+        height: maxHeight,
         fit: "inside",
         withoutEnlargement: true,
       });
@@ -140,9 +141,10 @@ async function rewriteOpfManifest(epubDir: string, conversions: Conversion[]): P
  * Convert large opaque PNG files to JPEG for better compression.
  * Runs conversions in parallel, then updates XHTML and OPF references
  * in a single batched pass.
- * @param maxDim Optional max width/height in px — resize is chained into
- *   the same sharp pass so converted JPEGs don't need a follow-up downscale
+ * @param maxWidth Optional max width in px — resize is chained into the same
+ *   sharp pass so converted JPEGs don't need a follow-up downscale
  *   (optimizeImages skips them).
+ * @param maxHeight Optional max height in px — see maxWidth.
  * @returns Absolute paths of the newly-written JPEG files — callers pass
  *   this to optimizeImages as `skip` so the freshly-encoded JPEGs aren't
  *   re-encoded a second time.
@@ -152,7 +154,8 @@ async function convertPngToJpeg(
   epubDir: string,
   quality = 85,
   concurrency = 8,
-  maxDim?: number
+  maxWidth?: number,
+  maxHeight?: number
 ): Promise<Set<string>> {
   try {
     console.log("Converting large PNG files to JPEG for better compression...");
@@ -180,7 +183,7 @@ async function convertPngToJpeg(
     // Phase 1: convert in parallel — each task writes its own .jpg side-by-side.
     const limit = pLimit(concurrency);
     const results = await Promise.all(
-      pngFiles.map((png) => limit(() => maybeConvertOne(png, quality, maxDim)))
+      pngFiles.map((png) => limit(() => maybeConvertOne(png, quality, maxWidth, maxHeight)))
     );
     const conversions = results.filter((r): r is Conversion => r !== null);
 

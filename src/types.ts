@@ -7,6 +7,10 @@ export interface Args {
   jpgQuality: number;
   "png-quality": number;
   pngQuality: number;
+  "max-width": number;
+  maxWidth: number;
+  "max-height": number;
+  maxHeight: number;
   lang: string;
   _: (string | number)[];
   $0: string;
