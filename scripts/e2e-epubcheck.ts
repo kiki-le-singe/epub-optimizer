@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createReadStream } from "node:fs";
 import fs from "fs-extra";
 import os from "node:os";
@@ -81,6 +81,7 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
   <spine>
     <itemref idref="cover"/>
     <itemref idref="chapter-1"/>
+    <itemref idref="diagram" linear="no"/>
   </spine>
 </package>
 `
@@ -128,6 +129,9 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
     <section epub:type="chapter">
       <h1>Chapter 1</h1>
       <p class="hero">Nested XHTML image references should migrate safely.</p>
+      <p class="poem">First line
+    Second line</p>
+      <p><a href="../images/diagram.svg#illustration">Illustration</a></p>
       <script>console.log("generic scripted content is preserved");</script>
       <img src="../images/photo.png" srcset="../images/photo.png 1x, ../images/photo.png 2x" alt="Nested photo"/>
       <img src="../images/encoded%25dir/encoded%25photo.png" srcset="../images/encoded%25dir/encoded%25photo.png 2x, ../images/dupes/photo.png 1x" alt="Encoded photo path"/>
@@ -143,7 +147,8 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
 
   await fs.writeFile(
     path.join(oebps, "styles", "book.css"),
-    `.hero {
+    `.poem { white-space: pre-wrap; }
+.hero {
   background-image: url("../images/photo.png");
 }
 .poster {
@@ -160,7 +165,7 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
 
   await fs.writeFile(
     path.join(oebps, "images", "diagram.svg"),
-    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="400" height="300" viewBox="0 0 400 300">
+    `<svg id="illustration" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="400" height="300" viewBox="0 0 400 300">
   <image href="photo.png" xlink:href="photo.png" width="400" height="300"/>
   <image href="encoded%25dir/encoded%25photo.png" xlink:href="encoded%25dir/encoded%25photo.png" x="10" y="10" width="120" height="90"/>
 </svg>
@@ -384,11 +389,26 @@ function assertPrerequisites(env: NodeJS.ProcessEnv): void {
   }
 }
 
+async function assertContentPreserved(contentDir: string): Promise<void> {
+  const chapter = await fs.readFile(path.join(contentDir, "chapters", "chapter-1.xhtml"), "utf8");
+  if (!chapter.includes("First line\n    Second line")) {
+    throw new Error("Whitespace controlled by external CSS must survive optimization.");
+  }
+  const svg = await fs.readFile(path.join(contentDir, "images", "diagram.svg"), "utf8");
+  if (!svg.includes('id="illustration"')) {
+    throw new Error("Externally referenced SVG IDs must survive optimization.");
+  }
+  if (await fs.pathExists(path.join(contentDir, "..", ".epub-optimizer-temp.json"))) {
+    throw new Error("Temporary ownership markers must not enter the EPUB archive.");
+  }
+}
+
 async function assertOptimizedOutput(outputEpub: string, tempDir: string): Promise<void> {
   const inspectedDir = path.join(tempDir, "inspect");
   await extractEpub(outputEpub, inspectedDir);
 
   const contentDir = path.join(inspectedDir, "OEBPS");
+  await assertContentPreserved(contentDir);
   const photoPng = path.join(contentDir, "images", "photo.png");
   const photoJpg = path.join(contentDir, "images", "photo.jpg");
   const dupePhotoPng = path.join(contentDir, "images", "dupes", "photo.png");
@@ -470,6 +490,7 @@ async function assertLosslessOutput(outputEpub: string, tempDir: string): Promis
   await extractEpub(outputEpub, inspectedDir);
 
   const contentDir = path.join(inspectedDir, "OEBPS");
+  await assertContentPreserved(contentDir);
   if (!(await fs.pathExists(path.join(contentDir, "images", "photo.png")))) {
     throw new Error("Expected lossless preset to preserve photo.png.");
   }
@@ -668,6 +689,69 @@ async function runPnpmWorkflowCase(
   return { outputEpub, report };
 }
 
+async function assertConcurrentDefaultsAndTimeout(runDir: string, input: string): Promise<void> {
+  const env = { ...withJavaFallback(process.env), EPUBCHECK_PATH: epubcheckPath };
+  const run = (args: string[]): Promise<number | null> =>
+    new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [pipelinePath, ...args], {
+        cwd: runDir,
+        env,
+        stdio: "ignore",
+        timeout: 60_000,
+      });
+      child.on("error", reject);
+      child.on("close", resolve);
+    });
+  const names = ["concurrent-a", "concurrent-b"];
+  const statuses = await Promise.all(
+    names.map((name) =>
+      run([
+        "-i",
+        input,
+        "-o",
+        `${name}.epub`,
+        "--preset",
+        "lossless",
+        "--strict",
+        "--report-json",
+        `${name}.json`,
+      ])
+    )
+  );
+  if (statuses.some((status) => status !== 0))
+    throw new Error("Concurrent default CLI runs failed.");
+  const reports = await Promise.all(
+    names.map((name) => fs.readJson(path.join(runDir, `${name}.json`)))
+  );
+  if (!reports[0].tempDir || reports[0].tempDir === reports[1].tempDir)
+    throw new Error("Default temporary paths must be distinct.");
+  for (const report of reports) {
+    if (!(await fs.pathExists(report.tempDir)))
+      throw new Error("Expected retained temporary files.");
+  }
+  const output = path.join(runDir, "timeout.epub");
+  await fs.writeFile(output, "previous-output");
+  const status = await run([
+    "-i",
+    input,
+    "-o",
+    output,
+    "--preset",
+    "lossless",
+    "--validation-timeout",
+    "1",
+    "--report-json",
+    "timeout.json",
+  ]);
+  const report = await fs.readJson(path.join(runDir, "timeout.json"));
+  if (status === 0 || !String(report.error).includes("time limit"))
+    throw new Error("Expected an EPUBCheck timeout.");
+  if ((await fs.readFile(output, "utf8")) !== "previous-output")
+    throw new Error("Timeout overwrote previous output.");
+  if ((await fs.readdir(runDir)).some((name) => name.startsWith(".timeout.candidate-")))
+    throw new Error("Timeout left a candidate archive behind.");
+}
+
 async function main(): Promise<void> {
   const env = withJavaFallback(process.env);
   assertPrerequisites(env);
@@ -697,6 +781,8 @@ async function main(): Promise<void> {
       coverNavClass: "toc-cover",
       sectionNavClass: "toc-section",
     });
+
+    await assertConcurrentDefaultsAndTimeout(runDir, inputEpub);
 
     const balanced = await runPnpmWorkflowCase(runDir, inputEpub, "balanced", "optimize", false);
     if (balanced.report.preset !== "balanced") {

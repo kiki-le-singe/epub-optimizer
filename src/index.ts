@@ -110,7 +110,12 @@ async function optimizeEPUB(
     let convertedJpegs = new Set<string>();
     if (resolvedArgs.convertPng && !resolvedArgs.lossless) {
       convertedJpegs = await runStep("Convert PNG to JPEG", () =>
-        convertPngToJpeg(resolvedArgs.temp, resolvedArgs.jpgQuality, undefined, maxImageDim)
+        convertPngToJpeg(
+          resolvedArgs.temp,
+          resolvedArgs.jpgQuality,
+          resolvedArgs.imageConcurrency,
+          maxImageDim
+        )
       );
       console.log("🖼️  Converted PNG to JPEG");
     } else {
@@ -129,6 +134,7 @@ async function optimizeEPUB(
           pngQuality: resolvedArgs.pngQuality,
           maxDim: maxImageDim,
           skip: convertedJpegs,
+          concurrency: resolvedArgs.imageConcurrency,
         })
       );
       console.log("🖼️  Optimized image files");

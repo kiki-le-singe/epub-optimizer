@@ -6,6 +6,7 @@ import yazl from "yazl";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import config from "../utils/config.js";
+import { createManagedTempDir, TEMP_DIR_MARKER } from "../utils/temp-dir.js";
 
 export interface ArchiveLimits {
   maxEntries: number;
@@ -67,12 +68,10 @@ async function extractEPUB(
   limits: ArchiveLimits = config.archiveLimits
 ): Promise<void> {
   try {
-    await fs.remove(extractDir);
-    await fs.mkdir(extractDir);
-
     const absExtract = path.resolve(extractDir);
     const directory = await unzipper.Open.file(epubPath);
     validateArchiveMetadata(directory.files, limits);
+    await createManagedTempDir(extractDir, epubPath);
     let extractedTotal = 0;
 
     for (const entry of directory.files) {
@@ -87,6 +86,9 @@ async function extractEPUB(
       }
 
       const target = path.resolve(absExtract, normalizedEntryPath);
+      if (target === path.join(absExtract, TEMP_DIR_MARKER)) {
+        throw new Error(`Refusing reserved archive entry: ${entry.path}`);
+      }
       const rel = path.relative(absExtract, target);
       if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
         throw new Error(`Refusing entry outside extract dir: ${entry.path}`);
@@ -115,7 +117,7 @@ async function extractEPUB(
           callback(null, chunk);
         },
       });
-      await pipeline(entry.stream(), limiter, fs.createWriteStream(target));
+      await pipeline(entry.stream(), limiter, fs.createWriteStream(target, { flags: "wx" }));
     }
   } catch (error) {
     throw new Error(
@@ -192,7 +194,7 @@ async function compressEPUB(outputPath: string, sourceDir: string): Promise<bool
       });
 
       // Step 2: Add everything else, compressed, excluding mimetype
-      addDirectoryRecursive(zipFile, absSource, "", ["mimetype"])
+      addDirectoryRecursive(zipFile, absSource, "", ["mimetype", TEMP_DIR_MARKER])
         .then(() => {
           // Write the zip file to disk
           zipFile.outputStream

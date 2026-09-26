@@ -102,6 +102,28 @@ describe("Archive Processor", () => {
     expect(mimetypeContent).toBe("application/epub+zip");
   });
 
+  it("never deletes an existing directory, even for invalid input", async () => {
+    await fs.outputFile(path.join(extractDir, "important.txt"), "keep");
+    await fs.writeFile(mockEpubPath, "invalid zip");
+    await expect(extractEPUB(mockEpubPath, extractDir)).rejects.toThrow();
+    expect(await fs.readFile(path.join(extractDir, "important.txt"), "utf8")).toBe("keep");
+    await createMockEpub(mockEpubPath);
+    await expect(extractEPUB(mockEpubPath, extractDir)).rejects.toThrow("EEXIST");
+    expect(await fs.readFile(path.join(extractDir, "important.txt"), "utf8")).toBe("keep");
+  });
+
+  it("allows only one concurrent extraction into an explicit destination", async () => {
+    await createMockEpub(mockEpubPath);
+    const runs = await Promise.allSettled([
+      extractEPUB(mockEpubPath, extractDir),
+      extractEPUB(mockEpubPath, extractDir),
+    ]);
+    expect(runs.filter((run) => run.status === "fulfilled")).toHaveLength(1);
+    expect(await fs.readFile(path.join(extractDir, "mimetype"), "utf8")).toBe(
+      "application/epub+zip"
+    );
+  });
+
   it("compresses an EPUB directory correctly", async () => {
     // Create EPUB structure directly in extractDir
     await fs.ensureDir(extractDir);

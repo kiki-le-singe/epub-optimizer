@@ -10,7 +10,8 @@ const config = {
 
   // HTML optimization options
   htmlOptions: {
-    collapseWhitespace: true,
+    // CSS may make whitespace significant, including in external stylesheets.
+    collapseWhitespace: false,
     removeComments: true,
     minifyCSS: true,
     minifyJS: true,
@@ -46,6 +47,7 @@ const config = {
 
   // EPUBCheck path
   epubcheckPath: process.env.EPUBCHECK_PATH ?? "epubcheck/epubcheck.jar",
+  epubcheckTimeoutMs: 120_000,
 
   // UI Localization
   labels: {

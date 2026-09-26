@@ -39,3 +39,6 @@ coverage/
 
 # ESLint
 .eslintcache
+
+# Unique per-run extraction directories
+temp_epub-*/

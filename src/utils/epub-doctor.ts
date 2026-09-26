@@ -351,8 +351,9 @@ export async function runDoctor(options: {
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "epub-optimizer-doctor-"));
   try {
-    await extractEPUB(options.input, tempDir);
-    const report = await inspectExtractedEpub(tempDir, {
+    const extractedDir = path.join(tempDir, "content");
+    await extractEPUB(options.input, extractedDir);
+    const report = await inspectExtractedEpub(extractedDir, {
       input: options.input,
       archiveBytes: (await fs.stat(options.input)).size,
     });

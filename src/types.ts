@@ -16,6 +16,8 @@ export interface Args {
   authorConfig?: string;
   repair: boolean;
   strict: boolean;
+  validationTimeout?: number;
+  imageConcurrency?: number;
   profile: boolean;
   preset: Preset;
   "report-json"?: string;

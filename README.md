@@ -240,7 +240,7 @@ This tool requires EPUBCheck to validate EPUB files. Follow these steps:
 
 Or simply run `bash scripts/install-epubcheck.sh` from the project root — it downloads and installs the pinned EPUBCheck version into `epubcheck/` for you.
 
-CI and Docker pin the EPUBCheck version and its sha256 checksum centrally in `scripts/install-epubcheck.sh` (single source of truth); the download is verified against the checksum before installation.
+CI and Docker pin EPUBCheck 5.4.0 and its sha256 checksum centrally in `scripts/install-epubcheck.sh` (single source of truth); the download is verified against the checksum before installation.
 
 ## Docker Alternative
 
@@ -369,7 +369,7 @@ Usage: epub-optimizer [options]
 Options:
   -i, --input       Input EPUB file path                    [string] [default: "mybook.epub"]
   -o, --output      Output EPUB file path                   [string] [default: "mybook_opt.epub"]
-  -t, --temp        Temporary directory for processing      [string] [default: "temp_epub"]
+  -t, --temp        Temporary directory for processing      [string] [default: unique temp_epub-<id>]
   --jpg-quality     JPEG compression quality (0-100)        [number] [default: 70]
   --png-quality     PNG compression quality (0-1 scale)     [number] [default: 0.6]
   --lang            UI language for labels (e.g. fr, en)    [string] [default: "fr"]
@@ -412,7 +412,7 @@ Examples:
 > - `pnpm optimize:repair` - Same as optimize, plus explicit XHTML repair passes
 > - `pnpm optimize:author` - Complete author workflow: generic optimization, repairs, lazy loading, cover navigation, summary page, and chapter sections
 > - `pnpm optimize:clean` - Same as optimize but removes temporary files afterward
-> - `pnpm cleanup` - Manually removes the temporary directory (temp_epub)
+> - `pnpm cleanup <directory>` - Removes a marked temporary directory from a previous run
 
 ### Modes and Presets
 
@@ -436,6 +436,25 @@ Examples:
 - Font subsetting is opt-in through `--fonts` and is not enabled by any preset.
 
 Applicable CLI options override preset defaults. For example, `--preset balanced --no-convert-png` disables PNG-to-JPEG conversion. The `lossless` preset always skips lossy raster processing, and the author workflow always includes repairs and author structure updates.
+
+### Safe temporary directories and validation deadlines
+
+Each CLI run uses a unique `temp_epub-<id>` directory by default. An explicit
+`--temp <path>` must not already exist: even an empty or previously used directory
+is refused, so concurrent runs cannot overwrite one another. Existing directories
+are never cleared during extraction. The console and JSON report (`tempDir`) show
+the actual extraction path. `--clean` removes only the current run's marked
+directory after successful publication. For a retained run, use
+`pnpm cleanup <directory>`; unmarked directories and symbolic links are refused.
+The hidden ownership marker is excluded from the output EPUB.
+
+EPUBCheck has a 120-second deadline. Use `--validation-timeout 300000` for larger
+books that need up to five minutes. A timeout fails the run, discards the candidate,
+and preserves any previous output and the extracted files.
+
+HTML/XHTML text whitespace and SVG identifiers are preserved because external
+stylesheets and references can depend on them. Raster recompressions are committed
+only when smaller, unless they actually change the dimensions requested by the user.
 
 ### Doctor / Inspect Mode
 
@@ -540,7 +559,7 @@ Cleanup and JSON report writing happen after the validated EPUB is published. If
 
 Input, output, and report collisions are rejected, including aliases through symbolic links or hard links and case-only aliases on macOS/Windows. Existing output and report targets must be regular files.
 
-Temporary-directory cleanup is guarded: the optimizer refuses filesystem roots, the current working directory, the home directory, and any temp directory containing the input or output EPUB. Build and manual cleanup scripts also refuse paths outside the project or system temp directories.
+Temporary-directory cleanup is guarded: the optimizer refuses filesystem roots, the current working directory, the home directory, and any temp directory containing the input or output EPUB. Manual cleanup requires the optimizer's ownership marker and rejects symbolic links. The build cleanup script also refuses paths outside the project or system temp directories.
 
 Archive extraction rejects unsafe absolute/traversal paths and symbolic links. It also limits archives to 20,000 entries, 512 MB per file, 2 GB total extracted size, and a maximum compression ratio of 1000:1.
 
@@ -617,13 +636,13 @@ docker run --rm -v "$PWD:/epub-files" epub-optimizer \
 ```bash
 # Keep temp files for inspection (default behavior)
 pnpm optimize -i book.epub -o book-opt.epub
-# Inspect temp_epub/ directory
+# Inspect the temp_epub-<id>/ directory reported by the command
 
 # Custom temp location
 pnpm optimize -i book.epub -o book-opt.epub -t my-debug-folder
 
 # Clean up when done
-pnpm cleanup
+pnpm cleanup my-debug-folder
 ```
 
 **Docker usage:**
@@ -632,7 +651,7 @@ pnpm cleanup
 # Temp files automatically appear in your current directory
 docker compose run --rm optimizer \
   -i book.epub -o book-optimized.epub
-# Inspect temp_epub/ directory on your host
+# Inspect the reported temp_epub-<id>/ directory on your host
 
 # Custom temp location (still visible on host)
 docker compose run --rm optimizer \
@@ -960,3 +979,30 @@ This project uses the following dependencies:
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
+
+### Production validation
+
+Use Node 24 LTS for development and release checks (`.node-version`); the minimum
+supported runtime is Node 22.12. Install with `pnpm install --frozen-lockfile`.
+CI validates Node 22 and 24, coverage, formatting, EPUBCheck and Docker workflows.
+The production dependency audit runs weekly and on dependency pull requests.
+Prerelease container builds publish their version tag without changing `latest`.
+
+### Image concurrency
+
+Use `--image-concurrency 2` on memory-constrained machines, or adjust from 1 to 64.
+The default is the available CPU parallelism capped at 8. The setting applies to
+both PNG-to-JPEG conversion and image recompression. Lower values trade runtime for
+lower peak memory; compare with `--profile` on representative books before tuning.
+
+A local Node 24 measurement on the 60 MB example, for the image stage alone, gave:
+
+| Concurrent images | Time    | Peak Node RSS |
+| ----------------- | ------- | ------------- |
+| 1                 | 13.31 s | 210 MiB       |
+| 2                 | 6.99 s  | 307 MiB       |
+| 4                 | 4.53 s  | 417 MiB       |
+| 8                 | 4.39 s  | 429 MiB       |
+
+These are single measurements on one Mac, not cross-platform guarantees. All four
+runs produced identical raster bytes (SHA-256 comparison). Java memory is excluded.

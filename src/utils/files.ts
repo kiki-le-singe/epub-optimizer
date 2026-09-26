@@ -36,7 +36,7 @@ function hasExtension(filePath: string, extensions: ReadonlySet<string>): boolea
  * Default bound for CPU-bound per-file work (HTML/CSS/JS/SVG minification).
  * Keeps parallel processing from oversubscribing cores on small machines.
  */
-export const DEFAULT_FILE_CONCURRENCY = Math.max(1, Math.min(8, os.cpus().length));
+export const DEFAULT_FILE_CONCURRENCY = Math.max(1, Math.min(8, os.availableParallelism()));
 
 /**
  * Runs `worker` over `items` with bounded concurrency. Rejects on the first

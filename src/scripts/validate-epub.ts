@@ -41,15 +41,26 @@ export function run(opts: RunOpts = {}): void {
   }
 
   const epubcheckPath = path.resolve(config.epubcheckPath);
+  const timeoutMs = opts.timeoutMs ?? config.epubcheckTimeoutMs;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647) {
+    throw new Error("EPUBCheck timeout must be a positive integer no larger than 2147483647.");
+  }
   console.log(`Validating EPUB: ${outputEpub}`);
 
   const result = spawnSync("java", ["-jar", epubcheckPath, outputEpub], {
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,
+    timeout: timeoutMs,
+    killSignal: "SIGKILL",
   });
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);
   if (result.error) {
+    if ((result.error as NodeJS.ErrnoException).code === "ETIMEDOUT") {
+      throw new Error(`EPUBCheck exceeded its ${timeoutMs} ms time limit.`, {
+        cause: result.error,
+      });
+    }
     throw new Error(`Failed to run EPUBCheck: ${result.error.message}`, { cause: result.error });
   }
   if (result.status !== 0) {

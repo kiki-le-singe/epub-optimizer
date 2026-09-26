@@ -30,3 +30,6 @@ memory/
 **/*.test.ts
 **/*.spec.ts
 **/__tests__/
+
+# Unique per-run extraction directories
+temp_epub-*/
