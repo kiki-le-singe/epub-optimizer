@@ -5,10 +5,10 @@
 # EPUBCHECK_SHA256 here ONLY (compute the new hash from the official zip).
 set -euo pipefail
 
-EPUBCHECK_VERSION="5.3.0"
+EPUBCHECK_VERSION="5.4.0"
 # GitHub release assets can be replaced without changing the tag, so the
 # pinned version alone does not freeze the bytes — the checksum does.
-EPUBCHECK_SHA256="6c07e68584b2e2ce2f89fe06e1246dfead3eb36b46b340e7d93524f29dcff6c5"
+EPUBCHECK_SHA256="33350c61038e71dfb3d45a76aed04bf5481e6d5500cb780f6e98db8bbd15a28c"
 
 # Install target directory (default: ./epubcheck for local + CI; the Docker
 # build passes an absolute path).

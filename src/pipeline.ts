@@ -128,7 +128,11 @@ export async function main(): Promise<void> {
 
     console.log("\n=== Validate Candidate EPUB ===");
     await runReportedStep(report, "Validate candidate EPUB", args.strict, () =>
-      validateEPUB({ output: candidateOutput, strict: args.strict })
+      validateEPUB({
+        output: candidateOutput,
+        strict: args.strict,
+        timeoutMs: args.validationTimeout,
+      })
     );
 
     console.log("\n=== Publish Validated EPUB ===");
@@ -181,6 +185,7 @@ export async function main(): Promise<void> {
     console.error(`Temporary files were kept in '${args.temp}' for inspection.`);
     throw error;
   } finally {
+    report.tempDir = args.temp;
     if (args.reportJson) {
       try {
         await writePipelineReport(report, args.reportJson);

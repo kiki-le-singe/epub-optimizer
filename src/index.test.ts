@@ -14,6 +14,13 @@ vi.mock("fs-extra", () => ({
     remove: vi.fn(),
     stat: vi.fn(),
     lstat: vi.fn(),
+    existsSync: () => true,
+    realpathSync: (value: string) => value,
+    realpath: async (value: string) => value,
+    readJson: async (value: string) => ({
+      version: 1,
+      directory: value.split("/").at(-2),
+    }),
   },
 }));
 
@@ -132,6 +139,8 @@ beforeEach(async () => {
   } as unknown as void);
   vi.mocked(fs.lstat).mockResolvedValue({
     isFile: () => true,
+    isDirectory: () => true,
+    isSymbolicLink: () => false,
   } as unknown as void);
 
   // Import the module dynamically to get the mocked version

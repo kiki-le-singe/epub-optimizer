@@ -30,6 +30,19 @@ describe("optimizeSVGs", () => {
     await fs.remove(tempDir);
   });
 
+  it("preserves IDs that may be referenced by another EPUB document", async () => {
+    const contentDir = await createEpubStructure("OEBPS");
+    const file = path.join(contentDir, "diagram.svg");
+    await fs.writeFile(
+      file,
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><!-- removable --><rect id="external-target" width="100" height="100" fill="red"/></svg>'
+    );
+    await optimizeSVGs(tempDir);
+    const result = await fs.readFile(file, "utf8");
+    expect(result).toContain('id="external-target"');
+    expect(result).not.toContain("removable");
+  });
+
   it("minifies SVG files", async () => {
     // Create OPS structure for this test
     const opsDir = await createEpubStructure("OPS");

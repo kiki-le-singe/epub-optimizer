@@ -37,6 +37,17 @@ describe("minifyHTML", () => {
     // Remove whitespace for comparison
     expect(result.replace(/\s+/g, "")).toBe(expectedMinified.replace(/\s+/g, ""));
   });
+
+  it("preserves text whitespace whose rendering is controlled by external CSS", async () => {
+    const poem = "First line\n    Second line";
+    await fs.writeFile(
+      tempFile,
+      `<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Poem</title><link rel="stylesheet" href="book.css"/></head><body><p class="poem">${poem}</p></body></html>`
+    );
+    await fs.writeFile(path.join(tempDir, "book.css"), ".poem { white-space: pre-wrap; }");
+    await minifyHTML(tempFile);
+    expect(await fs.readFile(tempFile, "utf8")).toContain(`<p class="poem">${poem}</p>`);
+  });
 });
 
 const sampleCSS = `body {    color: red;    font-size: 16px;  } /* comment */`;

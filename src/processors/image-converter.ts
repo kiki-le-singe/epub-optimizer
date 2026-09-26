@@ -4,6 +4,7 @@ import sharp from "sharp";
 import * as cheerio from "cheerio";
 import pLimit from "p-limit";
 import { getOPFPath, getContentPath } from "../utils/epub-utils.js";
+import { DEFAULT_FILE_CONCURRENCY } from "../utils/files.js";
 
 interface Conversion {
   pngFile: string;
@@ -646,7 +647,7 @@ async function applyOpfUpdates(
 async function convertPngToJpeg(
   epubDir: string,
   quality = 85,
-  concurrency = 8,
+  concurrency = DEFAULT_FILE_CONCURRENCY,
   maxDim?: number
 ): Promise<Set<string>> {
   try {

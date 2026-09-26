@@ -36,6 +36,8 @@ export interface RunOpts {
   output?: string;
   /** Fail instead of continuing after warnings or recoverable processing errors. */
   strict?: boolean;
+  /** Maximum EPUBCheck runtime in milliseconds. */
+  timeoutMs?: number;
   /** Resolved optional configuration for the project-author structure updates. */
   authorConfig?: AuthorWorkflowConfig;
 }

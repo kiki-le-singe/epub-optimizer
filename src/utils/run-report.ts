@@ -20,6 +20,7 @@ export interface PipelineReport {
   strict: boolean;
   success: boolean;
   startedAt: string;
+  tempDir?: string;
   completedAt?: string;
   durationMs?: number;
   error?: string;

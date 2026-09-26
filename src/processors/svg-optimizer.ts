@@ -27,7 +27,10 @@ export async function optimizeSVGs(epubDir: string): Promise<void> {
     await forEachFileLimited(svgFiles, async (svgFile) => {
       try {
         const original = await fs.readFile(svgFile, "utf8");
-        const result = svgoOptimize(original, { multipass: true });
+        const result = svgoOptimize(original, {
+          multipass: true,
+          plugins: [{ name: "preset-default", params: { overrides: { cleanupIds: false } } }],
+        });
         if (result.data && result.data.length < original.length) {
           await fs.writeFile(svgFile, result.data);
           console.log(

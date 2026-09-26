@@ -5,6 +5,8 @@ import type { Args } from "./types.js";
 import fs from "fs-extra";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
+import { DEFAULT_FILE_CONCURRENCY } from "./utils/files.js";
 import { applyPipelineOptions } from "./utils/pipeline-options.js";
 
 // Walk up from this file to find package.json — robust whether running from
@@ -42,9 +44,10 @@ async function parseArguments(): Promise<Args> {
     })
     .option("temp", {
       alias: "t",
-      describe: "Temporary directory for processing",
+      describe: "New temporary directory (must not already exist); unique by default",
       type: "string",
-      default: config.tempDir,
+      default: () => `${config.tempDir}-${randomUUID()}`,
+      defaultDescription: "unique temp_epub-<id> directory",
     })
     .option("jpg-quality", {
       describe: "JPEG compression quality (0-100)",
@@ -102,6 +105,16 @@ async function parseArguments(): Promise<Args> {
       type: "boolean",
       default: false,
     })
+    .option("validation-timeout", {
+      describe: "Maximum EPUBCheck runtime in milliseconds",
+      type: "number",
+      default: config.epubcheckTimeoutMs,
+    })
+    .option("image-concurrency", {
+      describe: "Concurrent image operations (1-64); lower values reduce memory use",
+      type: "number",
+      default: DEFAULT_FILE_CONCURRENCY,
+    })
     .option("profile", {
       describe: "Print execution time for each pipeline step",
       type: "boolean",
@@ -148,6 +161,22 @@ async function parseArguments(): Promise<Args> {
     .alias("version", "v")
     .strict()
     .check((argv) => {
+      if (
+        !Number.isInteger(argv["image-concurrency"]) ||
+        argv["image-concurrency"] < 1 ||
+        argv["image-concurrency"] > 64
+      ) {
+        throw new Error("--image-concurrency must be an integer between 1 and 64.");
+      }
+      if (
+        !Number.isSafeInteger(argv["validation-timeout"]) ||
+        argv["validation-timeout"] <= 0 ||
+        argv["validation-timeout"] > 2_147_483_647
+      ) {
+        throw new Error(
+          "--validation-timeout must be a positive integer no larger than 2147483647."
+        );
+      }
       const jpgQuality = Number(argv["jpg-quality"]);
       const pngQuality = Number(argv["png-quality"]);
       const maxImageDim = argv["max-image-dim"];

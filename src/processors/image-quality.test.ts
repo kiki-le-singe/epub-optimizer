@@ -61,6 +61,25 @@ describe("image optimization quality", () => {
     vi.restoreAllMocks();
   });
 
+  it("keeps original bytes when a higher-quality recompression would grow a JPEG", async () => {
+    const raw = Buffer.alloc(512 * 512 * 3);
+    let seed = 42;
+    for (let i = 0; i < raw.length; i++) {
+      seed = (1664525 * seed + 1013904223) >>> 0;
+      raw[i] = seed >>> 24;
+    }
+    const file = path.join(tempDir, "already-compressed.jpg");
+    await sharp(raw, { raw: { width: 512, height: 512, channels: 3 } })
+      .jpeg({ quality: 20, mozjpeg: true })
+      .toFile(file);
+    const original = await fs.readFile(file);
+    expect(original.length).toBeGreaterThan(10 * 1024);
+    // A configured maxDim that does not resize must not bypass the size guard.
+    await compressImage(file, { jpegQuality: 70, maxDim: 1600 });
+    expect(await fs.readFile(file)).toEqual(original);
+    expect((await fs.readdir(tempDir)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
+
   it("re-encodes a JPEG smaller while staying faithful and same-size", async () => {
     const file = path.join(tempDir, "photo.jpg");
     await writeGradientJpeg(file, 1200, 900);
@@ -95,6 +114,23 @@ describe("image optimization quality", () => {
     // fit:inside → longest edge clamped to maxDim, aspect (2:1) preserved.
     expect(meta.width).toBe(1000);
     expect(meta.height).toBe(500);
+  });
+
+  it("preserves every frame and its timing in an animated GIF", async () => {
+    const width = 256;
+    const height = 256;
+    const raw = Buffer.concat([gradient(width, height), gradient(width, height).reverse()]);
+    const file = path.join(tempDir, "animation.gif");
+    await sharp(raw, { raw: { width, height: height * 2, channels: 3, pageHeight: height } })
+      .gif({ delay: [100, 200], loop: 0 })
+      .toFile(file);
+    expect((await fs.stat(file)).size).toBeGreaterThan(10 * 1024);
+    await compressImage(file);
+    const metadata = await sharp(file, { animated: true }).metadata();
+    expect(metadata.pages).toBe(2);
+    expect(metadata.delay).toEqual([100, 200]);
+    expect(metadata.pageHeight).toBe(height);
+    expect(metadata.width).toBe(width);
   });
 
   it("re-encodes a PNG to a valid same-size image", async () => {

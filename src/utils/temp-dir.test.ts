@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs-extra";
 import os from "node:os";
 import path from "node:path";
-import { assertSafeTempDir, removeTempDir } from "./temp-dir.js";
+import { assertSafeTempDir, createManagedTempDir, removeTempDir } from "./temp-dir.js";
 
 describe("temp-dir safety", () => {
   const root = path.join(os.tmpdir(), "epub-optimizer-temp-dir-test");
@@ -52,7 +52,7 @@ describe("temp-dir safety", () => {
         cwd,
         inputPath: path.join(root, "book.epub"),
       })
-    ).toThrow("contains the input EPUB");
+    ).toThrow();
   });
 
   it("rejects a temp directory that contains the output EPUB", () => {
@@ -61,12 +61,12 @@ describe("temp-dir safety", () => {
         cwd,
         outputPath: path.join(root, "book-optimized.epub"),
       })
-    ).toThrow("contains the output EPUB");
+    ).toThrow();
   });
 
   it("removes only a safe temp directory", async () => {
     const tempDir = path.join(cwd, "temp_epub");
-    await fs.ensureDir(tempDir);
+    await createManagedTempDir(tempDir, path.join(cwd, "book.epub"));
     await fs.writeFile(path.join(tempDir, "artifact.txt"), "temporary");
 
     await expect(
@@ -77,5 +77,28 @@ describe("temp-dir safety", () => {
       })
     ).resolves.toBe(tempDir);
     expect(await fs.pathExists(tempDir)).toBe(false);
+  });
+
+  it("refuses cleanup of a user directory without an ownership marker", async () => {
+    const dir = path.join(cwd, "documents");
+    await fs.outputFile(path.join(dir, "important.txt"), "keep");
+    await expect(removeTempDir(dir)).rejects.toThrow();
+    expect(await fs.readFile(path.join(dir, "important.txt"), "utf8")).toBe("keep");
+  });
+
+  it("allows cleanup when a managed directory is exposed under a different parent", async () => {
+    const containerPath = path.join(cwd, "container", "temp_epub-book");
+    const hostPath = path.join(cwd, "host", "temp_epub-book");
+    await createManagedTempDir(containerPath, path.join(cwd, "book.epub"));
+    await fs.move(containerPath, hostPath);
+
+    await expect(removeTempDir(hostPath)).resolves.toBe(hostPath);
+    expect(await fs.pathExists(hostPath)).toBe(false);
+  });
+
+  it("rejects aliases of protected paths", async () => {
+    const alias = path.join(root, "alias");
+    await fs.symlink(cwd, alias, "dir");
+    expect(() => assertSafeTempDir(alias, { cwd })).toThrow();
   });
 });

@@ -60,4 +60,19 @@ describe("validate EPUB", () => {
 
     expect(() => run({ output: "output.epub" })).toThrow("EPUB validation failed");
   });
+
+  it("rejects a timed-out validator and applies the configured deadline", () => {
+    vi.mocked(spawnSync).mockReturnValueOnce({
+      status: null,
+      stdout: "",
+      stderr: "",
+      error: Object.assign(new Error("timed out"), { code: "ETIMEDOUT" }),
+    } as ReturnType<typeof spawnSync>);
+    expect(() => run({ output: "output.epub", timeoutMs: 1000 })).toThrow("1000 ms time limit");
+    expect(spawnSync).toHaveBeenLastCalledWith(
+      "java",
+      expect.any(Array),
+      expect.objectContaining({ timeout: 1000, killSignal: "SIGKILL" })
+    );
+  });
 });

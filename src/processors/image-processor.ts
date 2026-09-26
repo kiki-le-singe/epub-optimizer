@@ -3,6 +3,8 @@ import path from "node:path";
 import sharp from "sharp";
 import pLimit from "p-limit";
 import config from "../utils/config.js";
+import { randomUUID } from "node:crypto";
+import { DEFAULT_FILE_CONCURRENCY } from "../utils/files.js";
 
 // Bound libvips so parallel encodes don't oversubscribe CPU threads or retain
 // decoded-image memory. File-level parallelism is handled by p-limit below, so
@@ -52,7 +54,7 @@ async function optimizeImages(dir: string, opts: ImageOpts = {}): Promise<void> 
     const files = await collectImages(dir);
     const skip = opts.skip;
     const targets = skip ? files.filter((f) => !skip.has(f)) : files;
-    const limit = pLimit(opts.concurrency ?? 8);
+    const limit = pLimit(opts.concurrency ?? DEFAULT_FILE_CONCURRENCY);
     await Promise.all(targets.map((file) => limit(() => compressImage(file, opts))));
   } catch (error) {
     console.error(
@@ -69,6 +71,7 @@ async function compressImage(imagePath: string, opts: ImageOpts = {}): Promise<v
   const filename = path.basename(imagePath);
   const jpegQuality = opts.jpegQuality ?? config.jpegOptions.quality;
   const pngQuality = opts.pngQuality ?? config.pngOptions.quality;
+  let tempPath: string | undefined;
 
   try {
     const extension = path.extname(imagePath).toLowerCase();
@@ -148,12 +151,21 @@ async function compressImage(imagePath: string, opts: ImageOpts = {}): Promise<v
     }
 
     // Write optimized image back to the same path
-    const tempPath = `${imagePath}.tmp`;
-    await processedImage.toFile(tempPath);
+    tempPath = `${imagePath}.${randomUUID()}.tmp`;
+    const outputInfo = await processedImage.toFile(tempPath);
+    const newSize = outputInfo.size;
+    let wasResized = false;
+    if (opts.maxDim && extension !== ".gif") {
+      const metadata = await sharp(imagePath).metadata();
+      wasResized = metadata.width !== outputInfo.width || metadata.height !== outputInfo.height;
+    }
+    if (newSize >= originalSize && !wasResized) {
+      console.log(`Keeping original ${filename}: recompression would not reduce size`);
+      return;
+    }
     await fs.rename(tempPath, imagePath);
 
     // Log optimization result
-    const newSize = (await fs.stat(imagePath)).size;
     const savings = (((originalSize - newSize) / originalSize) * 100).toFixed(1);
 
     if (newSize < originalSize) {
@@ -163,6 +175,8 @@ async function compressImage(imagePath: string, opts: ImageOpts = {}): Promise<v
     console.error(
       `⚠️ Error processing ${filename}: ${error instanceof Error ? error.message : String(error)}`
     );
+  } finally {
+    if (tempPath) await fs.remove(tempPath);
   }
 }
 

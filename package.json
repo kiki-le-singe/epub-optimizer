@@ -24,7 +24,7 @@
     "optimize:repair": "node dist/src/pipeline.js --repair",
     "optimize:lossless": "node dist/src/pipeline.js --preset lossless",
     "optimize:clean": "node dist/src/pipeline.js --clean",
-    "cleanup": "node --experimental-strip-types scripts/clean-path.ts temp_epub",
+    "cleanup": "node --experimental-strip-types scripts/cleanup-temp.ts",
     "# Dev tools": "# Development utilities",
     "test": "vitest",
     "test:run": "vitest run",
@@ -43,23 +43,24 @@
   "dependencies": {
     "cheerio": "^1.2.0",
     "clean-css": "^5.3.3",
-    "fs-extra": "^11.3.4",
+    "fs-extra": "^11.3.5",
     "html-minifier-terser": "^7.2.0",
     "p-limit": "^7.3.0",
-    "sharp": "^0.34.5",
-    "svgo": "^4.0.1",
-    "terser": "^5.46.2",
+    "sharp": "^0.35.4",
+    "svgo": "^4.1.0",
+    "terser": "^5.48.0",
     "unzipper": "^0.12.3",
     "yargs": "^18.0.0",
     "yazl": "^3.3.1"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12.0"
   },
   "pnpm": {
     "overrides": {
       "brace-expansion@5.0.5": "5.0.6",
-      "vite": "^7.3.5"
+      "cheerio>undici": "^7.29.0",
+      "vite": "^8.0.16"
     }
   },
   "keywords": [
@@ -74,20 +75,20 @@
     "@types/clean-css": "^4.2.11",
     "@types/fs-extra": "^11.0.4",
     "@types/html-minifier-terser": "^7.0.2",
-    "@types/node": "^24.12.2",
+    "@types/node": "^25.9.2",
     "@types/unzipper": "^0.10.11",
     "@types/yargs": "^17.0.35",
     "@types/yazl": "^3.3.1",
-    "@typescript-eslint/eslint-plugin": "^8.60.1",
-    "@typescript-eslint/parser": "^8.60.1",
+    "@typescript-eslint/eslint-plugin": "^8.61.0",
+    "@typescript-eslint/parser": "^8.61.0",
     "@vitest/coverage-v8": "^4.1.8",
     "@vitest/ui": "^4.1.8",
-    "eslint": "^10.2.1",
+    "eslint": "^10.4.1",
     "eslint-config-prettier": "^10.1.8",
-    "prettier": "^3.8.3",
+    "prettier": "^3.8.4",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.60.1",
-    "vite": "^7.3.5",
+    "typescript-eslint": "^8.61.0",
+    "vite": "^8.0.16",
     "vitest": "^4.1.8"
   }
 }
