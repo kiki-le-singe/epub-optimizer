@@ -5,4 +5,9 @@ build
 coverage
 .eslintcache
 temp_epub
-*.epub 
+*.epub
+
+# CI diagnostics and temporary release metadata
+reports/
+.cache/
+digests/

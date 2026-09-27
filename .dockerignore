@@ -33,3 +33,8 @@ memory/
 
 # Unique per-run extraction directories
 temp_epub-*/
+
+# CI diagnostics and temporary release metadata
+reports/
+.cache/
+digests/

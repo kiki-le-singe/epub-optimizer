@@ -1,0 +1,55 @@
+name: Prepare release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: New version, e.g. 3.7.0 or 3.7.0-rc.1
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: release-prepare
+  cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.x
+      - name: Require green CI on the current develop commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch origin develop
+          SHA=$(git rev-parse origin/develop)
+          echo "EXPECTED_DEVELOP_SHA=$SHA" >> "$GITHUB_ENV"
+          RESULT=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=develop&head_sha=$SHA&per_page=1" --jq '.workflow_runs[0].conclusion')
+          if [ "$RESULT" != success ]; then
+            echo 'develop must have a successful CI run before release preparation.' >&2
+            exit 1
+          fi
+      - name: Merge develop, bump version and dispatch release validation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          node --experimental-strip-types scripts/prepare-release.ts "$VERSION"
+          PRERELEASE=false
+          if [[ "$VERSION" == *-* ]]; then PRERELEASE=true; fi
+          gh workflow run release.yml --ref main -f "prerelease=$PRERELEASE"
+          gh workflow run ci.yml --ref main
