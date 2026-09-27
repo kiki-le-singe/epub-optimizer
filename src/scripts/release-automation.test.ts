@@ -48,6 +48,14 @@ function fixture(overrides: Record<string, unknown> = {}) {
   };
   fs.writeFileSync(path.join(dir, "state.json"), JSON.stringify(state));
   fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ version: state.version }));
+  fs.mkdirSync(path.join(dir, "digests"));
+  for (const [arch, value] of Object.entries({ amd64, arm64 })) {
+    fs.writeFileSync(
+      path.join(dir, "digests", `${arch}.json`),
+      JSON.stringify({ arch, sha, digest: value })
+    );
+  }
+
   const stub = `#!/usr/bin/env node
 const fs = require('node:fs'); const path = require('node:path');
 const s = JSON.parse(fs.readFileSync(process.env.RELEASE_TEST_STATE));
@@ -67,13 +75,15 @@ if(cmd === 'git') {
    const releases = s.noRelease ? [] : [{id:1,tag_name:'v'+s.version,draft:s.draft,prerelease:s.version.includes('-'),assets:s.noRecord?[]:[{id:1,name:'release-image.json'}],html_url:'https://example.test/release'}];
    if(s.newer) releases.push({id:2,tag_name:'v4.0.0',draft:false,prerelease:false,assets:[]});
    write([releases]);
-  } else if(endpoint.includes('/pulls?')) write(s.existingPR ? [{html_url:'https://example.test/pr/8',number:8}] : []);
+  } else if(endpoint.endsWith('/releases/generate-notes')) write({body:'Generated notes'});
+  else if(endpoint.endsWith('/releases')) write({id:1,tag_name:'v'+s.version,draft:true,prerelease:false,assets:[],html_url:'https://example.test/release'});
+  else if(endpoint.includes('/pulls?')) write(s.existingPR ? [{html_url:'https://example.test/pr/8',number:8}] : []);
   else if(endpoint.endsWith('/pulls')) write({html_url:'https://example.test/pr/8',number:8});
   else throw new Error('Unexpected API request: '+endpoint);
  }
 } else if(cmd === 'docker') {
  if(args.includes('inspect')) { const ref = args[3]; const current = ref.endsWith('@'+s.amd64) ? s.amd64 : ref.endsWith('@'+s.arm64) ? s.arm64 : s.digest;
- write({digest:current,manifests:(current===s.digest?[s.amd64,s.arm64]:[current]).map(digest=>({digest}))}); }
+ write({digest:current,manifests:(current===s.digest?[s.amd64,s.tampered?'sha256:'+'f'.repeat(64):s.arm64]:[current]).map(digest=>({digest}))}); }
 }
 `;
   for (const cmd of ["git", "gh", "docker"])
@@ -149,6 +159,21 @@ describe("release safety", { timeout: 20_000 }, () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("preserving notes");
     expect(result.calls).not.toContain('"POST"');
+    expect(result.calls).not.toContain('"create"');
+  });
+  it("creates a fresh draft and its record without promoting stable Docker tags", () => {
+    const result = fixture({ noRelease: true, tag: null })("draft");
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.calls).toContain('"tag","-a","v3.7.0"');
+    expect(result.calls).toContain('"POST","repos/example/epub/releases"');
+    expect(result.calls).toContain('"release","upload","v3.7.0"');
+    expect(result.calls).not.toContain(image + ":latest");
+    expect(result.calls).not.toContain(image + ":3.7.0");
+  });
+  it("rejects an index whose contents differ from the tested platform digests", () => {
+    const result = fixture({ draft: false, tampered: true })("finalize");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("differs from the tested images");
     expect(result.calls).not.toContain('"create"');
   });
   it("refuses to promote an unpublished draft", () => {
