@@ -19,6 +19,8 @@ CI and Release call the same quality and Docker workflows:
 
 PR/CI images remain local to the runner. Release builds push technical `candidate-*` tags to GHCR to preserve provenance and SBOM attestations, then pull and test the exact digests. **These candidates are available in the registry but are not stable distribution tags.** Only digests whose E2E tests and scan policy pass enter the release record. There is no rebuild during promotion.
 
+The runtime uses the pinned Node 24 Bookworm image, applies Debian security updates when built, and excludes npm/Corepack, which are only needed during the build.
+
 Trivy writes all vulnerability severities, including unfixed findings, to `trivy.json`. The blocking policy is **CRITICAL with an available fix**. HIGH and unfixed findings remain visible for review. A missing report or scanner error fails the check; do not bypass a failed scan by deleting its report. Scanner database updates can legitimately change results between runs.
 
 ## Review and publish
