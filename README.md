@@ -790,12 +790,14 @@ This project is built with TypeScript and uses modern ESM modules. Here's how th
 
 ### Release Validation
 
-Releases are cut from GitHub Actions with the manual **Release** workflow. Prepare `main` with `pnpm release:prepare X.Y.Z` (merges `develop` → `main`, bumps `package.json`, pushes `main`; add `--dry-run` to preview), then dispatch the workflow from `main` — there is no version input; it reads the version from `package.json`. The workflow validates that the run is on `main` and the `vX.Y.Z` tag does not already exist (locally or remotely), runs the CI quality gates and E2E suites, pushes the multi-arch image to GHCR (`ghcr.io/kiki-le-singe/epub-optimizer`, tagged `X.Y.Z` and `latest`), creates the annotated tag, and creates the GitHub release **as a draft** — review/polish the auto-drafted notes, then click Publish.
+Run **Prepare release** from `main` in GitHub Actions with the next version after develop's CI passes. It prepares main and dispatches the shared validation and native AMD64/ARM64 image tests. **Release** creates a draft with the tested image digests; publishing that draft promotes the same images to their version tag and, for stable releases, `latest`, then synchronizes develop. Release retries preserve existing notes and reuse recorded images.
+
+The local `pnpm release:prepare X.Y.Z` command remains available; follow it by dispatching **Release** from main. See [Releases and CI](docs/RELEASING.md) for setup, diagnostics, scan policy, prereleases and recovery.
 
 Before creating a release manually, run the CI quality gates plus coverage, audit, and local Docker checks:
 
 ```bash
-pnpm release:check --version 3.3.1
+pnpm release:check --version "$(node -p 'require("./package.json").version')"
 pnpm lint
 pnpm format:check
 pnpm build

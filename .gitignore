@@ -42,3 +42,8 @@ coverage/
 
 # Unique per-run extraction directories
 temp_epub-*/
+
+# CI caches and release build metadata
+.cache/
+digests/
+trivy_envs.txt
