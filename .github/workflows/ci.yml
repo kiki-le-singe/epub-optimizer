@@ -1,71 +1,27 @@
 name: CI
-
 on:
   push:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
-
-# CI only lints, builds, and tests — the token never needs write access.
+  workflow_dispatch:
+    inputs:
+      pull-request:
+        description: Optional synchronization PR number to test its merge commit
+        type: string
+        default: ""
 permissions:
   contents: read
-
-# Cancel superseded runs on the same ref (a new push aborts the in-flight run).
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ inputs.pull-request || github.ref }}
   cancel-in-progress: true
-
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [22.x, 24.x]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
-
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: "pnpm"
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Lint code
-        run: pnpm lint
-
-      - name: Check formatting
-        run: pnpm format:check
-
-      - name: Build project
-        run: pnpm build
-
-      - name: Run tests with coverage thresholds
-        run: pnpm test:coverage
-
-      - name: Set up Java for EPUBCheck
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4.8.0
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Install EPUBCheck
-        run: bash scripts/install-epubcheck.sh epubcheck
-
-      - name: Run EPUBCheck E2E fixture
-        run: pnpm test:e2e
-
-      - name: Build Docker image with Compose
-        if: matrix.node-version == '24.x'
-        run: docker compose build
-
-      - name: Run Docker E2E fixture
-        if: matrix.node-version == '24.x'
-        run: pnpm test:docker
+  quality:
+    uses: ./.github/workflows/quality.yml
+    with:
+      ref: ${{ inputs.pull-request && format('refs/pull/{0}/merge', inputs.pull-request) || github.sha }}
+  docker:
+    needs: quality
+    uses: ./.github/workflows/docker-check.yml
+    with:
+      ref: ${{ inputs.pull-request && format('refs/pull/{0}/merge', inputs.pull-request) || github.sha }}

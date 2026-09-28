@@ -3,6 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+// @ts-expect-error Native Node TypeScript requires the source extension.
+import { parseRemoteTag } from "./release-helpers.ts";
+
 interface Options {
   version?: string;
   tag?: string;
@@ -66,7 +69,12 @@ function assertTagAbsent(tag: string): void {
 }
 
 function assertRemoteTagAbsent(tag: string): void {
-  if (runGit(["ls-remote", "--exit-code", "--tags", "origin", `refs/tags/${tag}`]) === 0) {
+  const result = spawnSync(
+    "git",
+    ["ls-remote", "--exit-code", "--tags", "origin", `refs/tags/${tag}`],
+    { encoding: "utf8", timeout: 30_000 }
+  );
+  if (parseRemoteTag(result.status, result.stdout) !== undefined) {
     throw new Error(`Release tag already exists on origin: ${tag}`);
   }
 }

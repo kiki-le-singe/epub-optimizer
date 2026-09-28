@@ -1,3 +1,5 @@
+// @ts-expect-error Native Node TypeScript requires the source extension.
+import { saveDiagnostics } from "./ci-diagnostics.ts";
 import { spawnSync } from "node:child_process";
 import fs from "fs-extra";
 import os from "node:os";
@@ -347,7 +349,11 @@ async function main(): Promise<void> {
       "Docker workflows passed E2E validation: raw balanced, raw author, Compose balanced, lossless, repair, author, and configured author."
     );
   } finally {
-    await removeDockerE2ERunDir(runDir);
+    try {
+      await saveDiagnostics(runDir, "docker");
+    } finally {
+      await removeDockerE2ERunDir(runDir);
+    }
   }
 }
 

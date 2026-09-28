@@ -1,3 +1,5 @@
+// @ts-expect-error Native Node TypeScript requires the source extension.
+import { saveDiagnostics } from "./ci-diagnostics.ts";
 import { spawn, spawnSync } from "node:child_process";
 import { createReadStream } from "node:fs";
 import fs from "fs-extra";
@@ -855,7 +857,11 @@ async function main(): Promise<void> {
       "Public pnpm workflows passed E2E validation: optimize, clean, lossless, repair, author, and configured author."
     );
   } finally {
-    await fs.remove(runDir);
+    try {
+      await saveDiagnostics(runDir, "local");
+    } finally {
+      await fs.remove(runDir);
+    }
   }
 }
 

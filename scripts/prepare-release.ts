@@ -10,7 +10,8 @@ import { fileURLToPath } from "node:url";
 //   pnpm release:prepare 3.4.0            # do it
 //   pnpm release:prepare 3.4.0 --dry-run  # show the plan only
 
-const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+// @ts-expect-error Native Node TypeScript requires the source extension.
+import { assertVersion, compareVersions, parseRemoteTag } from "./release-helpers.ts";
 
 interface Options {
   version: string;
@@ -38,9 +39,7 @@ function readOptions(argv: string[]): Options {
   if (!version) {
     throw new Error("Usage: prepare-release <version> [--dry-run]");
   }
-  if (!SEMVER.test(version)) {
-    throw new Error(`Version must be a semver like 3.4.0 (got: ${version}).`);
-  }
+  assertVersion(version);
   return { version, dryRun };
 }
 
@@ -57,13 +56,21 @@ function git(args: string[], opts: { capture?: boolean } = {}): string {
 }
 
 function remoteTagExists(repoRoot: string, tag: string): boolean {
-  return (
-    spawnSync(
-      "git",
-      ["-C", repoRoot, "ls-remote", "--exit-code", "--tags", "origin", `refs/tags/${tag}`],
-      { stdio: "ignore" }
-    ).status === 0
+  const result = spawnSync(
+    "git",
+    [
+      "-C",
+      repoRoot,
+      "ls-remote",
+      "--exit-code",
+      "--tags",
+      "origin",
+      `refs/tags/${tag}`,
+      `refs/tags/${tag}^{}`,
+    ],
+    { encoding: "utf8", timeout: 30_000 }
   );
+  return parseRemoteTag(result.status, result.stdout) !== undefined;
 }
 
 /** Replaces the top-level "version" field in a package.json string. */
@@ -91,6 +98,30 @@ function main(): void {
   const mainSha = git(["-C", repoRoot, "rev-parse", "origin/main"], { capture: true });
   const developSha = git(["-C", repoRoot, "rev-parse", "origin/develop"], { capture: true });
   console.log(`origin/main = ${mainSha.slice(0, 9)} | origin/develop = ${developSha.slice(0, 9)}`);
+  if (process.env.EXPECTED_DEVELOP_SHA && developSha !== process.env.EXPECTED_DEVELOP_SHA) {
+    throw new Error("develop changed after CI verification; retry preparation.");
+  }
+  const mainVersion = (
+    JSON.parse(git(["-C", repoRoot, "show", "origin/main:package.json"], { capture: true })) as {
+      version: string;
+    }
+  ).version;
+  if (mainVersion === version) {
+    if (
+      spawnSync("git", ["-C", repoRoot, "merge-base", "--is-ancestor", developSha, mainSha])
+        .status !== 0
+    ) {
+      throw new Error(
+        "main already has this version but develop has new changes. Choose a new version."
+      );
+    }
+    console.log(
+      `main is already prepared at ${version}; the Release workflow can be dispatched again.`
+    );
+    return;
+  }
+  if (compareVersions(version, mainVersion) <= 0)
+    throw new Error(`Version must be newer than ${mainVersion}.`);
 
   if (dryRun) {
     console.log("\n[dry run] Would:");

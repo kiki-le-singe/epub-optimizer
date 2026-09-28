@@ -1,7 +1,7 @@
 # ============================================================
 # Stage 1: base — pinned Node LTS + pnpm via Corepack
 # ============================================================
-FROM node:24-slim@sha256:242549cd46785b480c832479a730f4f2a20865d61ea2e404fdb2a5c3d3b73ecf AS base
+FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS base
 ENV CI=true
 RUN corepack enable
 WORKDIR /app
@@ -44,17 +44,23 @@ RUN bash ./install-epubcheck.sh /opt/epubcheck
 # ============================================================
 # Stage 6: runtime — slim final image (no build tooling)
 # ============================================================
-FROM node:24-slim@sha256:242549cd46785b480c832479a730f4f2a20865d61ea2e404fdb2a5c3d3b73ecf AS runtime
+FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS runtime
 
 LABEL org.opencontainers.image.title="epub-optimizer" \
       org.opencontainers.image.description="Optimize EPUB files by compressing HTML, CSS, images and recompressing the archive" \
       org.opencontainers.image.source="https://github.com/kiki-le-singe/epub-optimizer" \
       org.opencontainers.image.licenses="MIT"
 
-# Install Java JRE only (required by EPUBCheck)
+# Apply distribution security updates, then install the Java JRE for EPUBCheck.
 RUN apt-get update \
+ && apt-get upgrade -y \
  && apt-get install -y --no-install-recommends openjdk-17-jre-headless \
  && rm -rf /var/lib/apt/lists/*
+
+# The runtime invokes Node directly; package managers are build-only tools.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+ && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+          /usr/local/bin/pnpm /usr/local/bin/pnpx /usr/local/bin/yarn /usr/local/bin/yarnpkg
 
 ENV NODE_ENV=production \
     EPUBCHECK_PATH=/app/epubcheck/epubcheck.jar

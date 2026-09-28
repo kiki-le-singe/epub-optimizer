@@ -1,0 +1,115 @@
+name: Build and test images
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ""
+      candidate:
+        description: Store release candidates in GHCR and export tested digests
+        type: boolean
+        default: false
+defaults:
+  run:
+    shell: bash
+jobs:
+  image:
+    name: Docker ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: ./.github/actions/setup-project
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - name: Candidate registry login
+        if: inputs.candidate
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build once
+        id: build
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          target: runtime
+          platforms: linux/${{ matrix.arch }}
+          load: ${{ !inputs.candidate }}
+          push: ${{ inputs.candidate }}
+          provenance: ${{ inputs.candidate }}
+          sbom: ${{ inputs.candidate }}
+          tags: ${{ inputs.candidate && format('ghcr.io/{0}:candidate-{1}-{2}-{3}-{4}', github.repository, github.sha, github.run_id, github.run_attempt, matrix.arch) || 'epub-optimizer:ci' }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=image-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=image-${{ matrix.arch }}
+      - name: Select the exact image to test
+        env:
+          CANDIDATE: ${{ inputs.candidate }}
+          IMAGE: ghcr.io/${{ github.repository }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p reports
+          if [ "$CANDIDATE" = true ]; then
+            docker pull "$IMAGE@$DIGEST"
+            echo "EPUB_OPTIMIZER_DOCKER_IMAGE=$IMAGE@$DIGEST" >> "$GITHUB_ENV"
+          else
+            echo 'EPUB_OPTIMIZER_DOCKER_IMAGE=epub-optimizer:ci' >> "$GITHUB_ENV"
+          fi
+      - name: Test Docker and Compose workflows
+        env:
+          EPUB_E2E_ARTIFACT_DIR: reports/e2e
+        run: |
+          docker compose config --quiet
+          pnpm test:docker 2>&1 | tee reports/docker-e2e.log
+      - name: Scan OS, Java and application dependencies
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.74.0
+          image-ref: ${{ env.EPUB_OPTIMIZER_DOCKER_IMAGE }}
+          scanners: vuln
+          vuln-type: os,library
+          format: json
+          output: reports/trivy.json
+          exit-code: "0"
+          timeout: 10m
+      - name: Enforce image vulnerability policy
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: node --experimental-strip-types scripts/check-image-scan.ts reports/trivy.json
+      - name: Export tested digest
+        if: inputs.candidate
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p digests
+          node -e 'require("fs").writeFileSync(`digests/${process.env.IMAGE_ARCH}.json`, JSON.stringify({sha:process.env.GITHUB_SHA,arch:process.env.IMAGE_ARCH,digest:process.env.IMAGE_DIGEST}))'
+      - name: Upload tested digest
+        if: inputs.candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digest-${{ matrix.arch }}
+          overwrite: true
+          path: digests/*.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload Docker diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: docker-${{ matrix.arch }}-${{ github.run_attempt }}
+          path: reports/
+          retention-days: 14
+          if-no-files-found: warn
