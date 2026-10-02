@@ -94,6 +94,10 @@ async function compressImage(imagePath: string, opts: ImageOpts = {}): Promise<v
     // Read straight from the path (sharp streams it) instead of buffering the
     // whole compressed file in memory on top of the decoded raster.
     let processedImage = sharp(imagePath, isMultiFrame ? { animated: true } : undefined);
+    const isJpeg = extension === ".jpg" || extension === ".jpeg";
+    // JPEG encoding strips EXIF. Apply its orientation to the pixels first so
+    // the displayed image stays unchanged, including mirrored orientations.
+    if (isJpeg) processedImage = processedImage.autoOrient();
 
     // Resize step (merged from the old image-downscale pass). Sharp with
     // `fit: inside, withoutEnlargement: true` is a no-op for already-small
@@ -157,7 +161,8 @@ async function compressImage(imagePath: string, opts: ImageOpts = {}): Promise<v
     let wasResized = false;
     if (opts.maxDim && extension !== ".gif") {
       const metadata = await sharp(imagePath).metadata();
-      wasResized = metadata.width !== outputInfo.width || metadata.height !== outputInfo.height;
+      const dimensions = isJpeg ? metadata.autoOrient : metadata;
+      wasResized = dimensions.width !== outputInfo.width || dimensions.height !== outputInfo.height;
     }
     if (newSize >= originalSize && !wasResized) {
       console.log(`Keeping original ${filename}: recompression would not reduce size`);

@@ -113,6 +113,7 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
 <html xmlns="http://www.w3.org/1999/xhtml">
   <head><title>Cover</title></head>
   <body>
+    Readable text must survive.
     <figure><img src="images/photo.png" alt="Cover image"/></figure>
   </body>
 </html>
@@ -134,8 +135,8 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
       <p class="poem">First line
     Second line</p>
       <p><a href="../images/diagram.svg#illustration">Illustration</a></p>
-      <script>console.log("generic scripted content is preserved");</script>
-      <img src="../images/photo.png" srcset="../images/photo.png 1x, ../images/photo.png 2x" alt="Nested photo"/>
+      <script><![CDATA[window.marker = "<br></br>";]]></script>
+      <img id="attribute-regression" src="../images/photo.png" srcset="../images/photo.png 1x, ../images/photo.png 2x" alt="a > b"/>
       <img src="../images/encoded%25dir/encoded%25photo.png" srcset="../images/encoded%25dir/encoded%25photo.png 2x, ../images/dupes/photo.png 1x" alt="Encoded photo path"/>
       <img src="../images/dupes/photo.png" alt="Duplicate basename photo"/>
       <div style="background-image: url('../images/photo.png')">Inline style reference</div>
@@ -254,9 +255,9 @@ async function createAuthorFixtureEpubStructure(root: string): Promise<void> {
   <body>
     <section epub:type="chapter">
       <h1>Chapter 1</h1>
-      <section id="section-one"><h2>Section One</h2><img src="../images/photo.png" alt="Photo"/></section>
+      <section id="section-one"><h2>Section One</h2><img id="attribute-regression" src="../images/photo.png" alt="a > b"/></section>
       <section id="section-two"><h2>Section Two</h2><img src="../images/diagram.svg" alt="Diagram"/></section>
-      <script>console.log("author fixture");</script>
+      <script><![CDATA[window.marker = "<br></br>";]]></script>
     </section>
   </body>
 </html>
@@ -391,7 +392,25 @@ function assertPrerequisites(env: NodeJS.ProcessEnv): void {
   }
 }
 
+async function assertMarkupPreserved(contentDir: string): Promise<void> {
+  const cover = await fs.readFile(path.join(contentDir, "cover.xhtml"), "utf8");
+  if (!cover.includes("Readable text must survive.")) {
+    throw new Error("Text directly inside body must survive optimization and repair.");
+  }
+  const chapter = await fs.readFile(path.join(contentDir, "chapters", "chapter-1.xhtml"), "utf8");
+  const $ = cheerio.load(chapter, { xmlMode: true });
+  if ($("#attribute-regression").attr("alt") !== "a > b") {
+    throw new Error("Quoted attribute values must survive XHTML normalization.");
+  }
+  if (!$("script").text().includes('"<br></br>"')) {
+    throw new Error(
+      "Valid scripts and literal markup strings must survive optimization and repair."
+    );
+  }
+}
+
 async function assertContentPreserved(contentDir: string): Promise<void> {
+  await assertMarkupPreserved(contentDir);
   const chapter = await fs.readFile(path.join(contentDir, "chapters", "chapter-1.xhtml"), "utf8");
   if (!chapter.includes("First line\n    Second line")) {
     throw new Error("Whitespace controlled by external CSS must survive optimization.");
@@ -511,6 +530,7 @@ async function assertAuthorOutput(outputEpub: string, tempDir: string): Promise<
   await extractEpub(outputEpub, inspectedDir);
 
   const contentDir = path.join(inspectedDir, "OEBPS");
+  await assertMarkupPreserved(contentDir);
   const chapter = await fs.readFile(path.join(contentDir, "chapters", "chapter-1.xhtml"), "utf8");
   if (!chapter.includes('loading="lazy"')) {
     throw new Error("Expected author preset to enable lazy loading.");
@@ -571,6 +591,7 @@ async function assertConfiguredAuthorOutput(outputEpub: string, tempDir: string)
   const inspectedDir = path.join(tempDir, "inspect-configured-author");
   await extractEpub(outputEpub, inspectedDir);
   const contentDir = path.join(inspectedDir, "OEBPS");
+  await assertMarkupPreserved(contentDir);
 
   const opf = await fs.readFile(path.join(contentDir, "content.opf"), "utf8");
   if (!opf.includes('idref="front-cover" linear="yes"')) {
