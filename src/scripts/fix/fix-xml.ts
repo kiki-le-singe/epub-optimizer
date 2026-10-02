@@ -10,20 +10,15 @@ import { normalizeVoidElements } from "../../utils/xhtml.js";
 
 // Properly format self-closing tags in XML/XHTML files
 export function fixXml(originalContent: string): string {
-  // Strip invalid </br> closings that some editors emit
-  let processedContent = originalContent.replace(/<\/br>/gi, "");
   // Self-close every HTML5 void element (link, meta, img, br, hr, input, …).
-  // Idempotent — already-closed tags like `<br />` are left alone.
-  processedContent = normalizeVoidElements(processedContent);
+  // Remove invalid </br> markup without touching strings in attributes/scripts.
+  let processedContent = normalizeVoidElements(originalContent, { removeInvalidBrClosings: true });
 
   // Ensure XML declaration is immediately followed by <html>
   processedContent = processedContent.replace(/(<\?xml[^>]+>)[\s\r\n]+<html/, "$1<html");
 
   // Use cheerio for DOM manipulation
   const $ = cheerio.load(processedContent, { xmlMode: true });
-
-  // Remove all <script> tags (not allowed in EPUB XHTML)
-  $("script").remove();
 
   // Only keep <meta> tags that are direct children of <head>
   $("meta").each((_, el) => {
@@ -39,13 +34,8 @@ export function fixXml(originalContent: string): string {
     .filter((_, node) => (node as { type?: string }).type === "text")
     .remove();
 
-  // Remove any text nodes that are direct children of <body>
-  $("body")
-    .contents()
-    .filter(
-      (_, node) => (node as { type?: string }).type === "text" && $(node).text().trim().length > 0
-    )
-    .remove();
+  // Text directly inside body and scripts are valid EPUB content. Repairing
+  // XML structure must not delete them or change the scripted manifest flag.
 
   // Serialize back to XML
   return $.xml();

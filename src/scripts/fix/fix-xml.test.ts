@@ -18,11 +18,22 @@ describe("fixXml", () => {
     expect(out).not.toContain("</br>");
   });
 
-  it("strips <script> tags", () => {
-    const input = wrap('<script>alert("x")</script><p>ok</p>');
+  it("preserves valid EPUB scripts and their literal markup", () => {
+    const input = wrap('<script><![CDATA[const marker = "<br></br>";]]></script><p>ok</p>');
     const out = fixXml(input);
-    expect(out).not.toContain("<script");
+    expect(out).toContain('<script><![CDATA[const marker = "<br></br>";]]></script>');
     expect(out).toContain("<p>ok</p>");
+  });
+
+  it("preserves text directly inside body, including whitespace around inline elements", () => {
+    const out = fixXml(wrap("Readable text <em>must survive</em>.\nAnother line."));
+    expect(out).toContain("<body>Readable text <em>must survive</em>.\nAnother line.</body>");
+  });
+
+  it("preserves quoted attribute text while repairing real void tags", () => {
+    const out = fixXml(wrap('<img src="x.jpg" alt="a > b"><p>a<br>b</p>'));
+    expect(out).toContain('alt="a &gt; b"');
+    expect(out).toContain("<p>a<br/>b</p>");
   });
 
   it("drops <meta> tags that are not direct children of <head>", () => {

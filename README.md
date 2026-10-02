@@ -178,6 +178,7 @@ Version 3 makes the default command safer and less specific to this project's or
 - HTML/XHTML minification (removes whitespace, comments, and unnecessary code)
 - CSS optimization (minifies and combines rules)
 - Image compression (JPEG, PNG, WebP, GIF, AVIF, and SVG according to the selected preset and quality settings)
+- JPEG recompression applies EXIF orientation to the pixels before encoding, preserving the displayed rotation and mirroring.
 - PNG to JPEG conversion for non-transparent images (significantly reduces file size)
 - JavaScript minification (reduces script size)
 - **Optional font subsetting** via `--fonts` for trusted local workflows only; requires installing `fontmin` separately
@@ -431,6 +432,7 @@ Examples:
 - `lossless` means no lossy raster processing. Text, CSS, JavaScript, and SVG files are still optimized, so the output is not byte-for-byte identical to the input.
 - `author` runs this project's complete Pages/manual-summary workflow and is equivalent to `pnpm optimize:author`.
 - `--repair` explicitly enables the potentially modifying XHTML repair passes.
+- XHTML repair preserves valid scripts and text directly inside `<body>`; it does not remove scripting from an EPUB. XHTML normalization also preserves quoted attributes and markup-like strings inside scripts.
 - `--author-workflow` remains supported and always enables the complete author workflow, including repairs.
 - `--author-config` optionally adapts the author workflow to another summary/cover/class mapping. Without it, the original project-author workflow is unchanged.
 - Font subsetting is opt-in through `--fonts` and is not enabled by any preset.
