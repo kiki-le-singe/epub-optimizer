@@ -41,8 +41,41 @@ describe("normalizeVoidElements", () => {
 
   it("does not match tags whose name merely starts with a void name", () => {
     // `<linked>` is not `<link>`; `<break>` is not `<br>`
-    const input = `<linked>x</linked><break>y</break>`;
+    const input = `<linked>x</linked><break>y</break><br-widget/><br:custom/>`;
     expect(normalizeVoidElements(input)).toBe(input);
+  });
+
+  it("preserves tag-like text and greater-than signs inside quoted attributes", () => {
+    const input = `<img src="x.jpg" alt="a > b and <br>" title='a > b'><img alt="a > b"/>`;
+    expect(normalizeVoidElements(input)).toBe(
+      `<img src="x.jpg" alt="a > b and <br>" title='a > b' /><img alt="a > b"/>`
+    );
+  });
+
+  it("preserves comments, CDATA, processing instructions and declarations", () => {
+    const input = `<?example value="<br>"?><!DOCTYPE html [<!-- ]> <br> --><!ENTITY example "<img>">]><!-- <br> --><![CDATA[<hr>]]><br>`;
+    expect(normalizeVoidElements(input)).toBe(input.slice(0, -4) + "<br />");
+  });
+
+  it("preserves script and style content while normalizing actual tags after them", () => {
+    const input = `<script>const tag = "<br>";</script><style>.x::before { content: "<img>"; }</style><br>`;
+    expect(normalizeVoidElements(input)).toBe(input.slice(0, -4) + "<br />");
+  });
+
+  it("does not mistake a script closing tag inside CDATA for the actual closing tag", () => {
+    const input = `<script><![CDATA[const tag = "</script><br>";]]></script><hr>`;
+    expect(normalizeVoidElements(input)).toBe(input.slice(0, -4) + "<hr />");
+  });
+
+  it("preserves script content when the XHTML namespace uses a prefix", () => {
+    const input = `<h:script><![CDATA[const tag = "<br>";]]></h:script><br>`;
+    expect(normalizeVoidElements(input)).toBe(input.slice(0, -4) + "<br />");
+  });
+
+  it("preserves incomplete markup rather than guessing its boundaries", () => {
+    for (const input of [`<img alt="a > b`, `<!-- <br>`, `<![CDATA[<br>`, `<script>"<br>"`]) {
+      expect(normalizeVoidElements(input)).toBe(input);
+    }
   });
 });
 

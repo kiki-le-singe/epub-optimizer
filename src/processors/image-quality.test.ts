@@ -116,6 +116,66 @@ describe("image optimization quality", () => {
     expect(meta.height).toBe(500);
   });
 
+  it.each([1, 2, 3, 4, 5, 6, 7, 8])(
+    "preserves rendered pixels for EXIF orientation %i, including mirrors",
+    async (orientation) => {
+      const file = path.join(tempDir, `oriented-${orientation}.jpg`);
+      await sharp(gradient(600, 300), { raw: { width: 600, height: 300, channels: 3 } })
+        .jpeg({ quality: 100 })
+        .withMetadata({ orientation })
+        .toFile(file);
+      const originalSize = (await fs.stat(file)).size;
+      expect(originalSize).toBeGreaterThan(10 * 1024);
+      const expected = await sharp(file).autoOrient().raw().toBuffer({ resolveWithObject: true });
+
+      await compressImage(file, { jpegQuality: 70 });
+
+      expect((await fs.stat(file)).size).toBeLessThan(originalSize);
+      const metadata = await sharp(file).metadata();
+      expect(metadata.orientation).toBeUndefined();
+      const actual = await sharp(file).raw().toBuffer({ resolveWithObject: true });
+      expect(actual.info.width).toBe(expected.info.width);
+      expect(actual.info.height).toBe(expected.info.height);
+      expect(actual.data.length).toBe(expected.data.length);
+      let difference = 0;
+      for (let i = 0; i < expected.data.length; i++) {
+        difference += Math.abs(actual.data[i]! - expected.data[i]!);
+      }
+      expect(difference / expected.data.length).toBeLessThan(8);
+    }
+  );
+
+  it("applies JPEG orientation before resizing", async () => {
+    const file = path.join(tempDir, "oriented-large.jpg");
+    await sharp(gradient(600, 300), { raw: { width: 600, height: 300, channels: 3 } })
+      .jpeg({ quality: 100 })
+      .withMetadata({ orientation: 6 })
+      .toFile(file);
+    await compressImage(file, { jpegQuality: 70, maxDim: 200 });
+    const metadata = await sharp(file).metadata();
+    expect(metadata.width).toBe(100);
+    expect(metadata.height).toBe(200);
+  });
+
+  it("keeps original oriented JPEG bytes when recompression would grow without resizing", async () => {
+    const raw = Buffer.alloc(512 * 256 * 3);
+    let seed = 42;
+    for (let i = 0; i < raw.length; i++) {
+      seed = (1664525 * seed + 1013904223) >>> 0;
+      raw[i] = seed >>> 24;
+    }
+    const file = path.join(tempDir, "oriented-compressed.jpg");
+    await sharp(raw, { raw: { width: 512, height: 256, channels: 3 } })
+      .jpeg({ quality: 20, mozjpeg: true })
+      .withMetadata({ orientation: 6 })
+      .toFile(file);
+    const original = await fs.readFile(file);
+    expect(original.length).toBeGreaterThan(10 * 1024);
+    await compressImage(file, { jpegQuality: 70, maxDim: 1600 });
+    expect(await fs.readFile(file)).toEqual(original);
+    expect((await fs.readdir(tempDir)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
+
   it("preserves every frame and its timing in an animated GIF", async () => {
     const width = 256;
     const height = 256;

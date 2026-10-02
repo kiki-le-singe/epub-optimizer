@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs-extra";
 import path from "node:path";
 import os from "node:os";
+import * as cheerio from "cheerio";
 import { minifyHTML } from "./html-processor.js";
 
 const sampleHTML = `<!DOCTYPE html>
@@ -47,6 +48,17 @@ describe("minifyHTML", () => {
     await fs.writeFile(path.join(tempDir, "book.css"), ".poem { white-space: pre-wrap; }");
     await minifyHTML(tempFile);
     expect(await fs.readFile(tempFile, "utf8")).toContain(`<p class="poem">${poem}</p>`);
+  });
+
+  it("preserves attribute values and script strings in valid XHTML", async () => {
+    await fs.writeFile(
+      tempFile,
+      `<html xmlns="http://www.w3.org/1999/xhtml"><head><title>t</title></head><body><img src="x.jpg" alt="a > b"/><script><![CDATA[window.marker = "<br>";]]></script></body></html>`
+    );
+    await minifyHTML(tempFile);
+    const $ = cheerio.load(await fs.readFile(tempFile, "utf8"), { xmlMode: true });
+    expect($("img").attr("alt")).toBe("a > b");
+    expect($("script").text()).toContain('"<br>"');
   });
 });
 
