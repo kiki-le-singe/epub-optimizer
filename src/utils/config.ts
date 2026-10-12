@@ -13,7 +13,8 @@ const config = {
     // CSS may make whitespace significant, including in external stylesheets.
     collapseWhitespace: false,
     removeComments: true,
-    minifyCSS: true,
+    // Keep @import rules as written instead of inlining them from the working directory.
+    minifyCSS: { inline: false },
     minifyJS: true,
     caseSensitive: true, // Preserve XML case sensitivity
     keepClosingSlash: true, // Preserve self-closing tags like <img /> and <span />

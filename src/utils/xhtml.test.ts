@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isXHTMLContent, normalizeVoidElements } from "./xhtml.js";
+import { isXHTMLContent, normalizeNamedEntities, normalizeVoidElements } from "./xhtml.js";
 
 describe("normalizeVoidElements", () => {
   it("self-closes a bare <link> with attributes", () => {
@@ -75,6 +75,45 @@ describe("normalizeVoidElements", () => {
   it("preserves incomplete markup rather than guessing its boundaries", () => {
     for (const input of [`<img alt="a > b`, `<!-- <br>`, `<![CDATA[<br>`, `<script>"<br>"`]) {
       expect(normalizeVoidElements(input)).toBe(input);
+    }
+  });
+});
+
+describe("normalizeNamedEntities", () => {
+  it("rewrites HTML named references as numeric ones in text and attributes", () => {
+    expect(normalizeNamedEntities(`<p title="caf&eacute;">a&nbsp;&mdash;&nbsp;b</p>`)).toBe(
+      `<p title="caf&#xe9;">a&#xa0;&#x2014;&#xa0;b</p>`
+    );
+  });
+
+  it("uses the original XHTML values for named angle brackets in text and attributes", () => {
+    expect(normalizeNamedEntities('<p title="&lang;x&rang;">&lang;x&rang;</p>')).toBe(
+      '<p title="&#x2329;x&#x232a;">&#x2329;x&#x232a;</p>'
+    );
+  });
+
+  it("keeps the XML entities, numeric references and unknown names as written", () => {
+    const input = `<p>1 &lt; 2 &amp; 3 &gt; 2 &quot;x&quot; &apos;y&apos; &#160;&#xA0; &unknown; R&D</p>`;
+    expect(normalizeNamedEntities(input)).toBe(input);
+  });
+
+  it("never emits a raw markup character for an entity that decodes to one", () => {
+    expect(normalizeNamedEntities("<p>&LT;&AMP;</p>")).toBe("<p>&#x3c;&#x26;</p>");
+  });
+
+  it("preserves comments, CDATA, processing instructions and declarations", () => {
+    const input = `<?pi &nbsp;?><!DOCTYPE html [<!ENTITY e "&nbsp;]>">]><!-- &nbsp; --><![CDATA[&nbsp;]]>`;
+    expect(normalizeNamedEntities(`${input}<p>&nbsp;</p>`)).toBe(`${input}<p>&#xa0;</p>`);
+  });
+
+  it("leaves content after an unfinished opaque region unchanged", () => {
+    for (const input of [
+      `<!-- &nbsp;`,
+      `<![CDATA[&nbsp;`,
+      `<?pi &nbsp;`,
+      `<!DOCTYPE html "&nbsp;`,
+    ]) {
+      expect(normalizeNamedEntities(input)).toBe(input);
     }
   });
 });

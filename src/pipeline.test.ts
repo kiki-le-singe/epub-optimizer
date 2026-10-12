@@ -91,6 +91,10 @@ vi.mock("./utils/epub-integrity.js", () => ({
   }),
   assertEpubContentIntegrity: vi.fn(),
 }));
+vi.mock("./utils/epub-text.js", () => ({
+  collectEpubTextSnapshot: vi.fn().mockResolvedValue(new Map()),
+  assertEpubTextPreserved: vi.fn(),
+}));
 vi.mock("./utils/author-workflow-config.js", () => ({
   loadAuthorWorkflowConfig: vi.fn().mockResolvedValue({ summaryHref: "chapter-2.xhtml" }),
 }));
@@ -294,5 +298,30 @@ describe("pipeline orchestration", () => {
 
     expect(createEPUBFile).not.toHaveBeenCalled();
     expect(commitCandidateOutput).not.toHaveBeenCalled();
+  });
+
+  it("checks text preservation before the author workflow and blocks publication on a change", async () => {
+    const { parseArguments } = await import("./cli.js");
+    vi.mocked(parseArguments).mockResolvedValueOnce({
+      ...(await parseArguments()),
+      preset: "author",
+      "author-workflow": true,
+      authorWorkflow: true,
+      repair: true,
+    });
+    const { assertEpubTextPreserved } = await import("./utils/epub-text.js");
+    const { runFixes } = await import("./scripts/fix/index.js");
+    const { runStructureUpdates } = await import("./scripts/ops/update-structure.js");
+    const { run: createEPUBFile } = await import("./scripts/create-epub.js");
+    vi.mocked(assertEpubTextPreserved).mockImplementationOnce(() => {
+      throw new Error("text changed");
+    });
+
+    const { main } = await import("./pipeline.js");
+    await expect(main()).rejects.toThrow("text changed");
+
+    expect(runFixes).toHaveBeenCalled();
+    expect(runStructureUpdates).not.toHaveBeenCalled();
+    expect(createEPUBFile).not.toHaveBeenCalled();
   });
 });

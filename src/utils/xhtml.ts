@@ -1,3 +1,5 @@
+import { decodeHTMLStrict } from "entities";
+
 // HTML5 void elements — must be self-closed in XHTML.
 // See: https://html.spec.whatwg.org/multipage/syntax.html#void-elements
 const VOID_ELEMENTS = [
@@ -116,6 +118,82 @@ export function normalizeVoidElements(
     position = end + 1;
   }
 
+  parts.push(content.slice(copiedUntil));
+  return parts.join("");
+}
+
+// The only named references an XML parser resolves without a DTD.
+const XML_ENTITY_NAMES: ReadonlySet<string> = new Set(["amp", "lt", "gt", "quot", "apos"]);
+
+// XHTML 1.x defines these differently from HTML5. All other shared named
+// references have the same values. https://www.w3.org/TR/xhtml1/dtds.html
+const XHTML_ENTITY_OVERRIDES = new Map([
+  ["&lang;", "\u2329"],
+  ["&rang;", "\u232a"],
+]);
+
+/** Decode one level of XHTML references, preserving XML numeric code points. */
+export function decodeXhtmlEntities(text: string): string {
+  return text.replace(/&(?:#(?:x[\da-f]+|\d+)|[a-z][a-z\d]*);/gi, (reference) => {
+    if (reference.startsWith("&#")) {
+      const hexadecimal = reference.charAt(2).toLowerCase() === "x";
+      const codePoint = Number.parseInt(
+        reference.slice(hexadecimal ? 3 : 2, -1),
+        hexadecimal ? 16 : 10
+      );
+      return codePoint > 0 && codePoint <= 0x10ffff && !(codePoint >= 0xd800 && codePoint <= 0xdfff)
+        ? String.fromCodePoint(codePoint)
+        : reference;
+    }
+    return XHTML_ENTITY_OVERRIDES.get(reference) ?? decodeHTMLStrict(reference);
+  });
+}
+
+/**
+ * Rewrite HTML named character references (`&nbsp;`, `&eacute;`, …) as numeric
+ * ones (`&#xa0;`, `&#xe9;`). XHTML 1.1 documents (EPUB 2) may use them, but an
+ * XML parser without the DTD leaves them as literal text and re-escapes the
+ * ampersand on output, which would display `&nbsp;` to the reader. Comments,
+ * CDATA, processing instructions and declarations are preserved byte for byte;
+ * names that are not HTML entities are left for the reader to resolve.
+ */
+export function normalizeNamedEntities(content: string): string {
+  const next = /<!--|<!\[CDATA\[|<\?|<!|&([a-z][a-z\d]*);/gi;
+  const parts: string[] = [];
+  let copiedUntil = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = next.exec(content)) !== null) {
+    const name = match[1];
+    if (name === undefined) {
+      // Skip a complete opaque region; leave an unfinished one unchanged.
+      const terminator =
+        match[0] === "<!--"
+          ? "-->"
+          : match[0] === "<![CDATA["
+            ? "]]>"
+            : match[0] === "<?"
+              ? "?>"
+              : undefined;
+      const end = terminator
+        ? content.indexOf(terminator, next.lastIndex)
+        : findMarkupEnd(content, next.lastIndex, true);
+      if (end === -1) break;
+      next.lastIndex = end + (terminator?.length ?? 1);
+      continue;
+    }
+    if (XML_ENTITY_NAMES.has(name)) continue;
+
+    const decoded = decodeXhtmlEntities(match[0]);
+    if (decoded === match[0]) continue;
+    parts.push(
+      content.slice(copiedUntil, match.index),
+      Array.from(decoded, (char) => `&#x${char.codePointAt(0)?.toString(16)};`).join("")
+    );
+    copiedUntil = next.lastIndex;
+  }
+
+  if (copiedUntil === 0) return content;
   parts.push(content.slice(copiedUntil));
   return parts.join("");
 }
