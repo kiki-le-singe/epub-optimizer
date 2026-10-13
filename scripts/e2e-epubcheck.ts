@@ -757,11 +757,7 @@ interface E2ERunResult {
 }
 
 type PnpmWorkflowScript =
-  | "optimize"
-  | "optimize:author"
-  | "optimize:clean"
-  | "optimize:lossless"
-  | "optimize:repair";
+  "optimize" | "optimize:author" | "optimize:clean" | "optimize:lossless" | "optimize:repair";
 
 function runPnpmScript(script: PnpmWorkflowScript, args: string[], env: NodeJS.ProcessEnv) {
   const pnpmExecPath = process.env.npm_execpath;

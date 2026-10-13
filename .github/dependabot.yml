@@ -8,9 +8,22 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
     groups:
-      dependencies:
-        patterns:
-          - "*"
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+        update-types: ["major"]
+    ignore:
+      # typescript-eslint currently supports TypeScript <6.1.0. Revisit with its support range.
+      - dependency-name: "typescript"
+        versions: [">=6.1.0"]
+      # Review decoder major upgrades separately with the EPUB preservation regressions.
+      - dependency-name: "entities"
+        update-types: ["version-update:semver-major"]
+      # Types follow Node 22, the oldest supported runtime major.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions (keeps the SHA-pinned actions and their version comments updated)
   - package-ecosystem: "github-actions"
