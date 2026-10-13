@@ -30,6 +30,12 @@ describe("fixXml", () => {
     expect(out).toContain("<body>Readable text <em>must survive</em>.\nAnother line.</body>");
   });
 
+  it("preserves named character references instead of escaping their ampersand", () => {
+    const out = fixXml(wrap("<p>caf&eacute;&nbsp;&mdash; 1 &lt; 2</p>"));
+    expect(out).toContain("<p>caf&#xe9;&#xa0;&#x2014; 1 &lt; 2</p>");
+    expect(out).not.toContain("&amp;");
+  });
+
   it("preserves quoted attribute text while repairing real void tags", () => {
     const out = fixXml(wrap('<img src="x.jpg" alt="a > b"><p>a<br>b</p>'));
     expect(out).toContain('alt="a &gt; b"');

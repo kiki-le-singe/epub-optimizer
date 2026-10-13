@@ -29,6 +29,11 @@ import {
   collectEpubContentMetrics,
   compareEpubContentMetrics,
 } from "./utils/epub-integrity.js";
+import {
+  assertEpubTextPreserved,
+  collectEpubTextSnapshot,
+  type EpubTextSnapshot,
+} from "./utils/epub-text.js";
 import { loadAuthorWorkflowConfig } from "./utils/author-workflow-config.js";
 import { runDoctor } from "./utils/epub-doctor.js";
 
@@ -55,6 +60,7 @@ export async function main(): Promise<void> {
   });
   let candidateOutput: string | undefined;
   let reportWriteError: unknown;
+  let textBefore: EpubTextSnapshot | undefined;
 
   try {
     candidateOutput = await createCandidateOutputPath(args.output);
@@ -71,6 +77,7 @@ export async function main(): Promise<void> {
         report.content = {
           before: await collectEpubContentMetrics(tempDir),
         };
+        textBefore = await collectEpubTextSnapshot(tempDir);
       },
     });
 
@@ -84,6 +91,17 @@ export async function main(): Promise<void> {
     } else {
       recordSkippedStep(report, "Repair XHTML", "Enable with --repair or the author preset.");
     }
+
+    // The optimizing and repair passes must not change what the reader sees.
+    // Checked before the author workflow, which edits navigation text on purpose.
+    console.log("\n=== Validate Text Preservation ===");
+    await runReportedStep(report, "Validate text preservation", args.strict, async () => {
+      if (!textBefore) {
+        throw new Error("Input text was not collected after extraction.");
+      }
+      assertEpubTextPreserved(textBefore, await collectEpubTextSnapshot(args.temp));
+      console.log("Document text is unchanged after optimization.");
+    });
 
     // Step 3: Optional author workflow structure updates. These are tailored to
     // this project's Pages/manual-summary publishing flow.

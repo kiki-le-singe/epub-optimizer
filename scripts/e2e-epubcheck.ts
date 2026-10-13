@@ -5,6 +5,7 @@ import { createReadStream } from "node:fs";
 import fs from "fs-extra";
 import os from "node:os";
 import path from "node:path";
+import { Script } from "node:vm";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import sharp from "sharp";
 import unzipper from "unzipper";
@@ -136,6 +137,11 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
     Second line</p>
       <p><a href="../images/diagram.svg#illustration">Illustration</a></p>
       <script><![CDATA[window.marker = "<br></br>";]]></script>
+      <script type="text/javascript">//<![CDATA[
+        function compare(a, b, c, d) { if (a < b && c > d) { return "<p>"; } return ""; }
+      //]]></script>
+      <script>window.terminator = \`\\x5d\\x5d\\x3e\`;</script>
+      <script>while (window.poll());</script>
       <img id="attribute-regression" src="../images/photo.png" srcset="../images/photo.png 1x, ../images/photo.png 2x" alt="a > b"/>
       <img src="../images/encoded%25dir/encoded%25photo.png" srcset="../images/encoded%25dir/encoded%25photo.png 2x, ../images/dupes/photo.png 1x" alt="Encoded photo path"/>
       <img src="../images/dupes/photo.png" alt="Duplicate basename photo"/>
@@ -314,6 +320,97 @@ async function createConfiguredAuthorFixtureEpubStructure(root: string): Promise
   }
 }
 
+/**
+ * EPUB 2 publication using what XHTML 1.1 allows and EPUB 3 does not: named
+ * character references. It also imports a sibling stylesheet and keeps a code
+ * sample in a CDATA section.
+ */
+async function createLegacyFixtureEpubStructure(root: string): Promise<void> {
+  const oebps = path.join(root, "OEBPS");
+  await fs.ensureDir(path.join(root, "META-INF"));
+  await fs.ensureDir(path.join(oebps, "styles"));
+
+  await fs.writeFile(path.join(root, "mimetype"), "application/epub+zip");
+  await fs.writeFile(
+    path.join(root, "META-INF", "container.xml"),
+    `<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>
+`
+  );
+  await fs.writeFile(
+    path.join(oebps, "content.opf"),
+    `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="book-id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="book-id">urn:uuid:123e4567-e89b-12d3-a456-426614174002</dc:identifier>
+    <dc:title>EPUB Optimizer Legacy Fixture</dc:title>
+    <dc:language>fr</dc:language>
+  </metadata>
+  <manifest>
+    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+    <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+    <item id="main-styles" href="styles/main.css" media-type="text/css"/>
+    <item id="base-styles" href="styles/base.css" media-type="text/css"/>
+  </manifest>
+  <spine toc="ncx">
+    <itemref idref="chapter"/>
+  </spine>
+</package>
+`
+  );
+  await fs.writeFile(
+    path.join(oebps, "toc.ncx"),
+    `<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head>
+    <meta name="dtb:uid" content="urn:uuid:123e4567-e89b-12d3-a456-426614174002"/>
+    <meta name="dtb:depth" content="1"/>
+    <meta name="dtb:totalPageCount" content="0"/>
+    <meta name="dtb:maxPageNumber" content="0"/>
+  </head>
+  <docTitle><text>EPUB Optimizer Legacy Fixture</text></docTitle>
+  <navMap>
+    <navPoint id="chapter" playOrder="1"><navLabel><text>Chapitre 1</text></navLabel><content src="chapter.xhtml"/></navPoint>
+  </navMap>
+</ncx>
+`
+  );
+  await fs.writeFile(
+    path.join(oebps, "chapter.xhtml"),
+    `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="fr">
+  <head>
+    <title>Chapitre&nbsp;1</title>
+    <link rel="stylesheet" type="text/css" href="styles/main.css"/>
+  </head>
+  <body>
+    <h1>Chapitre&nbsp;1</h1>
+    <p class="lead">Le caf&eacute; &mdash; na&iuml;ve &laquo;&nbsp;citation&nbsp;&raquo; &copy; 2020</p>
+    <p class="angles" title="&lang;x&rang;">&lang;x&rang;</p>
+    <pre><![CDATA[if (a < b && c > d) { print("<tag>"); }]]></pre>
+  </body>
+</html>
+`
+  );
+  await fs.writeFile(
+    path.join(oebps, "styles", "main.css"),
+    `@import "base.css";
+.lead { font-style: italic; }
+`
+  );
+  await fs.writeFile(
+    path.join(oebps, "styles", "base.css"),
+    `body { margin: 1em; font-family: serif; }
+h1 { text-align: center; }
+`
+  );
+}
+
 async function addDirectoryRecursive(
   zipFile: yazl.ZipFile,
   sourceDir: string,
@@ -415,6 +512,19 @@ async function assertContentPreserved(contentDir: string): Promise<void> {
   if (!chapter.includes("First line\n    Second line")) {
     throw new Error("Whitespace controlled by external CSS must survive optimization.");
   }
+  if (!chapter.includes("//<![CDATA[") || !chapter.includes("if (a < b && c > d)")) {
+    throw new Error("CDATA-wrapped scripts must keep their wrapper and operators.");
+  }
+  if (!chapter.includes("window.terminator = `\\x5d\\x5d\\x3e`;")) {
+    throw new Error("Script minification must not introduce a CDATA terminator in XML text.");
+  }
+  const $ = cheerio.load(chapter, { xmlMode: true });
+  const pollScript = $("script")
+    .map((_, element) => $(element).text())
+    .get()
+    .find((code) => code.includes("window.poll"));
+  if (!pollScript) throw new Error("Script minification must preserve the empty loop.");
+  new Script(pollScript);
   const svg = await fs.readFile(path.join(contentDir, "images", "diagram.svg"), "utf8");
   if (!svg.includes('id="illustration"')) {
     throw new Error("Externally referenced SVG IDs must survive optimization.");
@@ -522,6 +632,28 @@ async function assertLosslessOutput(outputEpub: string, tempDir: string): Promis
   const opf = await fs.readFile(path.join(contentDir, "content.opf"), "utf8");
   if (!opf.includes('href="images/photo.png"') || !opf.includes('media-type="image/png"')) {
     throw new Error("Expected lossless preset to preserve the PNG manifest entry.");
+  }
+}
+
+async function assertLegacyOutput(outputEpub: string, tempDir: string): Promise<void> {
+  const inspectedDir = path.join(tempDir, "inspect-legacy");
+  await extractEpub(outputEpub, inspectedDir);
+
+  const contentDir = path.join(inspectedDir, "OEBPS");
+  const chapter = await fs.readFile(path.join(contentDir, "chapter.xhtml"), "utf8");
+  const $ = cheerio.load(chapter, { xmlMode: true });
+  if ($("p.lead").text() !== "Le café — naïve «\u00a0citation\u00a0» © 2020") {
+    throw new Error("Named character references must keep the characters they stand for.");
+  }
+  if ($("p.angles").text() !== "\u2329x\u232a" || $("p.angles").attr("title") !== "\u2329x\u232a") {
+    throw new Error("Named angle brackets must keep their XHTML 1.1 character values.");
+  }
+  if ($("pre").text() !== 'if (a < b && c > d) { print("<tag>"); }') {
+    throw new Error("Text in a CDATA section must survive optimization.");
+  }
+  const css = await fs.readFile(path.join(contentDir, "styles", "main.css"), "utf8");
+  if (!/@import\s+(?:url\()?["']?base\.css/.test(css)) {
+    throw new Error("Stylesheet @import rules must survive optimization.");
   }
 }
 
@@ -787,6 +919,8 @@ async function main(): Promise<void> {
   const configuredAuthorFixtureDir = path.join(runDir, "configured-author-fixture");
   const configuredAuthorInputEpub = path.join(runDir, "configured-author-input.epub");
   const authorConfigPath = path.join(runDir, "author-workflow.json");
+  const legacyFixtureDir = path.join(runDir, "legacy-fixture");
+  const legacyInputEpub = path.join(runDir, "legacy-input.epub");
 
   try {
     await createFixtureEpubStructure(fixtureDir);
@@ -795,6 +929,8 @@ async function main(): Promise<void> {
     await createEpub(authorInputEpub, authorFixtureDir);
     await createConfiguredAuthorFixtureEpubStructure(configuredAuthorFixtureDir);
     await createEpub(configuredAuthorInputEpub, configuredAuthorFixtureDir);
+    await createLegacyFixtureEpubStructure(legacyFixtureDir);
+    await createEpub(legacyInputEpub, legacyFixtureDir);
     await fs.writeJson(authorConfigPath, {
       summaryHref: "contents.xhtml",
       coverSpineId: "front-cover",
@@ -813,6 +949,7 @@ async function main(): Promise<void> {
     }
     assertStepStatus(balanced.report, "Repair XHTML", "skipped");
     assertStepStatus(balanced.report, "Author workflow", "skipped");
+    assertStepStatus(balanced.report, "Validate text preservation", "success");
     await assertOptimizedOutput(balanced.outputEpub, runDir);
 
     const clean = await runPnpmWorkflowCase(runDir, inputEpub, "clean", "optimize:clean", true);
@@ -874,8 +1011,25 @@ async function main(): Promise<void> {
     }
     await assertConfiguredAuthorOutput(configuredAuthor.outputEpub, runDir);
 
+    const legacy = await runPnpmWorkflowCase(runDir, legacyInputEpub, "legacy", "optimize", true, [
+      "--strict",
+      "--clean",
+    ]);
+    assertStepStatus(legacy.report, "Validate text preservation", "success");
+    await assertLegacyOutput(legacy.outputEpub, runDir);
+
+    const legacyRepair = await runPnpmWorkflowCase(
+      runDir,
+      legacyInputEpub,
+      "legacy-repair",
+      "optimize:repair",
+      true,
+      ["--strict", "--clean"]
+    );
+    await assertLegacyOutput(legacyRepair.outputEpub, runDir);
+
     console.log(
-      "Public pnpm workflows passed E2E validation: optimize, clean, lossless, repair, author, and configured author."
+      "Public pnpm workflows passed E2E validation: optimize, clean, lossless, repair, author, configured author, and legacy EPUB 2."
     );
   } finally {
     try {
