@@ -455,7 +455,13 @@ books that need up to five minutes. A timeout fails the run, discards the candid
 and preserves any previous output and the extracted files.
 
 HTML/XHTML text whitespace and SVG identifiers are preserved because external
-stylesheets and references can depend on them. Raster recompressions are committed
+stylesheets and references can depend on them. Named character references such as
+`&nbsp;` or `&eacute;` (valid in EPUB 2) are rewritten as the equivalent numeric
+references, and CDATA text outside scripts is rewritten as escaped text: the
+displayed characters are unchanged. CDATA-wrapped or entity-escaped inline scripts
+are kept as written, CSS `@import` rules are kept instead of being inlined, and a
+stylesheet the CSS minifier cannot parse without loss (for example CSS nesting) is
+left untouched. Raster recompressions are committed
 only when smaller, unless they actually change the dimensions requested by the user.
 
 ### Doctor / Inspect Mode
@@ -556,6 +562,10 @@ The report path must differ from the input and output EPUB paths and must be abs
 The final EPUB is transactional: the optimizer creates a hidden candidate next to the requested output, validates that candidate with EPUBCheck, and publishes it only after validation succeeds. If optimization, packaging, validation, or publication fails before the commit, the candidate is discarded, the previous output remains untouched, and any temporary processing directory already created is preserved for debugging.
 
 Before packaging, the optimizer also compares the extracted EPUB before and after processing. Publication is blocked if manifest, spine, document, image, or navigation counts decrease, or if processing introduces a new missing internal reference. Existing input issues remain visible in the report without turning a previously processable EPUB into a false failure.
+
+The text of every content document is also compared before and after the optimizing and repair passes (the `Validate text preservation` step). Scripts, styles, comments and markup are ignored and character references are resolved, so re-encoding is accepted, but publication is blocked if any displayed character is lost or altered. The check runs before the author workflow, whose navigation and summary edits are intentional.
+
+SVG resources are included: text, titles, accessibility descriptions and foreign object content are checked. Editor metadata and formatting whitespace between graphical elements are ignored. HTML/XHTML documents throughout the archive are checked, including secondary renditions.
 
 Cleanup and JSON report writing happen after the validated EPUB is published. If either of these later operations fails, the command exits non-zero but keeps the newly published, EPUBCheck-validated output.
 
@@ -741,6 +751,7 @@ epub-optimizer/
         ├── author-workflow-config.ts # Optional validated author workflow mapping
         ├── epub-doctor.ts    # Non-destructive EPUB inspection and optimization-risk summary
         ├── epub-integrity.ts # Before/after content metrics and regression checks
+        ├── epub-text.ts      # Before/after text preservation check
         ├── path-safety.ts  # Safe path resolution inside the extracted EPUB
         ├── pipeline-options.ts # Preset resolution
         ├── run-report.ts   # Structured results and profiling
@@ -964,6 +975,7 @@ This project uses the following dependencies:
 ### Key npm Packages
 
 - **cheerio** - For robust HTML/XHTML DOM manipulation
+- **entities** - For resolving HTML named character references in XHTML
 - **clean-css** - For CSS minification
 - **fs-extra** - Enhanced file system operations
 - **html-minifier-terser** - For HTML minification

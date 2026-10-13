@@ -6,13 +6,14 @@ import path from "node:path";
 import * as cheerio from "cheerio";
 import { getContentPath } from "../../utils/epub-utils.js";
 import { getTempDir, isEntryPoint, type RunOpts } from "../utils.js";
+import { normalizeNamedEntities } from "../../utils/xhtml.js";
 
 /**
  * Remove all empty `style=""` attributes from an XHTML string.
  * Pure function — easy to unit test.
  */
 export function removeEmptyStyles(content: string): { xml: string; removed: number } {
-  const $ = cheerio.load(content, { xmlMode: true });
+  const $ = cheerio.load(normalizeNamedEntities(content), { xmlMode: true });
   let removed = 0;
   $('[style=""]').each((_index, element) => {
     $(element).removeAttr("style");

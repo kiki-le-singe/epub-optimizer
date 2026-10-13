@@ -6,12 +6,13 @@ import path from "node:path";
 import * as cheerio from "cheerio";
 import { getContentPath } from "../../utils/epub-utils.js";
 import { getTempDir, isEntryPoint, type RunOpts } from "../utils.js";
+import { normalizeNamedEntities } from "../../utils/xhtml.js";
 
 async function fixFile(file: string) {
   try {
     console.log(`Processing ${file}`);
     const content = await fs.readFile(file, "utf8");
-    const $ = cheerio.load(content, { xmlMode: true });
+    const $ = cheerio.load(normalizeNamedEntities(content), { xmlMode: true });
     // Cheerio auto-closes tags on serialization
     await fs.writeFile(file, $.xml());
     console.log(`Fixed ${path.basename(file)}`);
