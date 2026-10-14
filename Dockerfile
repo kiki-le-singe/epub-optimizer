@@ -1,7 +1,7 @@
 # ============================================================
 # Stage 1: base — pinned Node LTS + pnpm via Corepack
 # ============================================================
-FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS base
+FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS base
 ENV CI=true
 RUN corepack enable
 WORKDIR /app
@@ -44,7 +44,7 @@ RUN bash ./install-epubcheck.sh /opt/epubcheck
 # ============================================================
 # Stage 6: runtime — slim final image (no build tooling)
 # ============================================================
-FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS runtime
+FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS runtime
 
 LABEL org.opencontainers.image.title="epub-optimizer" \
       org.opencontainers.image.description="Optimize EPUB files by compressing HTML, CSS, images and recompressing the archive" \
