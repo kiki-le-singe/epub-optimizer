@@ -59,10 +59,15 @@ function fixture(overrides: Record<string, unknown> = {}) {
   const stub = `#!/usr/bin/env node
 const fs = require('node:fs'); const path = require('node:path');
 const s = JSON.parse(fs.readFileSync(process.env.RELEASE_TEST_STATE));
-const cmd = path.basename(process.argv[1]); const args = process.argv.slice(2);
+const cmd = path.basename(process.argv[1]); let args = process.argv.slice(2);
 fs.appendFileSync(process.env.RELEASE_TEST_LOG, JSON.stringify([cmd,...args])+'\\n');
 const write = x => process.stdout.write(typeof x === 'string' ? x : JSON.stringify(x));
 if(cmd === 'git') {
+ if(args[0] === '-C') args = args.slice(2);
+ if(args[0] === 'remote') write(s.wrongOrigin?'https://github.com/other/repo.git':'https://github.com/example/epub.git');
+ if(args[0] === 'worktree' && args[1] === 'add') { fs.mkdirSync(args[3],{recursive:true}); fs.writeFileSync(path.join(args[3],'package.json'),JSON.stringify({name:'fixture',version:s.version},null,2)); }
+ if(args[0] === 'show') write(JSON.stringify({version:s.version}));
+ if(args[0] === 'ls-remote' && args.includes('--heads')) process.exit(2);
  if(args[0] === 'ls-remote') { if(s.remoteError) process.exit(128); if(!s.tag) process.exit(2); write(s.tag+'\\trefs/tags/v'+s.version+'^{}\\n'); }
  if(args[0] === 'rev-parse') write(args[1]==='origin/develop' && s.sync ? 'e'.repeat(40) : s.sha);
  if(args[0] === 'merge-base') { if(s.sync && args[3]==='e'.repeat(40)) process.exit(1); if(s.diverged && args[2]==='e'.repeat(40)) process.exit(1); process.exit(0); }
@@ -78,6 +83,12 @@ if(cmd === 'git') {
   } else if(endpoint.endsWith('/releases/generate-notes')) write({body:'Generated notes'});
   else if(endpoint.endsWith('/releases')) write({id:1,tag_name:'v'+s.version,draft:true,prerelease:false,assets:[],html_url:'https://example.test/release'});
   else if(endpoint.includes('/pulls?')) write(s.existingPR ? [{html_url:'https://example.test/pr/8',number:8}] : []);
+  else if(endpoint.endsWith('/pulls/8/merge')) write({merged:true,sha:s.sha});
+  else if(endpoint.endsWith('/pulls/8')) write({number:8,state:'open',merged:false,draft:false,mergeable:true,head:{sha:s.sha,ref:s.preparing?'codex/release-3.8.0':'codex/sync-main-develop',repo:{full_name:'example/epub'}},base:{sha:s.preparing?s.sha:'e'.repeat(40),ref:s.preparing?'main':'develop',repo:{full_name:'example/epub'}}});
+  else if(endpoint.includes('/actions/workflows/ci.yml/runs?')) write({workflow_runs:[{id:9,event:'pull_request',head_sha:s.sha,status:'completed',conclusion:s.ciFailed?'failure':'success',pull_requests:[{number:8,head:{sha:s.sha},base:{sha:s.preparing?s.sha:'e'.repeat(40)}}]}]});
+  else if(endpoint.includes('/actions/runs/9/jobs?')) write({total_count:1,jobs:[{name:'Required CI',status:'completed',conclusion:'success'}]});
+  else if(endpoint.endsWith('/branches/main')) write({commit:{sha:s.sha}});
+  else if(endpoint.endsWith('/branches/develop')) write({commit:{sha:s.sync?'e'.repeat(40):s.sha}});
   else if(endpoint.endsWith('/pulls')) write({html_url:'https://example.test/pr/8',number:8});
   else throw new Error('Unexpected API request: '+endpoint);
  }
@@ -93,7 +104,11 @@ if(cmd === 'git') {
     fs.writeFileSync(log, "");
     const result = spawnSync(
       process.execPath,
-      ["--experimental-strip-types", path.resolve("scripts/release.ts"), command],
+      [
+        "--experimental-strip-types",
+        path.resolve(state.preparing ? "scripts/prepare-release.ts" : "scripts/release.ts"),
+        command,
+      ],
       {
         cwd: dir,
         encoding: "utf8",
@@ -105,6 +120,7 @@ if(cmd === 'git') {
           GITHUB_OUTPUT: path.join(dir, "output"),
           GITHUB_STEP_SUMMARY: path.join(dir, "summary"),
           RELEASE_TAG: "v" + state.version,
+          EXPECTED_RELEASE_SHA: String(state.expectedSha ?? ""),
           PRERELEASE: String(state.version.includes("-")),
           RELEASE_TEST_STATE: path.join(dir, "state.json"),
           RELEASE_TEST_LOG: log,
@@ -202,29 +218,58 @@ describe("release safety", { timeout: 20_000 }, () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.calls).not.toContain(image + ":latest");
   });
-  it("fast-forwards develop and explicitly dispatches CI after a bot push", () => {
+  it("synchronizes through a checked PR without pushing to develop or dispatching manual CI", () => {
     const result = fixture({ draft: false, sync: true })("finalize");
     expect(result.status, result.stderr).toBe(0);
-    expect(result.calls).toContain(`${sha}:refs/heads/develop`);
-    expect(result.calls).toContain('"workflow","run","ci.yml","--ref","develop"');
-    expect(result.calls).not.toContain('"POST"');
+    expect(result.calls).toContain('"HEAD:refs/heads/codex/sync-main-develop"');
+    expect(result.calls).toContain('"POST","repos/example/epub/pulls"');
+    expect(result.calls).toContain('"PUT","repos/example/epub/pulls/8/merge"');
+    expect(result.calls).not.toContain(`${sha}:refs/heads/develop`);
+    expect(result.calls).not.toContain('"workflow","run"');
   });
-  it.each([{ diverged: true }, { rejectPush: true }])(
-    "opens a synchronization PR when a fast-forward is unavailable: %j",
-    (options) => {
-      const result = fixture({ draft: false, sync: true, ...options })("finalize");
-      expect(result.status, result.stderr).toBe(0);
-      expect(result.calls).toContain('"POST","repos/example/epub/pulls"');
-      expect(result.calls).toContain("pull-request=8");
-    }
-  );
-  it("reuses a synchronization PR and dispatches checks for its merge ref", () => {
-    const result = fixture({ draft: false, sync: true, diverged: true, existingPR: true })(
-      "finalize"
-    );
+  it("reuses an existing synchronization PR", () => {
+    const result = fixture({ draft: false, sync: true, existingPR: true })("finalize");
     expect(result.status, result.stderr).toBe(0);
     expect(result.calls).not.toContain('"POST"');
-    expect(result.calls).toContain("pull-request=8");
+    expect(result.calls).toContain('"PUT","repos/example/epub/pulls/8/merge"');
+  });
+  it("leaves a failed synchronization PR open and allows finalization to be retried", () => {
+    const result = fixture({ draft: false, sync: true, ciFailed: true })("finalize");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("CI failed");
+    expect(result.calls).not.toContain('"PUT"');
+  });
+  it("does not create a PR when develop already contains main", () => {
+    const result = fixture({ draft: false })("finalize");
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.calls).not.toContain('"POST"');
+    expect(result.calls).not.toContain('"push"');
+  });
+  it("refuses release dispatch if main moved after preparation", () => {
+    const result = fixture({ expectedSha: "f".repeat(40) })("plan");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("main changed after release preparation");
+    expect(result.calls).not.toContain('"docker"');
+  });
+  it("prepares the version in a PR and never pushes main directly", () => {
+    const result = fixture({ preparing: true, tag: null })("3.8.0");
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.calls).toContain('"HEAD:refs/heads/codex/release-3.8.0"');
+    expect(result.calls).toContain('"PUT","repos/example/epub/pulls/8/merge"');
+    expect(result.calls).not.toContain('"HEAD:main"');
+  });
+  it("stops preparation on failed develop CI before pushing a branch", () => {
+    const result = fixture({ preparing: true, tag: null, ciFailed: true })("3.8.0");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("develop must have successful CI");
+    expect(result.calls).not.toContain('"push"');
+  });
+  it("rejects a mismatched origin before any release or registry operation", () => {
+    const result = fixture({ draft: false, wrongOrigin: true })("finalize");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("origin must match");
+    expect(result.calls).not.toContain('"gh"');
+    expect(result.calls).not.toContain('"docker"');
   });
   it("fails closed when the remote tag cannot be checked", () => {
     const result = fixture({ remoteError: true })("plan");

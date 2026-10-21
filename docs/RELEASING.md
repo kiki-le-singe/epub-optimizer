@@ -2,11 +2,25 @@
 
 ## Prepare a version
 
-Commit and push changes to `develop`, then wait for its CI to pass. In GitHub Actions, run **Prepare release** from `main` with a new version such as `3.7.0` or `3.7.0-rc.1`. The workflow checks CI against the current develop commit, merges it into main, updates `package.json`, and dispatches **Release** plus main's CI. It refuses version downgrades and detects develop moving after the CI check.
+Commit and push changes to `develop`, then wait for its CI to pass. In GitHub Actions, run **Prepare release** from `main` with a new version such as `3.7.0` or `3.7.0-rc.1`. The workflow checks CI against the current develop commit, creates or updates `codex/release-X.Y.Z`, merges develop into that branch and updates `package.json`. It opens a PR to main, waits for its real pull-request CI and the **Required CI** gate, then merges through GitHub's API with the expected head commit. Only then does it dispatch **Release**, bound to that merged commit. Main's push triggers CI normally. Version downgrades and changes to develop, the PR head or its target during validation stop preparation.
 
-The local alternative remains `pnpm release:prepare 3.7.0`, followed by **Release** on main. The prerelease checkbox must match a prerelease suffix in the version. Preparation always uses remote branches: uncommitted or unpushed changes are not included.
+The local alternative is `pnpm release:prepare 3.7.0` with authenticated Git and GitHub CLI access restricted to this repository. It uses the same PR and CI checks; follow it with **Release** on main, setting `expected-sha` to the printed source commit. The prerelease checkbox must match a prerelease suffix in the version. Preparation always uses remote branches: uncommitted or unpushed changes are not included.
 
-When first installing these workflows, they must reach main before **Prepare release** is available there. The existing local preparation command can perform that first merge.
+### Install the release App and branch rules
+
+Do this in order so branch protection never blocks the old direct-push automation:
+
+1. Merge the automation change into develop after its PR CI passes.
+2. Register a private GitHub App on the repository owner's account (for example, `epub-optimizer-release-kiki`). Disable webhooks; no server is required. Give it repository **Contents**, **Pull requests**, **Actions**, and **Workflows** read/write access (Workflows offers write only). Do not grant administration, account or organization permissions.
+3. Install the App using **Only select repositories → epub-optimizer**. The registration's “Only on this account” setting alone does not restrict repository access.
+4. In **epub-optimizer → Settings → Secrets and variables → Actions**, add the App's **Client ID** as the repository variable `RELEASE_APP_CLIENT_ID`. Generate a private key in the App settings and add its complete PEM contents as the repository secret `RELEASE_APP_PRIVATE_KEY`. Do not commit the key or paste it into a chat. The App ID and Client ID are different fields; use the Client ID here.
+5. Promote the automation from develop to main with an ordinary PR and successful CI, without bumping the version or invoking a release. Both branches must have the new workflows before strict rules are enabled.
+6. Run **Prepare release** on main with **dry-run** checked and a future version. This checks App token issuance, Git access and the preparation plan without pushing a branch, opening a PR or dispatching Release. Actual PR creation and merge behavior still need verification on the first authorized release.
+7. In the active ruleset for main/develop, keep deletion and force-push protection; enable **Require a pull request before merging** and **Require status checks to pass**, selecting **Required CI** from GitHub Actions and requiring the branch to be up to date. Keep the bypass list empty. For automatic merging, do not require a human approval; adding one intentionally blocks merging until a reviewer approves it and preparation is retried.
+
+The tag ruleset for `v*` should block updates and deletions while allowing creation of new version tags. Do not add the release App to its bypass list.
+
+The App token is explicitly restricted to `kiki-le-singe/epub-optimizer`, limited to the permissions requested by each job, and revoked when the job ends. Preparation requests Actions write access to dispatch Release; finalization only requests Actions read access. GHCR still uses the job's `GITHUB_TOKEN`, not the App token. Missing App configuration fails before release preparation or image promotion.
 
 ## Build and validate
 
@@ -35,9 +49,9 @@ The Release workflow assembles the tested architecture digests and creates:
 
 Prereleases get their own version tag and never update `latest`. Replaying an older release cannot move latest backwards. Do not modify or remove the image record or delete referenced candidate images; they are needed for finalization and retries.
 
-After promotion, develop is fast-forwarded to main when possible. If the branches diverge or branch protection rejects the push, the workflow creates or reuses a main-to-develop synchronization PR. Conflicts require manual resolution. The repository must allow GitHub Actions to create pull requests for this fallback to work; existing branch protections are respected.
+After promotion, the workflow creates or updates `codex/sync-main-develop` from develop and merges main into that branch. It opens or reuses a synchronization PR to develop, waits for its **Required CI** gate, and merges through GitHub's API. If develop already contains main, no PR is needed. Main and develop are never pushed directly. Conflicts, changed source/target commits and repository rules stop the operation; the PR remains available for inspection.
 
-GitHub suppresses ordinary workflow triggers for changes made with `GITHUB_TOKEN`. The automation explicitly dispatches CI after a bot push and tests a synchronization PR's merge ref through CI's optional `pull-request` input. That dispatched run is visible on the Actions page; it is not a substitute for any required PR checks configured in repository rules. A human PR update or an appropriately configured GitHub App may be needed to satisfy those rules.
+The dedicated App token triggers ordinary `pull_request` CI without the approval required for PR events generated with `GITHUB_TOKEN`. The coordinator accepts only a successful CI run associated with that PR's exact head and base, with a successful **Required CI** job. A skipped or missing gate fails closed. CI's optional `pull-request` manual input remains available for diagnostics, but a `workflow_dispatch` run cannot satisfy required PR checks and is never accepted by the coordinator. CI remains read-only; privileged workflows never execute PR code with the App token.
 
 Publishing the draft through the GitHub UI triggers finalization. If another workflow publishes it with `GITHUB_TOKEN`, explicitly dispatch the finalization workflow too.
 
@@ -45,6 +59,7 @@ Publishing the draft through the GitHub UI triggers finalization. If another wor
 
 - Before the image record exists: rerun Release. An existing tag is accepted only if it points at the exact same source commit. Existing draft notes are preserved.
 - After the record exists: rerun Release to verify and reuse it without rebuilding or rewriting notes. On a new commit, use a new version; never move a released tag.
+- PR validation waits at most 45 minutes, within the App token's one-hour lifetime. On timeout, an approval requirement, failed CI or a concurrent branch update, inspect the open PR and retry the originating workflow. Retry failed PR CI through its original pull-request run; a manual dispatch is not equivalent. Keep the `codex/release-*` and `codex/sync-main-develop` branches reserved for automation; retries update them without force pushes.
 - If finalization fails: rerun **Publish release images and sync branches**, or dispatch it from main with `tag: vX.Y.Z`. It reuses the recorded digest and can finish synchronization even if the Docker tags were already promoted.
 - An absent remote tag is distinct from a network/authentication failure. Network failures stop preparation.
 - Legacy releases such as 3.6.0 have no image record and cannot be replayed with the new finalizer. Their existing images remain available.
@@ -64,4 +79,4 @@ E2E scripts copy the generated reports before deleting their temporary fixture d
 
 ## Token permissions
 
-CI and quality checks use read-only repository access. Only release image jobs get package write access; draft creation gets repository write access. Finalization additionally gets PR and Actions write access for synchronization and explicit CI dispatch. Preparation gets repository and Actions write access. External actions are pinned by full commit SHA.
+CI and quality checks use read-only repository access. Only release image jobs get package write access; draft creation gets repository write access. Preparation and synchronization use the repository-scoped App token for Git and PR operations. Their job `GITHUB_TOKEN` stays read-only for repository contents; finalization additionally grants it package write access for GHCR. The App does not bypass repository rules. External actions are pinned by full commit SHA.

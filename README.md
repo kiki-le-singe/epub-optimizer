@@ -296,29 +296,29 @@ docker compose run --build --rm optimizer \
 
 ### Available Scripts
 
-| Script              | Description                                                                                        |
-| ------------------- | -------------------------------------------------------------------------------------------------- |
-| `build`             | Build TypeScript for production (with minification)                                                |
-| `build:dev`         | Build TypeScript for development (no minification)                                                 |
-| `build:prod`        | Build TypeScript with minification for production                                                  |
-| `minify:safe`       | Safely minify JavaScript in dist/ directory (runs the TS source via Node's native type-stripping)  |
-| `optimize`          | Run optimizer, keeping temp files                                                                  |
-| `optimize:author`   | Run the complete project-author workflow, including repairs and structure updates                  |
-| `optimize:repair`   | Run generic optimization plus modifying XHTML repair passes                                        |
-| `optimize:lossless` | Avoid lossy image conversion, recompression, and resizing                                          |
-| `optimize:clean`    | Run optimizer, removing temp files afterward                                                       |
-| `cleanup`           | Remove temporary files                                                                             |
-| `test`              | Run tests in watch mode                                                                            |
-| `test:run`          | Run tests once and exit                                                                            |
-| `test:coverage`     | Run tests with coverage report                                                                     |
-| `test:e2e`          | Validate every public pnpm optimization workflow with fixtures and EPUBCheck                       |
-| `test:docker`       | Validate raw Docker and the complete Docker Compose workflow matrix with EPUBCheck                 |
-| `release:check`     | Validate a requested release version against `package.json` and optional tag/ref guards            |
-| `release:prepare`   | Merge develop → main, bump `package.json`, and push `main` in one command (`--dry-run` to preview) |
-| `lint`              | Lint TypeScript files in src and scripts directories                                               |
-| `lint:fix`          | Lint and auto-fix TypeScript files in src and scripts                                              |
-| `format`            | Auto-format all .ts, .json, and .md files with Prettier                                            |
-| `format:check`      | Check formatting of all .ts, .json, and .md files with Prettier                                    |
+| Script              | Description                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------------- |
+| `build`             | Build TypeScript for production (with minification)                                               |
+| `build:dev`         | Build TypeScript for development (no minification)                                                |
+| `build:prod`        | Build TypeScript with minification for production                                                 |
+| `minify:safe`       | Safely minify JavaScript in dist/ directory (runs the TS source via Node's native type-stripping) |
+| `optimize`          | Run optimizer, keeping temp files                                                                 |
+| `optimize:author`   | Run the complete project-author workflow, including repairs and structure updates                 |
+| `optimize:repair`   | Run generic optimization plus modifying XHTML repair passes                                       |
+| `optimize:lossless` | Avoid lossy image conversion, recompression, and resizing                                         |
+| `optimize:clean`    | Run optimizer, removing temp files afterward                                                      |
+| `cleanup`           | Remove temporary files                                                                            |
+| `test`              | Run tests in watch mode                                                                           |
+| `test:run`          | Run tests once and exit                                                                           |
+| `test:coverage`     | Run tests with coverage report                                                                    |
+| `test:e2e`          | Validate every public pnpm optimization workflow with fixtures and EPUBCheck                      |
+| `test:docker`       | Validate raw Docker and the complete Docker Compose workflow matrix with EPUBCheck                |
+| `release:check`     | Validate a requested release version against `package.json` and optional tag/ref guards           |
+| `release:prepare`   | Prepare a version PR, wait for Required CI, then merge into `main` (`--dry-run` to preview)       |
+| `lint`              | Lint TypeScript files in src and scripts directories                                              |
+| `lint:fix`          | Lint and auto-fix TypeScript files in src and scripts                                             |
+| `format`            | Auto-format all .ts, .json, and .md files with Prettier                                           |
+| `format:check`      | Check formatting of all .ts, .json, and .md files with Prettier                                   |
 
 ### Modern Workflow
 
@@ -711,7 +711,7 @@ epub-optimizer/
 │   ├── e2e-epubcheck.ts       # Local fixture test runner with EPUBCheck
 │   ├── install-epubcheck.sh   # Single source of the EPUBCheck version (CI + Docker)
 │   ├── minify-dist.ts         # Smart minification script for JavaScript files
-│   ├── prepare-release.ts     # Merge develop→main + bump (pnpm release:prepare)
+│   ├── prepare-release.ts     # Prepare and validate a release PR (pnpm release:prepare)
 │   └── validate-release.ts    # Release version/tag/ref guards (pnpm release:check)
 └── src/                    # Source code directory
     ├── index.ts            # optimizeEPUB(): extract + run every content processor
@@ -803,9 +803,9 @@ This project is built with TypeScript and uses modern ESM modules. Here's how th
 
 ### Release Validation
 
-Run **Prepare release** from `main` in GitHub Actions with the next version after develop's CI passes. It prepares main and dispatches the shared validation and native AMD64/ARM64 image tests. **Release** creates a draft with the tested image digests; publishing that draft promotes the same images to their version tag and, for stable releases, `latest`, then synchronizes develop. Release retries preserve existing notes and reuse recorded images.
+Run **Prepare release** from `main` in GitHub Actions with the next version after develop's CI passes. It prepares a PR, waits for **Required CI**, merges through branch rules and dispatches the shared validation and native AMD64/ARM64 image tests. **Release** creates a draft with the tested image digests; publishing that draft promotes the same images to their version tag and, for stable releases, `latest`, then synchronizes develop. Release retries preserve existing notes and reuse recorded images.
 
-The local `pnpm release:prepare X.Y.Z` command remains available; follow it by dispatching **Release** from main. See [Releases and CI](docs/RELEASING.md) for setup, diagnostics, scan policy, prereleases and recovery.
+The local `pnpm release:prepare X.Y.Z` command uses the same PR flow with authenticated Git/GitHub CLI access; follow it by dispatching **Release** from main with the printed `expected-sha`. Configure the dedicated repository-scoped release App before using the automated workflows. See [Releases and CI](docs/RELEASING.md) for setup, diagnostics, scan policy, prereleases and recovery.
 
 Before creating a release manually, run the CI quality gates plus coverage, audit, and local Docker checks:
 
