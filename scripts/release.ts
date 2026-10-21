@@ -7,6 +7,8 @@ import * as releaseHelpers from "./release-helpers.ts";
 const { assertDigest, assertVersion, parseRemoteTag, stableVersionAtLeast, validateRecord } =
   releaseHelpers;
 import type { ImageRecord } from "./release-helpers.js";
+// @ts-expect-error Native Node TypeScript requires the source extension.
+import { mergeCheckedPullRequest, prepareBranch, repository } from "./release-pr.ts";
 
 interface Release {
   id: number;
@@ -129,59 +131,44 @@ function promote(reference: string, record: ImageRecord): void {
     throw new Error("Promoted image digest mismatch.");
 }
 
-function syncDevelop(sha: string): void {
+async function syncDevelop(sha: string): Promise<void> {
   run("git", ["fetch", "origin", "main", "develop"]);
   const develop = run("git", ["rev-parse", "origin/develop"]);
   const main = run("git", ["rev-parse", "origin/main"]);
   if (spawnSync("git", ["merge-base", "--is-ancestor", sha, main]).status !== 0)
     throw new Error("Release is not an ancestor of main.");
   if (spawnSync("git", ["merge-base", "--is-ancestor", main, develop]).status === 0) {
-    run("gh", ["workflow", "run", "ci.yml", "--ref", "develop", "--repo", repo!]);
-    summary("develop already contains main; CI explicitly dispatched.");
+    summary("develop already contains main; no synchronization needed.");
     return;
   }
-  if (spawnSync("git", ["merge-base", "--is-ancestor", develop, main]).status === 0) {
-    const push = spawnSync("git", ["push", "origin", `${main}:refs/heads/develop`], {
-      encoding: "utf8",
-      timeout: 60_000,
-    });
-    if (push.status === 0) {
-      // Pushes made with GITHUB_TOKEN do not trigger CI automatically.
-      run("gh", ["workflow", "run", "ci.yml", "--ref", "develop", "--repo", repo!]);
-      summary("develop fast-forwarded to main; CI explicitly dispatched.");
-      return;
-    }
-    console.warn("Fast-forward push rejected; falling back to a synchronization PR.");
-  }
-  const prs = api<Array<{ html_url: string; number: number }>>(
-    "GET",
-    `pulls?state=open&base=develop&head=${repo!.split("/")[0]}:main`
-  );
-  const existing = prs[0];
-  const pr =
-    existing ??
-    api<{ html_url: string; number: number }>("POST", "pulls", {
-      title: "Sync main into develop after release",
-      head: "main",
-      base: "develop",
-      body: "Bring the released version and release history back into develop. Resolve any merge conflicts before merging. CI must pass.",
-    });
-  summary(`Synchronization PR: ${pr.html_url}`);
-  // A bot-created PR does not trigger pull_request workflows with GITHUB_TOKEN.
-  run("gh", [
-    "workflow",
-    "run",
-    "ci.yml",
-    "--ref",
-    "main",
-    "--repo",
-    repo!,
-    "-f",
-    `pull-request=${pr.number}`,
-  ]);
+  run("git", ["config", "user.name", "github-actions[bot]"]);
+  run("git", ["config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"]);
+  const branch = "codex/sync-main-develop";
+  const headSha = prepareBranch({
+    cwd: process.cwd(),
+    branch,
+    base: develop,
+    source: main,
+    message: "Merge main into develop after release",
+  });
+  await mergeCheckedPullRequest({
+    repo: repo!,
+    branch,
+    base: "develop",
+    headSha,
+    baseSha: develop,
+    title: "Sync main into develop after release",
+    body: `Bring main at ${main} and its release history back into develop. Required CI must pass before merging.`,
+    beforeMerge: () => {
+      const current = api<{ commit: { sha: string } }>("GET", "branches/main");
+      if (current.commit.sha !== main)
+        throw new Error("main changed during synchronization; retry finalization.");
+    },
+  });
 }
 
 async function main(): Promise<void> {
+  repository(process.cwd());
   if (command === "finalize") {
     const tag = process.env.RELEASE_TAG ?? "";
     const version = tag.replace(/^v/, "");
@@ -209,7 +196,7 @@ async function main(): Promise<void> {
     if (!release.prerelease && !newerStable) promote(`${image}:latest`, record);
     else summary("latest left unchanged (prerelease or a newer stable release exists).");
     summary(`Published ${image}:${version} at ${record.digest}.`);
-    syncDevelop(sha);
+    await syncDevelop(sha);
     return;
   }
 
@@ -220,6 +207,10 @@ async function main(): Promise<void> {
   const prerelease = process.env.PRERELEASE === "true";
   assertVersion(version, prerelease);
   const sha = run("git", ["rev-parse", "HEAD"]);
+  if (process.env.EXPECTED_RELEASE_SHA && process.env.EXPECTED_RELEASE_SHA !== sha)
+    throw new Error(
+      "main changed after release preparation; dispatch Release at the prepared commit."
+    );
   const tag = `v${version}`;
   const tagSha = remoteTag(tag);
   if (tagSha && tagSha !== sha)

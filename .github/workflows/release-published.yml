@@ -19,18 +19,38 @@ defaults:
 jobs:
   finalize:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 55
     permissions:
-      contents: write
+      contents: read
       packages: write
-      pull-requests: write
-      actions: write
     steps:
+      - name: Require the repository-scoped release App
+        env:
+          APP_CLIENT_ID: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+        run: |
+          if [[ -z "$APP_CLIENT_ID" || -z "$APP_PRIVATE_KEY" ]]; then
+            echo 'Configure RELEASE_APP_CLIENT_ID and RELEASE_APP_PRIVATE_KEY; see docs/RELEASING.md.' >&2
+            exit 1
+          fi
+      - name: Create a token for epub-optimizer only
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: kiki-le-singe
+          repositories: epub-optimizer
+          permission-contents: write
+          permission-pull-requests: write
+          permission-actions: read
+          permission-workflows: write
       # Run trusted automation from main, then verify the release tag and record.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: main
           fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24.x
@@ -42,6 +62,6 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Promote tested images and sync develop
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
         run: node --experimental-strip-types scripts/release.ts finalize
