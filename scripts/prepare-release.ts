@@ -1,10 +1,9 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// One-command release prep: merge develop -> main, bump package.json, push main.
+// Prepare a release PR, wait for its CI, then merge it through GitHub rules.
 // The Release workflow then reads the version from package.json (no input).
 //
 //   pnpm release:prepare 3.4.0            # do it
@@ -12,6 +11,8 @@ import { fileURLToPath } from "node:url";
 
 // @ts-expect-error Native Node TypeScript requires the source extension.
 import { assertVersion, compareVersions, parseRemoteTag } from "./release-helpers.ts";
+// @ts-expect-error Native Node TypeScript requires the source extension.
+import { api, mergeCheckedPullRequest, prepareBranch, repository, run } from "./release-pr.ts";
 
 interface Options {
   version: string;
@@ -43,16 +44,8 @@ function readOptions(argv: string[]): Options {
   return { version, dryRun };
 }
 
-function git(args: string[], opts: { capture?: boolean } = {}): string {
-  const result = spawnSync("git", args, {
-    encoding: "utf8",
-    stdio: opts.capture ? ["ignore", "pipe", "pipe"] : "inherit",
-  });
-  if (result.status !== 0) {
-    const detail = opts.capture ? `: ${(result.stderr ?? "").trim()}` : "";
-    throw new Error(`git ${args.join(" ")} failed${detail}`);
-  }
-  return opts.capture ? (result.stdout ?? "").trim() : "";
+function git(args: string[]): string {
+  return run("git", args);
 }
 
 function remoteTagExists(repoRoot: string, tag: string): boolean {
@@ -82,27 +75,28 @@ export function bumpVersionInPackageJson(raw: string, version: string): string {
   return bumped;
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const { version, dryRun } = readOptions(process.argv.slice(2));
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const tag = `v${version}`;
+  const repo = repository(repoRoot);
 
   console.log(`Preparing release ${tag}${dryRun ? " (dry run)" : ""}...`);
 
-  git(["-C", repoRoot, "fetch", "origin"], { capture: true });
+  git(["-C", repoRoot, "fetch", "origin"]);
 
   if (remoteTagExists(repoRoot, tag)) {
     throw new Error(`Tag ${tag} already exists on origin — choose a new version.`);
   }
 
-  const mainSha = git(["-C", repoRoot, "rev-parse", "origin/main"], { capture: true });
-  const developSha = git(["-C", repoRoot, "rev-parse", "origin/develop"], { capture: true });
+  const mainSha = git(["-C", repoRoot, "rev-parse", "origin/main"]);
+  const developSha = git(["-C", repoRoot, "rev-parse", "origin/develop"]);
   console.log(`origin/main = ${mainSha.slice(0, 9)} | origin/develop = ${developSha.slice(0, 9)}`);
   if (process.env.EXPECTED_DEVELOP_SHA && developSha !== process.env.EXPECTED_DEVELOP_SHA) {
     throw new Error("develop changed after CI verification; retry preparation.");
   }
   const mainVersion = (
-    JSON.parse(git(["-C", repoRoot, "show", "origin/main:package.json"], { capture: true })) as {
+    JSON.parse(git(["-C", repoRoot, "show", "origin/main:package.json"])) as {
       version: string;
     }
   ).version;
@@ -118,67 +112,70 @@ function main(): void {
     console.log(
       `main is already prepared at ${version}; the Release workflow can be dispatched again.`
     );
+    writeSource(mainSha);
     return;
   }
   if (compareVersions(version, mainVersion) <= 0)
     throw new Error(`Version must be newer than ${mainVersion}.`);
 
+  const branch = `codex/release-${version}`;
   if (dryRun) {
-    console.log("\n[dry run] Would:");
-    console.log(
-      `  1. merge origin/develop into main ("Merge develop for ${version} release prep")`
-    );
-    console.log(`  2. set package.json version to ${version} ("Bump version to ${version}")`);
-    console.log("  3. push origin main");
-    console.log(
-      `\nThen dispatch the Release workflow — no version input; it reads ${version} from package.json.`
-    );
+    console.log(`Would merge the checked develop commit into ${branch}, bump to ${version},`);
+    console.log("open a PR to main, wait for Required CI, then merge through GitHub rules.");
     return;
   }
-
-  // Throwaway worktree detached on origin/main, so this works regardless of
-  // which branch the primary worktree currently has checked out.
-  const worktree = path.join(os.tmpdir(), `eo-release-${process.pid}`);
-  git(["-C", repoRoot, "worktree", "prune"], { capture: true });
-  git(["-C", repoRoot, "worktree", "add", "--detach", worktree, "origin/main"]);
-
-  try {
-    git([
-      "-C",
-      worktree,
-      "merge",
-      "--no-ff",
-      "origin/develop",
-      "-m",
-      `Merge develop for ${version} release prep`,
-    ]);
-
-    const pkgPath = path.join(worktree, "package.json");
-    fs.writeFileSync(pkgPath, bumpVersionInPackageJson(fs.readFileSync(pkgPath, "utf8"), version));
-
-    git(["-C", worktree, "commit", "-am", `Bump version to ${version}`]);
-    git(["-C", worktree, "push", "origin", "HEAD:main"]);
-
-    console.log(`\n✅ main is ready at ${version}.`);
-    console.log(
-      "Next: dispatch the Release workflow (Actions → Release → Run workflow → prerelease: false)."
-    );
-    console.log(`It reads ${version} from package.json and creates a draft release to polish.`);
-  } finally {
-    spawnSync("git", ["-C", repoRoot, "worktree", "remove", "--force", worktree], {
-      stdio: "ignore",
-    });
-  }
+  const ci = api<{ workflow_runs: Array<{ conclusion: string | null }> }>(
+    repo,
+    "GET",
+    `actions/workflows/ci.yml/runs?branch=develop&head_sha=${developSha}&per_page=1`
+  ).workflow_runs[0];
+  if (ci?.conclusion !== "success")
+    throw new Error("develop must have successful CI before preparation.");
+  const headSha = prepareBranch({
+    cwd: repoRoot,
+    branch,
+    base: mainSha,
+    source: developSha,
+    message: `Merge develop for ${version} release prep`,
+    update: (worktree: string) => {
+      const pkgPath = path.join(worktree, "package.json");
+      const raw = fs.readFileSync(pkgPath, "utf8");
+      if ((JSON.parse(raw) as { version: string }).version !== version) {
+        fs.writeFileSync(pkgPath, bumpVersionInPackageJson(raw, version));
+        run("git", ["commit", "-am", `Bump version to ${version}`], worktree);
+      }
+    },
+  });
+  const mergedSha = await mergeCheckedPullRequest({
+    repo,
+    branch,
+    base: "main",
+    headSha,
+    baseSha: mainSha,
+    title: `Prepare release ${tag}`,
+    body: `Merge develop at ${developSha} and bump package.json to ${version}. Required CI must pass before merging. Publishing remains a separate action.`,
+    beforeMerge: () => {
+      const current = api<{ commit: { sha: string } }>(repo, "GET", "branches/develop");
+      if (current.commit.sha !== developSha)
+        throw new Error("develop changed during CI; retry preparation.");
+    },
+  });
+  writeSource(mergedSha);
+  console.log(
+    `main is ready at ${version}. Dispatch Release from main with expected-sha=${mergedSha}.`
+  );
 }
 
 const invokedDirectly =
   process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
+function writeSource(sha: string): void {
+  if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `sha=${sha}\n`);
+}
+
 if (invokedDirectly) {
-  try {
-    main();
-  } catch (error) {
+  void main().catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-  }
+    process.exitCode = 1;
+  });
 }

@@ -6,6 +6,10 @@ on:
         description: New version, e.g. 3.7.0 or 3.7.0-rc.1
         required: true
         type: string
+      dry-run:
+        description: Check App access and the plan without creating a PR or release
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -18,14 +22,36 @@ jobs:
   prepare:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 55
     permissions:
-      contents: write
-      actions: write
+      contents: read
+      actions: read
     steps:
+      - name: Require the repository-scoped release App
+        env:
+          APP_CLIENT_ID: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+        run: |
+          if [[ -z "$APP_CLIENT_ID" || -z "$APP_PRIVATE_KEY" ]]; then
+            echo 'Configure RELEASE_APP_CLIENT_ID and RELEASE_APP_PRIVATE_KEY; see docs/RELEASING.md.' >&2
+            exit 1
+          fi
+      - name: Create a token for epub-optimizer only
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: kiki-le-singe
+          repositories: epub-optimizer
+          permission-contents: write
+          permission-pull-requests: write
+          permission-actions: write
+          permission-workflows: write
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24.x
@@ -41,15 +67,25 @@ jobs:
             echo 'develop must have a successful CI run before release preparation.' >&2
             exit 1
           fi
-      - name: Merge develop, bump version and dispatch release validation
+      - name: Prepare the PR and merge after Required CI
+        id: prepare
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry-run }}
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          node --experimental-strip-types scripts/prepare-release.ts "$VERSION"
+          ARGS=("$VERSION")
+          if [[ "$DRY_RUN" == true ]]; then ARGS+=(--dry-run); fi
+          node --experimental-strip-types scripts/prepare-release.ts "${ARGS[@]}"
+      - name: Dispatch validation of the prepared release commit
+        if: ${{ !inputs.dry-run }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION: ${{ inputs.version }}
+          PREPARED_SHA: ${{ steps.prepare.outputs.sha }}
+        run: |
           PRERELEASE=false
           if [[ "$VERSION" == *-* ]]; then PRERELEASE=true; fi
-          gh workflow run release.yml --ref main -f "prerelease=$PRERELEASE"
-          gh workflow run ci.yml --ref main
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main -f "prerelease=$PRERELEASE" -f "expected-sha=$PREPARED_SHA"

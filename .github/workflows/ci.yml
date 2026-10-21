@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       pull-request:
-        description: Optional synchronization PR number to test its merge commit
+        description: Optional PR merge ref for diagnostics (does not satisfy required PR checks)
         type: string
         default: ""
 permissions:
@@ -25,3 +25,19 @@ jobs:
     uses: ./.github/workflows/docker-check.yml
     with:
       ref: ${{ inputs.pull-request && format('refs/pull/{0}/merge', inputs.pull-request) || github.sha }}
+  required:
+    name: Required CI
+    if: ${{ always() }}
+    needs: [quality, docker]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every quality and Docker job to succeed
+        env:
+          QUALITY: ${{ needs.quality.result }}
+          DOCKER: ${{ needs.docker.result }}
+        run: |
+          if [[ "$QUALITY" != success || "$DOCKER" != success ]]; then
+            echo "Required checks failed or were skipped: quality=$QUALITY docker=$DOCKER" >&2
+            exit 1
+          fi

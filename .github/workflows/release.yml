@@ -7,6 +7,10 @@ on:
         required: true
         default: false
         type: boolean
+      expected-sha:
+        description: Optional source commit returned by Prepare release
+        type: string
+        default: ""
 permissions:
   contents: read
 concurrency:
@@ -32,6 +36,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PRERELEASE: ${{ inputs.prerelease }}
+          EXPECTED_RELEASE_SHA: ${{ inputs.expected-sha }}
         run: node --experimental-strip-types scripts/release.ts plan
   quality:
     needs: plan
