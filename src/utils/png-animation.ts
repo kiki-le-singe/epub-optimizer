@@ -1,6 +1,7 @@
 import { open } from "node:fs/promises";
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const MAX_CHUNKS = 1024;
 
 /**
  * Detect APNG without decoding pixels or buffering the compressed image.
@@ -17,7 +18,11 @@ export async function isAnimatedPng(filePath: string): Promise<boolean> {
 
     const size = (await file.stat()).size;
     let offset = 8;
+    let chunks = 0;
     while (offset + 12 <= size) {
+      // EPUB images are untrusted. Bound sequential I/O for pathological files
+      // with millions of tiny ancillary chunks, preserving the source on error.
+      if (++chunks > MAX_CHUNKS) throw new Error("PNG animation scan chunk limit exceeded");
       const { bytesRead } = await file.read(header, 0, 8, offset);
       if (bytesRead !== 8) break;
       const length = header.readUInt32BE(0);

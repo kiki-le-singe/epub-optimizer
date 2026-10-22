@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { compressImage } from "./image-processor.js";
-import { createAnimatedPng, createAnimatedWebp } from "../../scripts/image-fixtures.js";
+import { createAnimatedPng, createAnimatedWebp, pngChunk } from "../../scripts/image-fixtures.js";
 
 // Guards the optimizer's core promise — shrink images WITHOUT corrupting them —
 // against silent regressions from a sharp/libvips/mozjpeg upgrade. Uses a
@@ -204,6 +204,24 @@ describe("image optimization quality", () => {
 
     expect((await fs.readFile(file)).equals(original)).toBe(true);
     expect(await fs.readdir(tempDir)).toEqual(["animation.png"]);
+  });
+
+  it("keeps the source when PNG animation detection reaches its scan limit", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const file = path.join(tempDir, "many-chunks.png");
+    const png = createAnimatedPng();
+    const text = pngChunk("tEXt", Buffer.from("Comment\0x"));
+    const padding = Buffer.concat(Array<Buffer>(2048).fill(text));
+    const original = Buffer.concat([png.subarray(0, 33), padding, png.subarray(33)]);
+    await fs.writeFile(file, original);
+
+    await compressImage(file, { maxDim: 100 });
+
+    expect((await fs.readFile(file)).equals(original)).toBe(true);
+    expect(await fs.readdir(tempDir)).toEqual(["many-chunks.png"]);
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("scan chunk limit exceeded")
+    );
   });
 
   it("keeps animated WebP bytes when recompression grows without shrinking its frames", async () => {

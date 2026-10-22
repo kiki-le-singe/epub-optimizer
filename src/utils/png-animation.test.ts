@@ -39,6 +39,14 @@ describe("PNG animation detection", () => {
     await expect(isAnimatedPng(file)).rejects.toThrow("Incomplete PNG chunk structure");
   });
 
+  it("stops scanning a pathological number of tiny ancillary chunks", async () => {
+    const png = createAnimatedPng();
+    const text = pngChunk("tEXt", Buffer.from("Comment\0x"));
+    const padding = Buffer.concat(Array<Buffer>(2048).fill(text));
+    await fs.writeFile(file, Buffer.concat([png.subarray(0, 33), padding, png.subarray(33)]));
+    await expect(isAnimatedPng(file)).rejects.toThrow("PNG animation scan chunk limit exceeded");
+  });
+
   it.each(["", "not a PNG image"])(
     "does not identify non-PNG input as animated: %j",
     async (data) => {
