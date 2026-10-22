@@ -1,5 +1,7 @@
 // @ts-expect-error Native Node TypeScript requires the source extension.
 import { saveDiagnostics } from "./ci-diagnostics.ts";
+// @ts-expect-error Native Node TypeScript requires the source extension.
+import { createAnimatedPng } from "./image-fixtures.ts";
 import { spawn, spawnSync } from "node:child_process";
 import { createReadStream } from "node:fs";
 import fs from "fs-extra";
@@ -80,6 +82,7 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
     <item id="encoded-photo" href="images/encoded%25dir/encoded%25photo.png" media-type="image/png"/>
     <item id="dupe-photo" href="images/dupes/photo.png" media-type="image/png"/>
     <item id="diagram" href="images/diagram.svg" media-type="image/svg+xml"/>
+    <item id="animation" href="images/animation.png" media-type="image/png"/>
   </manifest>
   <spine>
     <itemref idref="cover"/>
@@ -152,6 +155,7 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
       <div style="background-image: url('../images/photo.png')">Inline style reference</div>
       <div style="background-image: url('../images/encoded%25dir/encoded%25photo.png')">Encoded inline style reference</div>
       <img src="../images/diagram.svg" alt="SVG wrapper"/>
+      <img src="../images/animation.png" alt="Animated illustration"/>
     </section>
   </body>
 </html>
@@ -189,6 +193,7 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
   await fs.writeFile(path.join(oebps, "images", "photo.png"), opaquePng);
   await fs.writeFile(path.join(oebps, "images", "dupes", "photo.png"), opaquePng);
   await fs.writeFile(path.join(oebps, "images", "encoded%dir", "encoded%photo.png"), opaquePng);
+  await fs.writeFile(path.join(oebps, "images", "animation.png"), createAnimatedPng());
 }
 
 async function createAuthorFixtureEpubStructure(root: string): Promise<void> {
@@ -216,6 +221,7 @@ async function createAuthorFixtureEpubStructure(root: string): Promise<void> {
     <item id="encoded-photo" href="images/encoded%25dir/encoded%25photo.png" media-type="image/png"/>
     <item id="dupe-photo" href="images/dupes/photo.png" media-type="image/png"/>
     <item id="diagram" href="images/diagram.svg" media-type="image/svg+xml"/>
+    <item id="animation" href="images/animation.png" media-type="image/png"/>
   </manifest>
   <spine toc="ncx">
     <itemref idref="cover" linear="no"/>
@@ -267,6 +273,7 @@ async function createAuthorFixtureEpubStructure(root: string): Promise<void> {
       <h1>Chapter 1</h1>
       <section id="section-one"><h2>Section One</h2><img id="attribute-regression" src="../images/photo.png" alt="a > b"/></section>
       <section id="section-two"><h2>Section Two</h2><img src="../images/diagram.svg" alt="Diagram"/></section>
+      <img src="../images/animation.png" alt="Animated illustration"/>
       <script><![CDATA[window.marker = "<br></br>";]]></script>
     </section>
   </body>
@@ -494,6 +501,14 @@ function assertPrerequisites(env: NodeJS.ProcessEnv): void {
 }
 
 async function assertMarkupPreserved(contentDir: string): Promise<void> {
+  const animation = await fs.readFile(path.join(contentDir, "images", "animation.png"));
+  if (!animation.equals(createAnimatedPng())) {
+    throw new Error("APNG frames, timing, loop and original bytes must survive optimization.");
+  }
+  const opf = await fs.readFile(path.join(contentDir, "content.opf"), "utf8");
+  if (!opf.includes('href="images/animation.png" media-type="image/png"')) {
+    throw new Error("The animated PNG manifest entry must be preserved.");
+  }
   const cover = await fs.readFile(path.join(contentDir, "cover.xhtml"), "utf8");
   if (!cover.includes("Readable text must survive.")) {
     throw new Error("Text directly inside body must survive optimization and repair.");

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { compressImage } from "./image-processor.js";
+import { createAnimatedPng, createAnimatedWebp } from "../../scripts/image-fixtures.js";
 
 // Guards the optimizer's core promise — shrink images WITHOUT corrupting them —
 // against silent regressions from a sharp/libvips/mozjpeg upgrade. Uses a
@@ -191,6 +192,48 @@ describe("image optimization quality", () => {
     expect(metadata.delay).toEqual([100, 200]);
     expect(metadata.pageHeight).toBe(height);
     expect(metadata.width).toBe(width);
+  });
+
+  it("keeps APNG bytes even when recompression and downscaling are requested", async () => {
+    const file = path.join(tempDir, "animation.png");
+    const original = createAnimatedPng();
+    expect(original.length).toBeGreaterThan(10 * 1024);
+    await fs.writeFile(file, original);
+
+    await compressImage(file, { pngQuality: 0.6, maxDim: 100 });
+
+    expect((await fs.readFile(file)).equals(original)).toBe(true);
+    expect(await fs.readdir(tempDir)).toEqual(["animation.png"]);
+  });
+
+  it("keeps animated WebP bytes when recompression grows without shrinking its frames", async () => {
+    const file = path.join(tempDir, "animation.webp");
+    const original = await createAnimatedWebp();
+    expect(original.length).toBeGreaterThan(10 * 1024);
+    const candidate = await sharp(original, { animated: true }).webp({ quality: 70 }).toBuffer();
+    expect(candidate.length).toBeGreaterThan(original.length);
+    await fs.writeFile(file, original);
+
+    await compressImage(file, { jpegQuality: 70, maxDim: 1600 });
+
+    expect((await fs.readFile(file)).equals(original)).toBe(true);
+    expect(await fs.readdir(tempDir)).toEqual(["animation.webp"]);
+  });
+
+  it("downscales animated WebP frames and preserves their timing even if encoding grows", async () => {
+    const file = path.join(tempDir, "animation.webp");
+    const original = await createAnimatedWebp();
+    await fs.writeFile(file, original);
+
+    await compressImage(file, { jpegQuality: 100, maxDim: 200 });
+
+    expect((await fs.stat(file)).size).toBeGreaterThan(original.length);
+    const metadata = await sharp(file, { animated: true }).metadata();
+    expect(metadata.width).toBe(200);
+    expect(metadata.pageHeight).toBe(100);
+    expect(metadata.pages).toBe(2);
+    expect(metadata.delay).toEqual([100, 200]);
+    expect(metadata.loop).toBe(3);
   });
 
   it("re-encodes a PNG to a valid same-size image", async () => {
