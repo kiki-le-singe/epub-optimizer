@@ -97,4 +97,21 @@ describe("pipeline report", () => {
       runReportedStep(report, "example", true, () => console.error("processing error"))
     ).rejects.toThrow("Strict mode rejected");
   });
+
+  it.each(["Warning: no cover spine item found", "⚠ Missing navigation", "Failed to update TOC"])(
+    "keeps explicit legacy warning/error log labels: %s",
+    async (message) => {
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const report = createPipelineReport({
+        input: "in.epub",
+        output: "out.epub",
+        preset: "author",
+        strict: true,
+      });
+      await expect(
+        runReportedStep(report, "Author workflow", true, () => console.log(message))
+      ).rejects.toThrow("Strict mode rejected");
+      expect(report.steps[0]?.messages).toContain(message);
+    }
+  );
 });

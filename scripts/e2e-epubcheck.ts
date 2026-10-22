@@ -982,7 +982,12 @@ async function assertLocalizedWarnings(runDir: string, fixtureDir: string): Prom
         (step: { name: string }) => step.name === "Validate candidate EPUB"
       );
       if (strict) {
-        if (result.status === 0 || report.success || validation?.status !== "failed") {
+        if (
+          result.status === 0 ||
+          report.success ||
+          validation?.status !== "failed" ||
+          !validation?.messages?.includes("EPUBCheck reported 1 warning(s).")
+        ) {
           throw new Error(`Strict mode accepted EPUBCheck warnings with JVM language ${language}.`);
         }
         if ((await fs.readFile(output, "utf8")) !== "previous-output") {
@@ -1000,6 +1005,50 @@ async function assertLocalizedWarnings(runDir: string, fixtureDir: string): Prom
         throw new Error(`Non-strict mode did not report and accept the expected warning.\n${log}`);
       }
     }
+  }
+}
+
+async function assertAuthorWarningRejected(runDir: string, input: string): Promise<void> {
+  const configPath = path.join(runDir, "missing-cover.json");
+  await fs.writeJson(configPath, { coverSpineId: "missing-cover" });
+  const output = path.join(runDir, "author-incomplete.epub");
+  const reportPath = path.join(runDir, "author-incomplete.json");
+  await fs.writeFile(output, "previous-output");
+  const result = spawnSync(
+    process.execPath,
+    [
+      pipelinePath,
+      "-i",
+      input,
+      "-o",
+      output,
+      "--preset",
+      "author",
+      "--strict",
+      "--author-config",
+      configPath,
+      "--report-json",
+      reportPath,
+    ],
+    { cwd: runDir, env: withJavaFallback(process.env), encoding: "utf8", timeout: 60_000 }
+  );
+  const log = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  await fs.writeFile(path.join(runDir, "author-incomplete.log"), log);
+  if (result.error) throw result.error;
+  const report = await fs.readJson(reportPath);
+  const warning = "Warning: No cover reference found in spine section of OPF file";
+  if (
+    result.status === 0 ||
+    report.success ||
+    !report.steps.some(
+      (step: { messages: string[]; status: string }) =>
+        step.status === "failed" && step.messages.includes(warning)
+    )
+  ) {
+    throw new Error(`Strict author mode did not reject and record its cover warning.\n${log}`);
+  }
+  if ((await fs.readFile(output, "utf8")) !== "previous-output") {
+    throw new Error("Strict author warning failure overwrote the previous output.");
   }
 }
 
@@ -1039,6 +1088,7 @@ async function main(): Promise<void> {
 
     await assertConcurrentDefaultsAndTimeout(runDir, inputEpub);
     await assertLocalizedWarnings(runDir, fixtureDir);
+    await assertAuthorWarningRejected(runDir, authorInputEpub);
 
     const balanced = await runPnpmWorkflowCase(runDir, inputEpub, "balanced", "optimize", false, [
       "--strict",

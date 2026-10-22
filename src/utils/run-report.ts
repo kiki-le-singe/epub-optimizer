@@ -69,11 +69,17 @@ export async function runReportedStep<T>(
 ): Promise<T> {
   const startedAt = performance.now();
   const messages: string[] = [];
+  const originalLog = console.log;
   const originalWarn = console.warn;
   const originalError = console.error;
 
-  // Severity comes from the warning/error channels, not words in an
-  // informational message that can contain an arbitrary book filename.
+  // Keep legacy explicit warning/error labels, but do not infer severity
+  // from words inside informational paths such as /books/warning.epub.
+  console.log = (...args: unknown[]) => {
+    const message = args.map(String).join(" ");
+    if (/^\s*(?:warning\b|failed\b|⚠)/i.test(message)) messages.push(message);
+    originalLog(...args);
+  };
   console.warn = (...args: unknown[]) => {
     messages.push(args.map(String).join(" "));
     originalWarn(...args);
@@ -106,6 +112,7 @@ export async function runReportedStep<T>(
     });
     throw error;
   } finally {
+    console.log = originalLog;
     console.warn = originalWarn;
     console.error = originalError;
   }

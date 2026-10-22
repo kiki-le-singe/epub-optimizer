@@ -77,6 +77,7 @@ describe("validate EPUB", () => {
       stderr: "",
     } as ReturnType<typeof spawnSync>);
     expect(() => run({ output: "output.epub", strict: true })).toThrow("EPUB validation failed");
+    expect(console.warn).toHaveBeenCalledWith("EPUBCheck reported 1 warning(s).");
   });
 
   it("reports warnings and rejects them in strict mode", () => {

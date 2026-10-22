@@ -67,11 +67,16 @@ export function run(opts: RunOpts = {}): void {
     }
     throw new Error(`Failed to run EPUBCheck: ${result.error.message}`, { cause: result.error });
   }
+  // Record warnings even when native strict enforcement exits nonzero, so
+  // machine-readable step reports retain the diagnostic count.
+  const messages = parseEpubCheckMessages(`${result.stdout ?? ""}\n${result.stderr ?? ""}`);
+  if (messages && messages.warnings > 0) {
+    console.warn(`EPUBCheck reported ${messages.warnings} warning(s).`);
+  }
   if (result.status !== 0) {
     throw new Error(`EPUB validation failed (exit ${result.status ?? "unknown"}).`);
   }
 
-  const messages = parseEpubCheckMessages(`${result.stdout ?? ""}\n${result.stderr ?? ""}`);
   if (!messages) {
     const message =
       "Could not read EPUBCheck message totals; validation diagnostics are incomplete.";
@@ -79,7 +84,6 @@ export function run(opts: RunOpts = {}): void {
     console.warn(message);
   }
   if (messages && messages.warnings > 0) {
-    console.warn(`EPUBCheck reported ${messages.warnings} warning(s).`);
     if (opts.strict) {
       throw new Error(`EPUBCheck warnings are not allowed in strict mode.`);
     }
