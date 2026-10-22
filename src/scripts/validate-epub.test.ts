@@ -10,11 +10,13 @@ const successSummary = "Messages: 0 fatals / 0 errors / 0 warnings / 0 infos\n";
 
 describe("validate EPUB", () => {
   beforeEach(() => {
-    vi.mocked(spawnSync).mockReturnValue({
-      status: 0,
-      stdout: successSummary,
-      stderr: "",
-    } as ReturnType<typeof spawnSync>);
+    vi.mocked(spawnSync)
+      .mockReset()
+      .mockReturnValue({
+        status: 0,
+        stdout: successSummary,
+        stderr: "",
+      } as ReturnType<typeof spawnSync>);
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.spyOn(console, "log").mockImplementation(() => {});
@@ -36,6 +38,45 @@ describe("validate EPUB", () => {
 
   it("accepts warning-free EPUBCheck output", () => {
     expect(() => run({ output: "output.epub", strict: true })).not.toThrow();
+    expect(spawnSync).toHaveBeenLastCalledWith(
+      "java",
+      expect.arrayContaining(["--locale", "en", "--failonwarnings"]),
+      expect.any(Object)
+    );
+  });
+
+  it("does not enable EPUBCheck warning failures in non-strict mode", () => {
+    run({ output: "output.epub" });
+    expect(vi.mocked(spawnSync).mock.calls[0]?.[1]).not.toContain("--failonwarnings");
+  });
+
+  it.each(["", "Messages: 0 fatale / 0 erreur / 1 avertissement / 0 info"])(
+    "fails closed in strict mode when the validator summary is unreadable: %s",
+    (stdout) => {
+      vi.mocked(spawnSync).mockReturnValueOnce({ status: 0, stdout, stderr: "" } as ReturnType<
+        typeof spawnSync
+      >);
+      expect(() => run({ output: "output.epub", strict: true })).toThrow(
+        "Could not read EPUBCheck message totals"
+      );
+    }
+  );
+
+  it("reports unreadable summaries without rejecting non-strict validation", () => {
+    vi.mocked(spawnSync).mockReturnValueOnce({ status: 0, stdout: "", stderr: "" } as ReturnType<
+      typeof spawnSync
+    >);
+    expect(() => run({ output: "output.epub" })).not.toThrow();
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("Could not read EPUBCheck"));
+  });
+
+  it("still rejects the native strict warning failure exit code", () => {
+    vi.mocked(spawnSync).mockReturnValueOnce({
+      status: 1,
+      stdout: "Messages: 0 fatals / 0 errors / 1 warning / 0 infos",
+      stderr: "",
+    } as ReturnType<typeof spawnSync>);
+    expect(() => run({ output: "output.epub", strict: true })).toThrow("EPUB validation failed");
   });
 
   it("reports warnings and rejects them in strict mode", () => {

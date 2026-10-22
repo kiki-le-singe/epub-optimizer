@@ -47,7 +47,11 @@ export function run(opts: RunOpts = {}): void {
   }
   console.log(`Validating EPUB: ${outputEpub}`);
 
-  const result = spawnSync("java", ["-jar", epubcheckPath, outputEpub], {
+  // The validator itself enforces strict warnings, independently of console
+  // message parsing or the JVM's language. English keeps diagnostics stable.
+  const args = ["-jar", epubcheckPath, outputEpub, "--locale", "en"];
+  if (opts.strict) args.push("--failonwarnings");
+  const result = spawnSync("java", args, {
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,
     timeout: timeoutMs,
@@ -68,6 +72,12 @@ export function run(opts: RunOpts = {}): void {
   }
 
   const messages = parseEpubCheckMessages(`${result.stdout ?? ""}\n${result.stderr ?? ""}`);
+  if (!messages) {
+    const message =
+      "Could not read EPUBCheck message totals; validation diagnostics are incomplete.";
+    if (opts.strict) throw new Error(message);
+    console.warn(message);
+  }
   if (messages && messages.warnings > 0) {
     console.warn(`EPUBCheck reported ${messages.warnings} warning(s).`);
     if (opts.strict) {
