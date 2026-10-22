@@ -72,6 +72,80 @@ describe("minifyHTML", () => {
     return { output, $: cheerio.load(output, { xmlMode: true }) };
   };
 
+  it("preserves child selectors and quoted CSS strings in XHTML stylesheets", async () => {
+    const { output, $ } = await minifyXhtml(
+      "<ul><li>été</li></ul>",
+      '<style>ul > li { font-family: "Georgia"; } li::before { content: "bonjour"; }</style>'
+    );
+    expect($("style").text()).toContain("ul>li{");
+    expect($("style").text()).toMatch(/font-family:(?:"Georgia"|Georgia)/);
+    expect($("style").text()).toContain('content:"bonjour"');
+    expect(output).not.toContain("&quot");
+  });
+
+  it.each([
+    ".a { color: red; .b { color: blue; } }",
+    "@layer base, theme; h1 { text-align: center; }",
+    "@layer base { p { margin: 0; } }\n@layer base, theme;",
+    "p { color: red; broken }",
+  ])("keeps unsupported inline CSS instead of dropping rules: %s", async (css) => {
+    const { $ } = await minifyXhtml('<p class="a">x</p>', `<style>${css}</style>`);
+    expect($("style").text()).toBe(css);
+  });
+
+  it("preserves escaped quotes and ampersands in style attributes", async () => {
+    const style = 'font-family: "Georgia"; --label: "a & b"; color: red;';
+    const { $ } = await minifyXhtml(
+      '<p style="font-family: &quot;Georgia&quot;; --label: &quot;a &amp; b&quot;; color: red;">x</p>'
+    );
+    expect($("p").attr("style")).toBe(style);
+  });
+
+  it("minifies plain style attributes without adding a stylesheet wrapper", async () => {
+    const { $ } = await minifyXhtml('<p style="color: red; margin: 0px 0px;">x</p>');
+    expect($("p").attr("style")).toBe("color:red;margin:0 0");
+  });
+
+  it("minifies media attributes without changing their query or stylesheet", async () => {
+    const { $ } = await minifyXhtml(
+      "<p>x</p>",
+      '<style media="screen and (max-width: 600px)">p { color: red; }</style>'
+    );
+    expect($("style").attr("media")).toBe("screen and (max-width:600px)");
+    expect($("style").text()).toBe("p{color:red}");
+  });
+
+  it("keeps XML references in style text instead of treating them as CSS", async () => {
+    const { output, $ } = await minifyXhtml(
+      "<p>x</p>",
+      "<style>p::before { content: &quot;a &amp; b&quot;; }</style>"
+    );
+    expect($("style").text()).toBe('p::before { content: "a & b"; }');
+    expect(output).toContain("content: &quot;a &amp; b&quot;;");
+  });
+
+  it("preserves CDATA-wrapped CSS byte for byte", async () => {
+    const css = '<![CDATA[p::before { content: "<tag>&"; } ul > li { color: red; }]]>';
+    const { output } = await minifyXhtml("<ul><li>x</li></ul>", `<style>${css}</style>`);
+    expect(output).toContain(`<style>${css}</style>`);
+  });
+
+  it.each(["Le café est déjà prêt — été.", "日本語の文章です。", "🙂 © é"])(
+    "preserves UTF-8 text without expanding it to numeric references: %s",
+    async (text) => {
+      const original = xhtml(`<p title="${text}">${text.repeat(20)}</p>`);
+      const file = path.join(tempDir, "unicode.xhtml");
+      await fs.writeFile(file, original);
+      await minifyHTML(file);
+      const output = await fs.readFile(file, "utf8");
+      const $ = cheerio.load(output, { xmlMode: true });
+      expect($("p").text()).toBe(text.repeat(20));
+      expect($("p").attr("title")).toBe(text);
+      expect(output).not.toMatch(/&#(?:x[\da-f]+|\d+);/i);
+      expect(Buffer.byteLength(output)).toBeLessThanOrEqual(Buffer.byteLength(original));
+    }
+  );
+
   it("preserves HTML named character references used by EPUB 2 documents", async () => {
     const { output, $ } = await minifyXhtml(
       `<p title="caf&eacute;">Le caf&eacute;&nbsp;&mdash; na&iuml;ve &laquo;&nbsp;x&nbsp;&raquo; 1 &lt; 2 &amp; 3</p>`

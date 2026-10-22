@@ -457,12 +457,16 @@ and preserves any previous output and the extracted files.
 HTML/XHTML text whitespace and SVG identifiers are preserved because external
 stylesheets and references can depend on them. Named character references such as
 `&nbsp;` or `&eacute;` (valid in EPUB 2) are rewritten as the equivalent numeric
-references, and CDATA text outside scripts is rewritten as escaped text: the
-displayed characters are unchanged. CDATA-wrapped or entity-escaped inline scripts
-are kept as written, CSS `@import` rules are kept instead of being inlined, and a
-stylesheet the CSS minifier cannot parse without loss (for example CSS nesting) is
-left untouched. Raster recompressions are committed
-only when smaller, unless they actually change the dimensions requested by the user.
+references, and CDATA text outside scripts and styles is rewritten as escaped text:
+the displayed characters are unchanged. XHTML minification keeps existing UTF-8
+text in UTF-8.
+CDATA-wrapped or entity-escaped inline scripts and styles are kept as written.
+CSS `@import` rules are kept instead of being inlined. External stylesheets,
+`<style>` blocks and `style` attributes retain their CSS when the minifier reports
+an error or warning, or offers no smaller result. XHTML styles also retain their
+original CSS if minification would introduce XML delimiters. Raster recompressions
+are committed only when smaller, unless they actually change the dimensions
+requested by the user.
 
 ### Doctor / Inspect Mode
 

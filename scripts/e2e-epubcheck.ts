@@ -128,6 +128,9 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
   <head>
     <title>Chapter 1</title>
     <link rel="stylesheet" type="text/css" href="../styles/book.css"/>
+    <style id="inline-selector">section > h1 { font-family: "Georgia"; text-align: center; }</style>
+    <style id="inline-modern">@layer base, theme; h1 { color: black; }</style>
+    <style id="inline-cdata"><![CDATA[p::before { content: "<css>&"; }]]></style>
   </head>
   <body>
     <section epub:type="chapter">
@@ -135,6 +138,7 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
       <p class="hero">Nested XHTML image references should migrate safely.</p>
       <p class="poem">First line
     Second line</p>
+      <p id="inline-attribute" style="font-family: &quot;Georgia&quot;; color: black;">Le café est déjà prêt — 日本語。</p>
       <p><a href="../images/diagram.svg#illustration">Illustration</a></p>
       <script><![CDATA[window.marker = "<br></br>";]]></script>
       <script type="text/javascript">//<![CDATA[
@@ -519,6 +523,21 @@ async function assertContentPreserved(contentDir: string): Promise<void> {
     throw new Error("Script minification must not introduce a CDATA terminator in XML text.");
   }
   const $ = cheerio.load(chapter, { xmlMode: true });
+  if (!$("#inline-selector").text().includes("section>h1{font-family:Georgia;")) {
+    throw new Error("Inline CSS child selectors and quoted font names must survive optimization.");
+  }
+  if ($("#inline-modern").text() !== "@layer base, theme; h1 { color: black; }") {
+    throw new Error("Unsupported inline CSS must be preserved instead of partially minified.");
+  }
+  if (!chapter.includes('<![CDATA[p::before { content: "<css>&"; }]]>')) {
+    throw new Error("CDATA-wrapped inline CSS must keep its wrapper and content.");
+  }
+  if ($("#inline-attribute").attr("style") !== 'font-family: "Georgia"; color: black;') {
+    throw new Error("Escaped quotes in style attributes must survive optimization.");
+  }
+  if (!chapter.includes("Le café est déjà prêt — 日本語。")) {
+    throw new Error("UTF-8 prose must not expand into numeric references during minification.");
+  }
   const pollScript = $("script")
     .map((_, element) => $(element).text())
     .get()
@@ -939,7 +958,9 @@ async function main(): Promise<void> {
 
     await assertConcurrentDefaultsAndTimeout(runDir, inputEpub);
 
-    const balanced = await runPnpmWorkflowCase(runDir, inputEpub, "balanced", "optimize", false);
+    const balanced = await runPnpmWorkflowCase(runDir, inputEpub, "balanced", "optimize", false, [
+      "--strict",
+    ]);
     if (balanced.report.preset !== "balanced") {
       throw new Error("Expected default E2E report to use the balanced preset.");
     }
