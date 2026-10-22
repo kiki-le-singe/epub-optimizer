@@ -1,5 +1,7 @@
 // @ts-expect-error Native Node TypeScript requires the source extension.
 import { saveDiagnostics } from "./ci-diagnostics.ts";
+// @ts-expect-error Native Node TypeScript requires the source extension.
+import { createAnimatedPng } from "./image-fixtures.ts";
 import { spawn, spawnSync } from "node:child_process";
 import { createReadStream } from "node:fs";
 import fs from "fs-extra";
@@ -80,6 +82,7 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
     <item id="encoded-photo" href="images/encoded%25dir/encoded%25photo.png" media-type="image/png"/>
     <item id="dupe-photo" href="images/dupes/photo.png" media-type="image/png"/>
     <item id="diagram" href="images/diagram.svg" media-type="image/svg+xml"/>
+    <item id="animation" href="images/animation.png" media-type="image/png"/>
   </manifest>
   <spine>
     <itemref idref="cover"/>
@@ -128,6 +131,9 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
   <head>
     <title>Chapter 1</title>
     <link rel="stylesheet" type="text/css" href="../styles/book.css"/>
+    <style id="inline-selector">section > h1 { font-family: "Georgia"; text-align: center; }</style>
+    <style id="inline-modern">@layer base, theme; h1 { color: black; }</style>
+    <style id="inline-cdata"><![CDATA[p::before { content: "<css>&"; }]]></style>
   </head>
   <body>
     <section epub:type="chapter">
@@ -135,6 +141,7 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
       <p class="hero">Nested XHTML image references should migrate safely.</p>
       <p class="poem">First line
     Second line</p>
+      <p id="inline-attribute" style="font-family: &quot;Georgia&quot;; color: black;">Le café est déjà prêt — 日本語。</p>
       <p><a href="../images/diagram.svg#illustration">Illustration</a></p>
       <script><![CDATA[window.marker = "<br></br>";]]></script>
       <script type="text/javascript">//<![CDATA[
@@ -148,6 +155,7 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
       <div style="background-image: url('../images/photo.png')">Inline style reference</div>
       <div style="background-image: url('../images/encoded%25dir/encoded%25photo.png')">Encoded inline style reference</div>
       <img src="../images/diagram.svg" alt="SVG wrapper"/>
+      <img src="../images/animation.png" alt="Animated illustration"/>
     </section>
   </body>
 </html>
@@ -185,6 +193,7 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
   await fs.writeFile(path.join(oebps, "images", "photo.png"), opaquePng);
   await fs.writeFile(path.join(oebps, "images", "dupes", "photo.png"), opaquePng);
   await fs.writeFile(path.join(oebps, "images", "encoded%dir", "encoded%photo.png"), opaquePng);
+  await fs.writeFile(path.join(oebps, "images", "animation.png"), createAnimatedPng());
 }
 
 async function createAuthorFixtureEpubStructure(root: string): Promise<void> {
@@ -212,6 +221,7 @@ async function createAuthorFixtureEpubStructure(root: string): Promise<void> {
     <item id="encoded-photo" href="images/encoded%25dir/encoded%25photo.png" media-type="image/png"/>
     <item id="dupe-photo" href="images/dupes/photo.png" media-type="image/png"/>
     <item id="diagram" href="images/diagram.svg" media-type="image/svg+xml"/>
+    <item id="animation" href="images/animation.png" media-type="image/png"/>
   </manifest>
   <spine toc="ncx">
     <itemref idref="cover" linear="no"/>
@@ -263,6 +273,7 @@ async function createAuthorFixtureEpubStructure(root: string): Promise<void> {
       <h1>Chapter 1</h1>
       <section id="section-one"><h2>Section One</h2><img id="attribute-regression" src="../images/photo.png" alt="a > b"/></section>
       <section id="section-two"><h2>Section Two</h2><img src="../images/diagram.svg" alt="Diagram"/></section>
+      <img src="../images/animation.png" alt="Animated illustration"/>
       <script><![CDATA[window.marker = "<br></br>";]]></script>
     </section>
   </body>
@@ -490,6 +501,14 @@ function assertPrerequisites(env: NodeJS.ProcessEnv): void {
 }
 
 async function assertMarkupPreserved(contentDir: string): Promise<void> {
+  const animation = await fs.readFile(path.join(contentDir, "images", "animation.png"));
+  if (!animation.equals(createAnimatedPng())) {
+    throw new Error("APNG frames, timing, loop and original bytes must survive optimization.");
+  }
+  const opf = await fs.readFile(path.join(contentDir, "content.opf"), "utf8");
+  if (!opf.includes('href="images/animation.png" media-type="image/png"')) {
+    throw new Error("The animated PNG manifest entry must be preserved.");
+  }
   const cover = await fs.readFile(path.join(contentDir, "cover.xhtml"), "utf8");
   if (!cover.includes("Readable text must survive.")) {
     throw new Error("Text directly inside body must survive optimization and repair.");
@@ -519,6 +538,21 @@ async function assertContentPreserved(contentDir: string): Promise<void> {
     throw new Error("Script minification must not introduce a CDATA terminator in XML text.");
   }
   const $ = cheerio.load(chapter, { xmlMode: true });
+  if (!$("#inline-selector").text().includes("section>h1{font-family:Georgia;")) {
+    throw new Error("Inline CSS child selectors and quoted font names must survive optimization.");
+  }
+  if ($("#inline-modern").text() !== "@layer base, theme; h1 { color: black; }") {
+    throw new Error("Unsupported inline CSS must be preserved instead of partially minified.");
+  }
+  if (!chapter.includes('<![CDATA[p::before { content: "<css>&"; }]]>')) {
+    throw new Error("CDATA-wrapped inline CSS must keep its wrapper and content.");
+  }
+  if ($("#inline-attribute").attr("style") !== 'font-family: "Georgia"; color: black;') {
+    throw new Error("Escaped quotes in style attributes must survive optimization.");
+  }
+  if (!chapter.includes("Le café est déjà prêt — 日本語。")) {
+    throw new Error("UTF-8 prose must not expand into numeric references during minification.");
+  }
   const pollScript = $("script")
     .map((_, element) => $(element).text())
     .get()
@@ -841,7 +875,9 @@ async function runPnpmWorkflowCase(
 }
 
 async function assertConcurrentDefaultsAndTimeout(runDir: string, input: string): Promise<void> {
-  const env = { ...withJavaFallback(process.env), EPUBCHECK_PATH: epubcheckPath };
+  // Exercise the default package-relative validator from an unrelated cwd.
+  // An explicit EPUBCHECK_PATH remains supported for custom installations.
+  const env = withJavaFallback(process.env);
   const run = (args: string[]): Promise<number | null> =>
     new Promise((resolve, reject) => {
       const child = spawn(process.execPath, [pipelinePath, ...args], {
@@ -853,7 +889,8 @@ async function assertConcurrentDefaultsAndTimeout(runDir: string, input: string)
       child.on("error", reject);
       child.on("close", resolve);
     });
-  const names = ["concurrent-a", "concurrent-b"];
+  // A benign filename must not become a processing warning in strict mode.
+  const names = ["concurrent-a", "warning"];
   const statuses = await Promise.all(
     names.map((name) =>
       run([
@@ -903,6 +940,133 @@ async function assertConcurrentDefaultsAndTimeout(runDir: string, input: string)
     throw new Error("Timeout left a candidate archive behind.");
 }
 
+async function assertLocalizedWarnings(runDir: string, fixtureDir: string): Promise<void> {
+  const root = path.join(runDir, "locale-fixture");
+  await fs.copy(fixtureDir, root);
+  const opf = path.join(root, "OEBPS", "content.opf");
+  await fs.writeFile(
+    opf,
+    (await fs.readFile(opf, "utf8")).replace(
+      "urn:uuid:123e4567-e89b-12d3-a456-426614174000",
+      "urn:uuid:not-a-valid-uuid"
+    )
+  );
+  const input = path.join(runDir, "locale-input.epub");
+  await createEpub(input, root);
+
+  for (const language of ["fr", "ja"]) {
+    for (const strict of [false, true]) {
+      const name = `locale-${language}-${strict ? "strict" : "normal"}`;
+      const output = path.join(runDir, `${name}.epub`);
+      const reportPath = path.join(runDir, `${name}.json`);
+      if (strict) await fs.writeFile(output, "previous-output");
+      const result = spawnSync(
+        process.execPath,
+        [
+          pipelinePath,
+          "-i",
+          input,
+          "-o",
+          output,
+          "--preset",
+          "lossless",
+          "--report-json",
+          reportPath,
+          ...(strict ? ["--strict"] : []),
+        ],
+        {
+          cwd: runDir,
+          env: {
+            ...withJavaFallback(process.env),
+            JAVA_TOOL_OPTIONS: `-Duser.language=${language}`,
+          },
+          encoding: "utf8",
+          timeout: 60_000,
+        }
+      );
+      const log = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+      await fs.writeFile(path.join(runDir, `${name}.log`), log);
+      if (result.error) throw result.error;
+      if (!/Messages:\s*0 fatals?\s*\/\s*0 errors?\s*\/\s*1 warnings?/.test(log)) {
+        throw new Error(
+          `Expected one English EPUBCheck warning with JVM language ${language}.\n${log}`
+        );
+      }
+      const report = await fs.readJson(reportPath);
+      const validation = report.steps.find(
+        (step: { name: string }) => step.name === "Validate candidate EPUB"
+      );
+      if (strict) {
+        if (
+          result.status === 0 ||
+          report.success ||
+          validation?.status !== "failed" ||
+          !validation?.messages?.includes("EPUBCheck reported 1 warning(s).")
+        ) {
+          throw new Error(`Strict mode accepted EPUBCheck warnings with JVM language ${language}.`);
+        }
+        if ((await fs.readFile(output, "utf8")) !== "previous-output") {
+          throw new Error("Strict warning failure overwrote the previous output.");
+        }
+        if ((await fs.readdir(runDir)).some((file) => file.startsWith(`.${name}.candidate-`))) {
+          throw new Error("Strict warning failure left a candidate archive behind.");
+        }
+      } else if (
+        result.status !== 0 ||
+        !report.success ||
+        validation?.status !== "success" ||
+        !validation?.messages?.includes("EPUBCheck reported 1 warning(s).")
+      ) {
+        throw new Error(`Non-strict mode did not report and accept the expected warning.\n${log}`);
+      }
+    }
+  }
+}
+
+async function assertAuthorWarningRejected(runDir: string, input: string): Promise<void> {
+  const configPath = path.join(runDir, "missing-cover.json");
+  await fs.writeJson(configPath, { coverSpineId: "missing-cover" });
+  const output = path.join(runDir, "author-incomplete.epub");
+  const reportPath = path.join(runDir, "author-incomplete.json");
+  await fs.writeFile(output, "previous-output");
+  const result = spawnSync(
+    process.execPath,
+    [
+      pipelinePath,
+      "-i",
+      input,
+      "-o",
+      output,
+      "--preset",
+      "author",
+      "--strict",
+      "--author-config",
+      configPath,
+      "--report-json",
+      reportPath,
+    ],
+    { cwd: runDir, env: withJavaFallback(process.env), encoding: "utf8", timeout: 60_000 }
+  );
+  const log = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  await fs.writeFile(path.join(runDir, "author-incomplete.log"), log);
+  if (result.error) throw result.error;
+  const report = await fs.readJson(reportPath);
+  const warning = "Warning: No cover reference found in spine section of OPF file";
+  if (
+    result.status === 0 ||
+    report.success ||
+    !report.steps.some(
+      (step: { messages: string[]; status: string }) =>
+        step.status === "failed" && step.messages.includes(warning)
+    )
+  ) {
+    throw new Error(`Strict author mode did not reject and record its cover warning.\n${log}`);
+  }
+  if ((await fs.readFile(output, "utf8")) !== "previous-output") {
+    throw new Error("Strict author warning failure overwrote the previous output.");
+  }
+}
+
 async function main(): Promise<void> {
   const env = withJavaFallback(process.env);
   assertPrerequisites(env);
@@ -938,8 +1102,12 @@ async function main(): Promise<void> {
     });
 
     await assertConcurrentDefaultsAndTimeout(runDir, inputEpub);
+    await assertLocalizedWarnings(runDir, fixtureDir);
+    await assertAuthorWarningRejected(runDir, authorInputEpub);
 
-    const balanced = await runPnpmWorkflowCase(runDir, inputEpub, "balanced", "optimize", false);
+    const balanced = await runPnpmWorkflowCase(runDir, inputEpub, "balanced", "optimize", false, [
+      "--strict",
+    ]);
     if (balanced.report.preset !== "balanced") {
       throw new Error("Expected default E2E report to use the balanced preset.");
     }

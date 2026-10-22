@@ -25,9 +25,10 @@ export async function addLazyLoadingToImages(epubDir: string): Promise<void> {
         let changed = false;
 
         // Use regex to add loading="lazy" to <img> tags without it
-        // This preserves the exact XML structure unlike Cheerio which can corrupt self-closing tags
+        // Match quoted values as a whole: `>` inside an attribute is not the
+        // tag boundary. Keep the original quoting and self-closing syntax.
         content = content.replace(
-          /<img\s+([^>]*?)(?:\s+loading="[^"]*")?(\s*\/?>)/gi,
+          /<img\s+((?:"[^"]*"|'[^']*'|[^'">])*?)(\s*\/?>)/gi,
           (match, attrs, closing) => {
             // Check if loading attribute already exists in the matched attributes
             if (/loading\s*=\s*["'][^"']*["']/i.test(match)) {

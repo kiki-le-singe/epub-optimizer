@@ -1,3 +1,6 @@
+import path from "node:path";
+import { findPackageRoot } from "./package-root.js";
+
 const config = {
   // Default file paths
   inputEPUB: "mybook.epub",
@@ -47,7 +50,9 @@ const config = {
   },
 
   // EPUBCheck path
-  epubcheckPath: process.env.EPUBCHECK_PATH ?? "epubcheck/epubcheck.jar",
+  epubcheckPath:
+    process.env.EPUBCHECK_PATH ??
+    path.join(findPackageRoot(import.meta.url), "epubcheck", "epubcheck.jar"),
   epubcheckTimeoutMs: 120_000,
 
   // UI Localization
