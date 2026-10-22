@@ -14,6 +14,37 @@ const RAW_TEXT_ELEMENTS: ReadonlySet<string> = new Set(["script", "style"]);
 const XML_MARKUP_RE = /[<&]|\]\]>/;
 
 /**
+ * CleanCSS reports unsupported syntax as warnings and may still return a
+ * partial stylesheet. Accept only a complete, smaller result. Inline
+ * declarations and media queries need a temporary rule for its CSS parser.
+ */
+function minifyCssText(text: string, type?: string, xhtml = false): string {
+  // Serialized XML references and CDATA are not raw CSS. Passing them through
+  // an HTML/CSS parser can truncate references or discard the CDATA wrapper.
+  if (xhtml && XML_MARKUP_RE.test(text)) return text;
+  const input =
+    type === "inline" ? `*{${text}}` : type === "media" ? `@media ${text}{a{top:0}}` : text;
+  const result = new CleanCSS({
+    // Retain the existing optimization levels for external and embedded CSS.
+    level: type === "external" ? 2 : 1,
+    inline: false,
+  }).minify(input);
+  if (result.errors.length > 0 || result.warnings.length > 0) return text;
+
+  let styles = result.styles;
+  if (type === "inline" || type === "media") {
+    const match = styles.match(
+      type === "inline" ? /^\*\{([\s\S]*)\}$/ : /^@media ([\s\S]*?)\s*\{[\s\S]*\}$/
+    );
+    if (match?.[1] === undefined) return text;
+    styles = match[1];
+  }
+  // A safe input can produce XML delimiters through CSS escape shortening.
+  if (xhtml && XML_MARKUP_RE.test(styles)) return text;
+  return Buffer.byteLength(styles) < Buffer.byteLength(text) ? styles : text;
+}
+
+/**
  * Minify a script body or event attribute of an XHTML document. There the code
  * is XML character data, so `<`, `&` and `]]>` are unsafe: CDATA-wrapped or
  * entity-escaped code is kept byte for byte, and a result that would need
@@ -98,23 +129,28 @@ async function minifyHTML(filePath: string): Promise<void> {
     // Pre-close HTML5-style void elements before the XML parser sees them.
     // Otherwise cheerio xmlMode treats `<link …>` as an opening tag and nests
     // subsequent siblings inside it, producing invalid XHTML.
-    // Named references are made numeric for the same reason: the XML parser
-    // only knows the five XML entities and would re-escape the others.
+    // Named references become numeric so output does not depend on an HTML
+    // entity DTD to resolve the intended characters.
     const normalized = isXHTML ? normalizeNamedEntities(normalizeVoidElements(content)) : content;
-    const $ = cheerio.load(normalized, { xmlMode: isXHTML });
+    // Preserve the spelling of references and UTF-8 characters. Decoding and
+    // serializing them again encodes style bodies as XML entities, which the
+    // subsequent HTML/CSS minifier interprets as CSS syntax instead of text.
+    const $ = cheerio.load(normalized, isXHTML ? { xml: { decodeEntities: false } } : {});
     if (isXHTML) escapeCdataSections($);
     // Use .xml() for XHTML to preserve XML structure (self-closing tags, etc.)
     const domContent = isXHTML ? $.xml() : $.html();
-    const minified = await minify(
-      domContent,
-      isXHTML
+    const minified = await minify(domContent, {
+      ...config.htmlOptions,
+      // html-minifier-terser requires a promise here despite its sync types.
+      minifyCSS: (async (text: string, type?: string) =>
+        minifyCssText(text, type, isXHTML)) as unknown as (text: string, type?: string) => string,
+      ...(isXHTML
         ? {
-            ...config.htmlOptions,
             // html-minifier-terser awaits minifyJS; its types only declare the sync form.
             minifyJS: minifyXhtmlJS as unknown as (text: string, inline?: boolean) => string,
           }
-        : config.htmlOptions
-    );
+        : {}),
+    });
     await fs.writeFile(filePath, minified);
   } catch (error) {
     throw new Error(
@@ -137,16 +173,14 @@ async function minifyCSS(filePath: string): Promise<void> {
     // Keep @import rules as written: by default CleanCSS inlines them from the
     // current working directory, not from the stylesheet's own directory, and
     // drops the rule when the file is not found there.
-    const cssResult = new CleanCSS({ level: 2, inline: false }).minify(content);
-    // A warning means the minifier ignored something it could not parse (CSS
-    // nesting, @layer statements, …), so its output would lose those rules.
-    if (cssResult.errors.length > 0 || cssResult.warnings.length > 0) {
+    const minified = minifyCssText(content, "external");
+    if (minified === content) {
       console.log(
-        `Keeping original ${path.basename(filePath)}: the CSS minifier could not parse it safely`
+        `Keeping original ${path.basename(filePath)}: CSS minification offered no safe reduction`
       );
       return;
     }
-    await fs.writeFile(filePath, cssResult.styles);
+    await fs.writeFile(filePath, minified);
   } catch (error) {
     throw new Error(
       `Failed to minify CSS file ${path.basename(filePath)}: ${
