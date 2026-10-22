@@ -4,6 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import sharp from "sharp";
 import { convertPngToJpeg } from "./image-converter.js";
+import { createAnimatedPng } from "../../scripts/image-fixtures.js";
 
 const tempDir = path.join(os.tmpdir(), "epub-optimizer-image-converter-test");
 
@@ -138,6 +139,27 @@ describe("PNG to JPEG converter", () => {
   afterEach(async () => {
     await fs.remove(tempDir);
     vi.restoreAllMocks();
+  });
+
+  it("preserves opaque APNG bytes and references instead of converting the first frame", async () => {
+    const epubDir = path.join(tempDir, "animation");
+    await createEpubTree(epubDir);
+    const contentDir = path.join(epubDir, "OPS");
+    const file = path.join(contentDir, "images", "cat.png");
+    const original = createAnimatedPng();
+    expect(original.length).toBeGreaterThan(200 * 1024);
+    expect((await sharp(original).metadata()).hasAlpha).toBe(false);
+    await fs.writeFile(file, original);
+    const opf = await fs.readFile(path.join(contentDir, "content.opf"), "utf8");
+    const chapterPath = path.join(contentDir, "chapters", "chapter-1.xhtml");
+    const chapter = await fs.readFile(chapterPath, "utf8");
+
+    expect((await convertPngToJpeg(epubDir, 70, 1, 100)).size).toBe(0);
+
+    expect((await fs.readFile(file)).equals(original)).toBe(true);
+    expect(await fs.pathExists(file.replace(/\.png$/, ".jpg"))).toBe(false);
+    expect(await fs.readFile(path.join(contentDir, "content.opf"), "utf8")).toBe(opf);
+    expect(await fs.readFile(chapterPath, "utf8")).toBe(chapter);
   });
 
   it("commits only exact resolved PNG references across nested XHTML, CSS, srcset, and SVG", async () => {

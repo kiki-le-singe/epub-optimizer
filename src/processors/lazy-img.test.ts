@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs-extra";
 import path from "node:path";
 import os from "node:os";
+import * as cheerio from "cheerio";
 import { addLazyLoadingToImages } from "./lazy-img.js";
 
 const tempDir = path.join(os.tmpdir(), "epub-optimizer-test-lazy-img");
@@ -53,6 +54,24 @@ describe("addLazyLoadingToImages", () => {
     // Should only be one loading="lazy"
     expect(result.match(/loading="lazy"/g)?.length).toBe(1);
   });
+
+  it.each(['alt="a > b"', "alt='a > b'"])(
+    "preserves quoted greater-than signs while adding lazy loading: %s",
+    async (attribute) => {
+      const opsDir = await createEpubStructure("OPS");
+      const file = path.join(opsDir, "quoted.xhtml");
+      await fs.writeFile(
+        file,
+        `<html xmlns="http://www.w3.org/1999/xhtml"><body><img src="foo.jpg" ${attribute}/><p>after</p></body></html>`
+      );
+      await addLazyLoadingToImages(tempDir);
+      const $ = cheerio.load(await fs.readFile(file, "utf8"), { xmlMode: true });
+      expect($("img").attr("alt")).toBe("a > b");
+      expect($("img").attr("loading")).toBe("lazy");
+      expect($("p").text()).toBe("after");
+      expect($("img").children()).toHaveLength(0);
+    }
+  );
 
   it("skips files with no <img> tags", async () => {
     // Create OPS structure for this test

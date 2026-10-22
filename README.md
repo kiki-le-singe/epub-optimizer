@@ -197,7 +197,7 @@ Version 3 makes the default command safer and less specific to this project's or
 - Archive extraction limits, zip-slip and symlink rejection, and safe OPF/manifest/navigation path resolution
 - **Graceful handling of special EPUBs**: detects `META-INF/encryption.xml` and refuses DRM-encrypted books instead of silently corrupting them, while still optimizing books whose only encrypted resources are fonts (the fonts are left byte-for-byte intact)
 - **Fixed-layout aware**: automatically disables image downscaling for pre-paginated (`rendition:layout`) EPUBs so page images stay aligned with the declared viewport
-- **Animation-safe image processing**: preserves every frame of animated GIF/WebP/AVIF and caps image-processing memory to avoid blow-ups on image-heavy books
+- **Animation-safe image processing**: keeps animated PNG (APNG) files byte-for-byte unchanged, including when resizing is requested; preserves animated GIF/WebP/AVIF frames and timing during processing. Recompression that would grow an image is discarded unless its dimensions actually shrink. Image concurrency bounds parallel processing on image-heavy books.
 - Modular fix scripts for EPUB and OPF structure
 - Command-line interface with customizable options
 - File size comparison reporting
@@ -240,6 +240,19 @@ This tool requires EPUBCheck to validate EPUB files. Follow these steps:
 4. Make sure the folder is named `epubcheck` to match the path in `epubcheckPath` in src/utils/config.ts
 
 Or simply run `bash scripts/install-epubcheck.sh` from the project root — it downloads and installs the pinned EPUBCheck version into `epubcheck/` for you.
+
+The default JAR is resolved from the installed package's `epubcheck/` directory,
+so the CLI can run from another working directory. Set `EPUBCHECK_PATH` to use a
+different installation, for example:
+
+```bash
+EPUBCHECK_PATH=/opt/epubcheck/epubcheck.jar epub-optimizer -i book.epub -o book-opt.epub
+```
+
+An explicit relative `EPUBCHECK_PATH` is resolved from the current working
+directory. EPUBCheck messages use English regardless of the JVM's language.
+`--strict` enables EPUBCheck's native rejection of warnings and also rejects a
+missing or unreadable validation summary.
 
 CI and Docker pin EPUBCheck 5.4.0 and its sha256 checksum centrally in `scripts/install-epubcheck.sh` (single source of truth); the download is verified against the checksum before installation.
 
@@ -457,12 +470,16 @@ and preserves any previous output and the extracted files.
 HTML/XHTML text whitespace and SVG identifiers are preserved because external
 stylesheets and references can depend on them. Named character references such as
 `&nbsp;` or `&eacute;` (valid in EPUB 2) are rewritten as the equivalent numeric
-references, and CDATA text outside scripts is rewritten as escaped text: the
-displayed characters are unchanged. CDATA-wrapped or entity-escaped inline scripts
-are kept as written, CSS `@import` rules are kept instead of being inlined, and a
-stylesheet the CSS minifier cannot parse without loss (for example CSS nesting) is
-left untouched. Raster recompressions are committed
-only when smaller, unless they actually change the dimensions requested by the user.
+references, and CDATA text outside scripts and styles is rewritten as escaped text:
+the displayed characters are unchanged. XHTML minification keeps existing UTF-8
+text in UTF-8.
+CDATA-wrapped or entity-escaped inline scripts and styles are kept as written.
+CSS `@import` rules are kept instead of being inlined. External stylesheets,
+`<style>` blocks and `style` attributes retain their CSS when the minifier reports
+an error or warning, or offers no smaller result. XHTML styles also retain their
+original CSS if minification would introduce XML delimiters. Raster recompressions
+are committed only when smaller, unless they actually change the dimensions
+requested by the user.
 
 ### Doctor / Inspect Mode
 
