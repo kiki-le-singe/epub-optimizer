@@ -197,7 +197,7 @@ Version 3 makes the default command safer and less specific to this project's or
 - Archive extraction limits, zip-slip and symlink rejection, and safe OPF/manifest/navigation path resolution
 - **Graceful handling of special EPUBs**: detects `META-INF/encryption.xml` and refuses DRM-encrypted books instead of silently corrupting them, while still optimizing books whose only encrypted resources are fonts (the fonts are left byte-for-byte intact)
 - **Fixed-layout aware**: automatically disables image downscaling for pre-paginated (`rendition:layout`) EPUBs so page images stay aligned with the declared viewport
-- **Animation-safe image processing**: preserves every frame of animated GIF/WebP/AVIF and caps image-processing memory to avoid blow-ups on image-heavy books
+- **Animation-safe image processing**: keeps animated PNG (APNG) files byte-for-byte unchanged, including when resizing is requested; preserves animated GIF/WebP/AVIF frames and timing during processing. Recompression that would grow an image is discarded unless its dimensions actually shrink. Image concurrency bounds parallel processing on image-heavy books.
 - Modular fix scripts for EPUB and OPF structure
 - Command-line interface with customizable options
 - File size comparison reporting

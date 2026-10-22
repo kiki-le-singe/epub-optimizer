@@ -5,6 +5,7 @@ import pLimit from "p-limit";
 import config from "../utils/config.js";
 import { randomUUID } from "node:crypto";
 import { DEFAULT_FILE_CONCURRENCY } from "../utils/files.js";
+import { isAnimatedPng } from "../utils/png-animation.js";
 
 // Bound libvips so parallel encodes don't oversubscribe CPU threads or retain
 // decoded-image memory. File-level parallelism is handled by p-limit below, so
@@ -88,6 +89,13 @@ async function compressImage(imagePath: string, opts: ImageOpts = {}): Promise<v
       return;
     }
 
+    // Sharp's PNG decoder exposes only the default image of an APNG. Keep its
+    // original bytes, including animation control, timing and disposal modes.
+    if (extension === ".png" && (await isAnimatedPng(imagePath))) {
+      console.log(`Keeping animated PNG unchanged: ${filename}`);
+      return;
+    }
+
     // Preserve every frame of multi-frame formats instead of collapsing to the
     // first one. `animated` is a harmless no-op for single-frame images.
     const isMultiFrame = extension === ".gif" || extension === ".webp" || extension === ".avif";
@@ -160,9 +168,15 @@ async function compressImage(imagePath: string, opts: ImageOpts = {}): Promise<v
     const newSize = outputInfo.size;
     let wasResized = false;
     if (opts.maxDim && extension !== ".gif") {
-      const metadata = await sharp(imagePath).metadata();
-      const dimensions = isJpeg ? metadata.autoOrient : metadata;
-      wasResized = dimensions.width !== outputInfo.width || dimensions.height !== outputInfo.height;
+      const metadata = await sharp(
+        imagePath,
+        isMultiFrame ? { animated: true } : undefined
+      ).metadata();
+      const dimensions = isJpeg
+        ? metadata.autoOrient
+        : { width: metadata.width, height: metadata.pageHeight ?? metadata.height };
+      const outputHeight = outputInfo.pageHeight ?? outputInfo.height;
+      wasResized = dimensions.width > outputInfo.width || dimensions.height > outputHeight;
     }
     if (newSize >= originalSize && !wasResized) {
       console.log(`Keeping original ${filename}: recompression would not reduce size`);

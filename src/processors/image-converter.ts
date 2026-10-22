@@ -5,6 +5,7 @@ import * as cheerio from "cheerio";
 import pLimit from "p-limit";
 import { getOPFPath, getContentPath } from "../utils/epub-utils.js";
 import { DEFAULT_FILE_CONCURRENCY } from "../utils/files.js";
+import { isAnimatedPng } from "../utils/png-animation.js";
 
 interface Conversion {
   pngFile: string;
@@ -46,6 +47,11 @@ async function maybeConvertOne(
     const originalSize = (await fs.stat(pngFile)).size;
     if (originalSize < 200 * 1024) {
       console.log(`Skipping small PNG: ${path.basename(pngFile)} (${formatBytes(originalSize)})`);
+      return null;
+    }
+
+    if (await isAnimatedPng(pngFile)) {
+      console.log(`Keeping animated PNG unchanged: ${path.basename(pngFile)}`);
       return null;
     }
 
