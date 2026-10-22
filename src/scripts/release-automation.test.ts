@@ -85,10 +85,10 @@ if(cmd === 'git') {
   else if(endpoint.includes('/pulls?')) write(s.existingPR ? [{html_url:'https://example.test/pr/8',number:8}] : []);
   else if(endpoint.endsWith('/pulls/8/merge')) write({merged:true,sha:s.sha});
   else if(endpoint.endsWith('/pulls/8')) write({number:8,state:'open',merged:false,draft:false,mergeable:true,head:{sha:s.sha,ref:s.preparing?'codex/release-3.8.0':'codex/sync-main-develop',repo:{full_name:'example/epub'}},base:{sha:s.preparing?s.sha:'e'.repeat(40),ref:s.preparing?'main':'develop',repo:{full_name:'example/epub'}}});
-  else if(endpoint.includes('/actions/workflows/ci.yml/runs?')) write({workflow_runs:[{id:9,event:'pull_request',head_sha:s.sha,status:'completed',conclusion:s.ciFailed?'failure':'success',pull_requests:[{number:8,head:{sha:s.sha},base:{sha:s.preparing?s.sha:'e'.repeat(40)}}]}]});
+  else if(endpoint.includes('/actions/workflows/ci.yml/runs?')) write({workflow_runs:[{id:9,event:endpoint.includes('event=push')?'push':'pull_request',head_branch:'develop',head_sha:s.sha,status:'completed',conclusion:s.ciFailed?'failure':'success',pull_requests:[{number:8,head:{sha:s.sha},base:{sha:s.preparing?s.sha:'e'.repeat(40)}}]}]});
   else if(endpoint.includes('/actions/runs/9/jobs?')) write({total_count:1,jobs:[{name:'Required CI',status:'completed',conclusion:'success'}]});
   else if(endpoint.endsWith('/branches/main')) write({commit:{sha:s.sha}});
-  else if(endpoint.endsWith('/branches/develop')) write({commit:{sha:s.sync?'e'.repeat(40):s.sha}});
+  else if(endpoint.endsWith('/branches/develop')) write({commit:{sha:s.developMoved?'f'.repeat(40):s.sync?'e'.repeat(40):s.sha}});
   else if(endpoint.endsWith('/pulls')) write({html_url:'https://example.test/pr/8',number:8});
   else throw new Error('Unexpected API request: '+endpoint);
  }
@@ -99,7 +99,7 @@ if(cmd === 'git') {
 `;
   for (const cmd of ["git", "gh", "docker"])
     fs.writeFileSync(path.join(bin, cmd), stub, { mode: 0o755 });
-  return (command: string) => {
+  return (command: string, ...args: string[]) => {
     const log = path.join(dir, "calls.jsonl");
     fs.writeFileSync(log, "");
     const result = spawnSync(
@@ -108,6 +108,7 @@ if(cmd === 'git') {
         "--experimental-strip-types",
         path.resolve(state.preparing ? "scripts/prepare-release.ts" : "scripts/release.ts"),
         command,
+        ...args,
       ],
       {
         cwd: dir,
@@ -121,6 +122,7 @@ if(cmd === 'git') {
           GITHUB_STEP_SUMMARY: path.join(dir, "summary"),
           RELEASE_TAG: "v" + state.version,
           EXPECTED_RELEASE_SHA: String(state.expectedSha ?? ""),
+          EXPECTED_RELEASE_ID: String(state.expectedReleaseId ?? ""),
           PRERELEASE: String(state.version.includes("-")),
           RELEASE_TEST_STATE: path.join(dir, "state.json"),
           RELEASE_TEST_LOG: log,
@@ -197,6 +199,12 @@ describe("release safety", { timeout: 20_000 }, () => {
     expect(result.status).toBe(1);
     expect(result.calls).not.toContain('"docker"');
   });
+  it("rejects a published event for a different release ID before any image operation", () => {
+    const result = fixture({ draft: false, expectedReleaseId: 2 })("finalize");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("ID 1, expected 2");
+    expect(result.calls).not.toContain('"docker"');
+  });
   it("promotes a stable published release without rebuilding", () => {
     const result = fixture({ draft: false })("finalize");
     expect(result.status, result.stderr).toBe(0);
@@ -261,7 +269,28 @@ describe("release safety", { timeout: 20_000 }, () => {
   it("stops preparation on failed develop CI before pushing a branch", () => {
     const result = fixture({ preparing: true, tag: null, ciFailed: true })("3.8.0");
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("develop must have successful CI");
+    expect(result.stderr).toContain(`develop CI failed at ${sha}`);
+    expect(result.stderr).toContain("run 9, status=completed, conclusion=failure");
+    expect(result.calls).not.toContain('"push"');
+  });
+  it("stops if develop changed while its pinned CI was being checked", () => {
+    const result = fixture({ preparing: true, tag: null, developMoved: true })("3.8.0");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("develop changed while waiting for CI");
+    expect(result.calls).not.toContain('"push"');
+    expect(result.calls).not.toContain('"POST"');
+  });
+  it("checks develop CI in a dry run without pushing or creating a PR", () => {
+    const result = fixture({ preparing: true, tag: null })("3.8.0", "--dry-run");
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.calls).toContain(`event=push&branch=develop&head_sha=${sha}`);
+    expect(result.calls).not.toContain('"push"');
+    expect(result.calls).not.toContain('"POST"');
+  });
+  it("refuses a dry run when develop CI failed", () => {
+    const result = fixture({ preparing: true, tag: null, ciFailed: true })("3.8.0", "--dry-run");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("develop CI failed");
     expect(result.calls).not.toContain('"push"');
   });
   it("rejects a mismatched origin before any release or registry operation", () => {
