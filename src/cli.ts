@@ -4,24 +4,14 @@ import config from "./utils/config.js";
 import type { Args } from "./types.js";
 import fs from "fs-extra";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { DEFAULT_FILE_CONCURRENCY } from "./utils/files.js";
 import { applyPipelineOptions } from "./utils/pipeline-options.js";
+import { findPackageRoot } from "./utils/package-root.js";
 
-// Walk up from this file to find package.json — robust whether running from
-// src/ (vitest) or dist/src/ (compiled).
-function findPackageJson(): string {
-  let dir = path.dirname(fileURLToPath(import.meta.url));
-  const root = path.parse(dir).root;
-  while (dir !== root) {
-    const candidate = path.join(dir, "package.json");
-    if (fs.existsSync(candidate)) return candidate;
-    dir = path.dirname(dir);
-  }
-  throw new Error("package.json not found");
-}
-const packageJson = JSON.parse(fs.readFileSync(findPackageJson(), "utf8"));
+const packageJson = JSON.parse(
+  fs.readFileSync(path.join(findPackageRoot(import.meta.url), "package.json"), "utf8")
+);
 
 /**
  * Parse command line arguments

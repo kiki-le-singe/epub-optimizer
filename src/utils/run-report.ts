@@ -73,11 +73,11 @@ export async function runReportedStep<T>(
   const originalWarn = console.warn;
   const originalError = console.error;
 
+  // Keep legacy explicit warning/error labels, but do not infer severity
+  // from words inside informational paths such as /books/warning.epub.
   console.log = (...args: unknown[]) => {
     const message = args.map(String).join(" ");
-    if (/\bwarning\b|\bfailed\b|⚠/i.test(message)) {
-      messages.push(message);
-    }
+    if (/^\s*(?:warning\b|failed\b|⚠)/i.test(message)) messages.push(message);
     originalLog(...args);
   };
   console.warn = (...args: unknown[]) => {

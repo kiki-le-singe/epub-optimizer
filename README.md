@@ -241,6 +241,19 @@ This tool requires EPUBCheck to validate EPUB files. Follow these steps:
 
 Or simply run `bash scripts/install-epubcheck.sh` from the project root — it downloads and installs the pinned EPUBCheck version into `epubcheck/` for you.
 
+The default JAR is resolved from the installed package's `epubcheck/` directory,
+so the CLI can run from another working directory. Set `EPUBCHECK_PATH` to use a
+different installation, for example:
+
+```bash
+EPUBCHECK_PATH=/opt/epubcheck/epubcheck.jar epub-optimizer -i book.epub -o book-opt.epub
+```
+
+An explicit relative `EPUBCHECK_PATH` is resolved from the current working
+directory. EPUBCheck messages use English regardless of the JVM's language.
+`--strict` enables EPUBCheck's native rejection of warnings and also rejects a
+missing or unreadable validation summary.
+
 CI and Docker pin EPUBCheck 5.4.0 and its sha256 checksum centrally in `scripts/install-epubcheck.sh` (single source of truth); the download is verified against the checksum before installation.
 
 ## Docker Alternative
