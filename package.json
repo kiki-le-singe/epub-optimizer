@@ -1,6 +1,6 @@
 {
   "name": "epub-optimizer",
-  "version": "3.7.4",
+  "version": "3.7.5",
   "description": "Optimize EPUB files by compressing HTML, CSS, images and recompressing the archive",
   "main": "dist/src/index.js",
   "type": "module",
@@ -60,7 +60,7 @@
   "pnpm": {
     "overrides": {
       "brace-expansion@5.0.5": "5.0.6",
-      "cheerio>undici": "^7.29.0",
+      "cheerio>undici": "^7.30.1",
       "vite": "^8.3.4"
     }
   },

@@ -207,7 +207,8 @@ export function normalizeNamedEntities(content: string): string {
 export function isXHTMLContent(content: string): boolean {
   const head = content.slice(0, 2048);
   if (/^\s*<\?xml\b/i.test(head)) return true;
-  if (head.includes('xmlns="http://www.w3.org/1999/xhtml"')) return true;
-  if (/<!DOCTYPE\s+html\s+PUBLIC\s+"[^"]*XHTML/i.test(head)) return true;
+  if (/\bxmlns(?::[\w.-]+)?\s*=\s*(["'])http:\/\/www\.w3\.org\/1999\/xhtml\1/.test(head))
+    return true;
+  if (/<!DOCTYPE\s+html\s+PUBLIC\s+["'][^"']*XHTML/i.test(head)) return true;
   return false;
 }
