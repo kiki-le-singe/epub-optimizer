@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "fs-extra";
 import path from "node:path";
 import os from "node:os";
 import { Script, runInNewContext } from "node:vm";
 import * as cheerio from "cheerio";
-import { minifyHTML } from "./html-processor.js";
+import { minifyHTML, processHTML } from "./html-processor.js";
 
 const sampleHTML = `<!DOCTYPE html>
 <html>
@@ -30,6 +30,7 @@ describe("minifyHTML", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await fs.remove(tempDir);
   });
 
@@ -71,6 +72,62 @@ describe("minifyHTML", () => {
     const output = await fs.readFile(file, "utf8");
     return { output, $: cheerio.load(output, { xmlMode: true }) };
   };
+
+  it.each([
+    '<p>A<meta itemprop="name" content="B"/>C</p>',
+    "<table><col/><tr><td>A</td></tr></table>",
+  ])("keeps the original XHTML when HTML rules change its element tree: %s", async (body) => {
+    const original = xhtml(body, "<!-- This comment must also remain on fallback. -->");
+    const file = path.join(tempDir, "structure.xhtml");
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    await fs.writeFile(file, original);
+    await minifyHTML(file);
+    expect(await fs.readFile(file, "utf8")).toBe(original);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("changed document structure"));
+  });
+
+  it("still minifies ordinary XHTML with a stable tree", async () => {
+    const { output, $ } = await minifyXhtml(
+      '<p id="paragraph">A <em>B</em> C</p><!-- remove me -->',
+      "<style>p { color: red; }</style>"
+    );
+    expect(output).not.toContain("remove me");
+    expect($("style").text()).toBe("p{color:red}");
+    expect($("p").html()).toBe("A <em>B</em> C");
+  });
+
+  it("recognizes uppercase XHTML extensions without relying on early namespace markers", async () => {
+    const file = path.join(tempDir, "page.XHTML");
+    const original = `<!--${" ".repeat(2100)}--><html xmlns='http://www.w3.org/1999/xhtml'><head><title>t</title></head><body><span/>after</body></html>`;
+    await fs.writeFile(file, original);
+    await minifyHTML(file);
+    const output = await fs.readFile(file, "utf8");
+    const $ = cheerio.load(output, { xmlMode: true });
+    expect($("span").text()).toBe("");
+    expect($("body").text()).toBe("after");
+  });
+
+  it("discovers XHTML with atypical filenames from the OPF media type", async () => {
+    await fs.ensureDir(path.join(tempDir, "META-INF"));
+    await fs.ensureDir(path.join(tempDir, "OPS", "Text"));
+    await fs.writeFile(
+      path.join(tempDir, "META-INF", "container.xml"),
+      '<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>'
+    );
+    await fs.writeFile(
+      path.join(tempDir, "OPS", "book.opf"),
+      '<package><manifest><item id="page" href="Text/page.content" media-type="application/xhtml+xml"/></manifest></package>'
+    );
+    const file = path.join(tempDir, "OPS", "Text", "page.content");
+    const original = `<!--${" ".repeat(2100)}--><html xmlns='http://www.w3.org/1999/xhtml'><head><title>t</title></head><body><span/>after<!-- remove me --></body></html>`;
+    await fs.writeFile(file, original);
+    await processHTML(tempDir);
+    const output = await fs.readFile(file, "utf8");
+    const $ = cheerio.load(output, { xmlMode: true });
+    expect(output).not.toContain("remove me");
+    expect($("span").text()).toBe("");
+    expect($("body").text()).toBe("after");
+  });
 
   it("preserves child selectors and quoted CSS strings in XHTML stylesheets", async () => {
     const { output, $ } = await minifyXhtml(

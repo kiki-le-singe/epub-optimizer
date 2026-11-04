@@ -13,6 +13,8 @@ import { fileURLToPath } from "node:url";
 import { assertVersion, compareVersions, parseRemoteTag } from "./release-helpers.ts";
 // @ts-expect-error Native Node TypeScript requires the source extension.
 import { api, mergeCheckedPullRequest, prepareBranch, repository, run } from "./release-pr.ts";
+// @ts-expect-error Native Node TypeScript requires the source extension.
+import { waitForDevelopCI } from "./release-state.ts";
 
 interface Options {
   version: string;
@@ -100,6 +102,10 @@ async function main(): Promise<void> {
       version: string;
     }
   ).version;
+  await waitForDevelopCI(repo, developSha);
+  const current = api<{ commit: { sha: string } }>(repo, "GET", "branches/develop");
+  if (current.commit.sha !== developSha)
+    throw new Error("develop changed while waiting for CI; retry preparation.");
   if (mainVersion === version) {
     if (
       spawnSync("git", ["-C", repoRoot, "merge-base", "--is-ancestor", developSha, mainSha])
@@ -124,13 +130,6 @@ async function main(): Promise<void> {
     console.log("open a PR to main, wait for Required CI, then merge through GitHub rules.");
     return;
   }
-  const ci = api<{ workflow_runs: Array<{ conclusion: string | null }> }>(
-    repo,
-    "GET",
-    `actions/workflows/ci.yml/runs?branch=develop&head_sha=${developSha}&per_page=1`
-  ).workflow_runs[0];
-  if (ci?.conclusion !== "success")
-    throw new Error("develop must have successful CI before preparation.");
   const headSha = prepareBranch({
     cwd: repoRoot,
     branch,

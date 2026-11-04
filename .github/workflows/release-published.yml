@@ -64,4 +64,5 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          EXPECTED_RELEASE_ID: ${{ github.event.release.id || '' }}
         run: node --experimental-strip-types scripts/release.ts finalize

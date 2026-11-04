@@ -7,9 +7,15 @@ import { minify as terserMinify } from "terser";
 import config from "../utils/config.js";
 import { isXHTMLContent, normalizeNamedEntities, normalizeVoidElements } from "../utils/xhtml.js";
 import { collectFiles, forEachFileLimited, hasExtension } from "../utils/files.js";
+import { collectManifestResources } from "../utils/epub-utils.js";
+import { xhtmlStructure } from "../utils/xhtml-structure.js";
 
 const HTML_EXTENSIONS = new Set([".xhtml", ".html"]);
 const CSS_EXTENSIONS = new Set([".css"]);
+const XHTML_QUERY = {
+  mediaTypes: new Set(["application/xhtml+xml"]),
+  extensions: new Set([".xhtml"]),
+};
 const RAW_TEXT_ELEMENTS: ReadonlySet<string> = new Set(["script", "style"]);
 const XML_MARKUP_RE = /[<&]|\]\]>/;
 
@@ -91,17 +97,22 @@ function escapeCdataSections($: cheerio.CheerioAPI): void {
  */
 async function processHTML(dir: string): Promise<void> {
   try {
-    const files = await collectFiles(
-      dir,
-      (filePath) =>
-        hasExtension(filePath, HTML_EXTENSIONS) || hasExtension(filePath, CSS_EXTENSIONS)
-    );
+    const [archiveFiles, manifestFiles] = await Promise.all([
+      collectFiles(
+        dir,
+        (filePath) =>
+          hasExtension(filePath, HTML_EXTENSIONS) || hasExtension(filePath, CSS_EXTENSIONS)
+      ),
+      collectManifestResources(dir, XHTML_QUERY),
+    ]);
+    const xhtmlFiles = new Set(manifestFiles.map((file) => path.resolve(file)));
+    const files = [...new Set([...archiveFiles.map((file) => path.resolve(file)), ...xhtmlFiles])];
 
     await forEachFileLimited(files, async (filePath) => {
-      if (hasExtension(filePath, CSS_EXTENSIONS)) {
+      if (hasExtension(filePath, CSS_EXTENSIONS) && !xhtmlFiles.has(filePath)) {
         await minifyCSS(filePath);
       } else {
-        await minifyHTML(filePath);
+        await minifyHTML(filePath, { xhtml: xhtmlFiles.has(filePath) });
       }
     });
   } catch (error) {
@@ -119,13 +130,16 @@ async function processHTML(dir: string): Promise<void> {
  * @param filePath Path to HTML/XHTML file
  * @throws Error if minification fails
  */
-async function minifyHTML(filePath: string): Promise<void> {
+async function minifyHTML(filePath: string, options: { xhtml?: boolean } = {}): Promise<void> {
   try {
     const content = await fs.readFile(filePath, "utf8");
     // Detect XHTML by content first — the file extension may be `.html` even
     // for true XHTML (the EPUB spec doesn't mandate `.xhtml`). Extension is
     // kept as a fallback signal.
-    const isXHTML = isXHTMLContent(content) || filePath.endsWith(".xhtml");
+    const isXHTML =
+      options.xhtml === true ||
+      isXHTMLContent(content) ||
+      hasExtension(filePath, XHTML_QUERY.extensions);
     // Pre-close HTML5-style void elements before the XML parser sees them.
     // Otherwise cheerio xmlMode treats `<link …>` as an opening tag and nests
     // subsequent siblings inside it, producing invalid XHTML.
@@ -136,6 +150,7 @@ async function minifyHTML(filePath: string): Promise<void> {
     // serializing them again encodes style bodies as XML entities, which the
     // subsequent HTML/CSS minifier interprets as CSS syntax instead of text.
     const $ = cheerio.load(normalized, isXHTML ? { xml: { decodeEntities: false } } : {});
+    const originalStructure = isXHTML ? xhtmlStructure($) : undefined;
     if (isXHTML) escapeCdataSections($);
     // Use .xml() for XHTML to preserve XML structure (self-closing tags, etc.)
     const domContent = isXHTML ? $.xml() : $.html();
@@ -151,6 +166,16 @@ async function minifyHTML(filePath: string): Promise<void> {
           }
         : {}),
     });
+    if (
+      isXHTML &&
+      xhtmlStructure(cheerio.load(minified, { xml: { decodeEntities: false } })) !==
+        originalStructure
+    ) {
+      console.log(
+        `Keeping original ${path.basename(filePath)}: XHTML minification changed document structure.`
+      );
+      return;
+    }
     await fs.writeFile(filePath, minified);
   } catch (error) {
     throw new Error(

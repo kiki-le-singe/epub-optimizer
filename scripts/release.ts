@@ -9,6 +9,8 @@ const { assertDigest, assertVersion, parseRemoteTag, stableVersionAtLeast, valid
 import type { ImageRecord } from "./release-helpers.js";
 // @ts-expect-error Native Node TypeScript requires the source extension.
 import { mergeCheckedPullRequest, prepareBranch, repository } from "./release-pr.ts";
+// @ts-expect-error Native Node TypeScript requires the source extension.
+import { waitForPublishedRelease } from "./release-state.ts";
 
 interface Release {
   id: number;
@@ -174,9 +176,12 @@ async function main(): Promise<void> {
     const version = tag.replace(/^v/, "");
     assertVersion(version);
     if (tag !== `v${version}`) throw new Error("Expected a v-prefixed release tag.");
-    const release = releases().find((item) => item.tag_name === tag);
-    if (!release || release.draft)
-      throw new Error("Publish the GitHub release before promoting Docker tags.");
+    const expectedId = process.env.EXPECTED_RELEASE_ID;
+    const release = await waitForPublishedRelease(
+      tag,
+      releases,
+      expectedId ? Number(expectedId) : undefined
+    );
     assertVersion(version, release.prerelease);
     const sha = remoteTag(tag);
     if (!sha) throw new Error("Release tag is missing.");
