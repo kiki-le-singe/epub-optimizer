@@ -473,6 +473,12 @@ stylesheets and references can depend on them. Named character references such a
 references, and CDATA text outside scripts and styles is rewritten as escaped text:
 the displayed characters are unchanged. XHTML minification keeps existing UTF-8
 text in UTF-8.
+XHTML documents are identified by their OPF media type as well as their extension
+and XML markers. Before accepting minification, the optimizer compares element
+nesting and order, identifiers, namespaces, and the position of character data. If these
+change, it keeps the original document byte for byte and logs the skipped
+optimization. Intentional inline CSS and JavaScript minification is excluded from
+this comparison; final EPUBCheck validation still applies.
 CDATA-wrapped or entity-escaped inline scripts and styles are kept as written.
 CSS `@import` rules are kept instead of being inlined. External stylesheets,
 `<style>` blocks and `style` attributes retain their CSS when the minifier reports
