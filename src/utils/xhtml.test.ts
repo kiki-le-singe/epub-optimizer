@@ -119,6 +119,14 @@ describe("normalizeNamedEntities", () => {
 });
 
 describe("isXHTMLContent", () => {
+  it.each([
+    "<html xmlns='http://www.w3.org/1999/xhtml'/>",
+    "<html xmlns = 'http://www.w3.org/1999/xhtml'/>",
+    '<h:html xmlns:h="http://www.w3.org/1999/xhtml"/>',
+    "<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.1//EN' 'http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd'><html/>",
+  ])("recognizes equivalent namespace and DOCTYPE quoting: %s", (input) => {
+    expect(isXHTMLContent(input)).toBe(true);
+  });
   it("recognises content with an XML declaration", () => {
     expect(isXHTMLContent(`<?xml version="1.0" encoding="UTF-8"?>\n<html></html>`)).toBe(true);
   });

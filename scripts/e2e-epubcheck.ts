@@ -77,6 +77,8 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
     <item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>
     <item id="chapter-1" href="chapters/chapter-1.xhtml" media-type="application/xhtml+xml" properties="scripted"/>
+    <item id="structure" href="chapters/structure.xhtml" media-type="application/xhtml+xml"/>
+    <item id="typed" href="chapters/typed.content" media-type="application/xhtml+xml"/>
     <item id="styles" href="styles/book.css" media-type="text/css"/>
     <item id="photo" href="images/photo.png" media-type="image/png" properties="cover-image"/>
     <item id="encoded-photo" href="images/encoded%25dir/encoded%25photo.png" media-type="image/png"/>
@@ -88,6 +90,8 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
     <itemref idref="cover"/>
     <itemref idref="chapter-1"/>
     <itemref idref="diagram" linear="no"/>
+    <itemref idref="structure" linear="no"/>
+    <itemref idref="typed" linear="no"/>
   </spine>
 </package>
 `
@@ -181,6 +185,22 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
   );
 
   await fs.writeFile(
+    path.join(oebps, "chapters", "structure.xhtml"),
+    `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head><title>Preserved structure</title></head>
+  <body><p itemscope="itemscope" itemtype="https://schema.org/Thing">Before <meta itemprop="name" content="Example"/>after.</p></body>
+</html>
+`
+  );
+  await fs.writeFile(
+    path.join(oebps, "chapters", "typed.content"),
+    `<!--${" ".repeat(2100)}--><html xmlns='http://www.w3.org/1999/xhtml'>
+<head><title>Manifest-discovered XHTML</title><style>p { color: black; }</style></head>
+<body><p><span/>Text after an empty span.</p><!-- manifest-discovery-marker --></body></html>`
+  );
+
+  await fs.writeFile(
     path.join(oebps, "images", "diagram.svg"),
     `<svg id="illustration" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="400" height="300" viewBox="0 0 400 300">
   <image href="photo.png" xlink:href="photo.png" width="400" height="300"/>
@@ -216,6 +236,8 @@ async function createAuthorFixtureEpubStructure(root: string): Promise<void> {
     <item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>
     <item id="summary" href="chapter-2.xhtml" media-type="application/xhtml+xml"/>
     <item id="chapter-1" href="chapters/chapter-1.xhtml" media-type="application/xhtml+xml" properties="scripted"/>
+    <item id="structure" href="chapters/structure.xhtml" media-type="application/xhtml+xml"/>
+    <item id="typed" href="chapters/typed.content" media-type="application/xhtml+xml"/>
     <item id="styles" href="styles/book.css" media-type="text/css"/>
     <item id="photo" href="images/photo.png" media-type="image/png" properties="cover-image"/>
     <item id="encoded-photo" href="images/encoded%25dir/encoded%25photo.png" media-type="image/png"/>
@@ -227,6 +249,8 @@ async function createAuthorFixtureEpubStructure(root: string): Promise<void> {
     <itemref idref="cover" linear="no"/>
     <itemref idref="summary"/>
     <itemref idref="chapter-1"/>
+    <itemref idref="structure" linear="no"/>
+    <itemref idref="typed" linear="no"/>
   </spine>
 </package>
 `
@@ -501,6 +525,21 @@ function assertPrerequisites(env: NodeJS.ProcessEnv): void {
 }
 
 async function assertMarkupPreserved(contentDir: string): Promise<void> {
+  const structure = await fs.readFile(path.join(contentDir, "chapters", "structure.xhtml"), "utf8");
+  const $structure = cheerio.load(structure, { xmlMode: true });
+  if ($structure("p").length !== 1 || $structure("p > meta[itemprop='name']").length !== 1) {
+    throw new Error("XHTML element nesting must survive HTML minification rules.");
+  }
+  const typed = await fs.readFile(path.join(contentDir, "chapters", "typed.content"), "utf8");
+  const $typed = cheerio.load(typed, { xmlMode: true });
+  if (
+    typed.includes("manifest-discovery-marker") ||
+    $typed("p > span").length !== 1 ||
+    $typed("span").text() !== "" ||
+    $typed("p").text() !== "Text after an empty span."
+  ) {
+    throw new Error("Manifest-discovered XHTML must be optimized with XML semantics.");
+  }
   const animation = await fs.readFile(path.join(contentDir, "images", "animation.png"));
   if (!animation.equals(createAnimatedPng())) {
     throw new Error("APNG frames, timing, loop and original bytes must survive optimization.");
