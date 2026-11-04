@@ -24,8 +24,9 @@ The App token is explicitly restricted to `kiki-le-singe/epub-optimizer`, limite
 
 ## Build and validate
 
-CI and Release call the same quality and Docker workflows:
+CI and Release call the same production audit, quality and Docker workflows:
 
+- `pnpm audit --prod` checks the committed lockfile without installing dependencies or executing their scripts. Every CI run audits the same ref as the quality and Docker jobs; **Required CI** fails if the audit fails, is cancelled or is skipped. Release audits its source commit before building candidate images or creating/resuming a draft, including retries that reuse an existing image record. Audit findings and registry/network errors block the operation; no severity filter or ignore list is applied. The audit also remains available manually and runs weekly on the default branch.
 - Node 22 and 24: frozen dependency installation, compilation, tests and coverage thresholds, and EPUBCheck E2E. Lint, formatting and TypeScript checks run once on Node 24.
 - Native Linux AMD64 and ARM64 runners: image build, all seven Docker/Compose E2E workflows, and a Trivy scan of OS and application packages, including Java dependencies that the scanner detects.
 - Docker layers are cached per architecture with the GitHub Actions cache backend. Cache restoration is an optimization, not a correctness dependency.
@@ -61,7 +62,7 @@ Publishing the draft through the GitHub UI triggers finalization. If another wor
 - Preparation verifies develop's push CI with the same App token used by the coordinator. Missing runs, pending runs and incomplete conclusions are reread every 10 seconds for up to three minutes; a completed unsuccessful run fails immediately. Only the newest matching push run for the pinned develop SHA is eligible, and develop is checked again before creating the preparation branch. Logs identify the SHA, run ID, status and conclusion. Dry runs use this same check.
 - Finalization rereads a missing release catalogue entry for up to three minutes. For a published event, it also waits for a stale draft flag to clear and requires the event's exact release ID. A manually dispatched draft is rejected immediately: publish it first. The wait never publishes a draft or promotes images before a published release and its tested image record have been verified. API or authentication errors stop immediately rather than being treated as pending state. Individual GitHub CLI requests retain their existing command time limits.
 - Before the image record exists: rerun Release. An existing tag is accepted only if it points at the exact same source commit. Existing draft notes are preserved.
-- After the record exists: rerun Release to verify and reuse it without rebuilding or rewriting notes. On a new commit, use a new version; never move a released tag.
+- After the record exists: rerun Release to repeat the production dependency audit, then verify and reuse the record without rebuilding or rewriting notes. New audit findings can block the retry while leaving the existing draft and record intact. On a new commit, use a new version; never move a released tag.
 - PR validation waits at most 45 minutes, within the App token's one-hour lifetime. On timeout, an approval requirement, failed CI or a concurrent branch update, inspect the open PR and retry the originating workflow. Retry failed PR CI through its original pull-request run; a manual dispatch is not equivalent. Keep the `codex/release-*` and `codex/sync-main-develop` branches reserved for automation; retries update them without force pushes.
 - If finalization fails: rerun **Publish release images and sync branches**, or dispatch it from main with `tag: vX.Y.Z`. It reuses the recorded digest and can finish synchronization even if the Docker tags were already promoted.
 - An absent remote tag is distinct from a network/authentication failure. Network failures stop preparation.

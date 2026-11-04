@@ -16,28 +16,33 @@ concurrency:
   group: ci-${{ inputs.pull-request || github.ref }}
   cancel-in-progress: true
 jobs:
+  audit:
+    uses: ./.github/workflows/security-audit.yml
+    with:
+      ref: ${{ inputs.pull-request && format('refs/pull/{0}/merge', inputs.pull-request) || github.sha }}
   quality:
     uses: ./.github/workflows/quality.yml
     with:
       ref: ${{ inputs.pull-request && format('refs/pull/{0}/merge', inputs.pull-request) || github.sha }}
   docker:
-    needs: quality
+    needs: [audit, quality]
     uses: ./.github/workflows/docker-check.yml
     with:
       ref: ${{ inputs.pull-request && format('refs/pull/{0}/merge', inputs.pull-request) || github.sha }}
   required:
     name: Required CI
     if: ${{ always() }}
-    needs: [quality, docker]
+    needs: [audit, quality, docker]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
-      - name: Require every quality and Docker job to succeed
+      - name: Require the production audit, quality and Docker jobs to succeed
         env:
+          AUDIT: ${{ needs.audit.result }}
           QUALITY: ${{ needs.quality.result }}
           DOCKER: ${{ needs.docker.result }}
         run: |
-          if [[ "$QUALITY" != success || "$DOCKER" != success ]]; then
-            echo "Required checks failed or were skipped: quality=$QUALITY docker=$DOCKER" >&2
+          if [[ "$AUDIT" != success || "$QUALITY" != success || "$DOCKER" != success ]]; then
+            echo "Required checks failed or were skipped: audit=$AUDIT quality=$QUALITY docker=$DOCKER" >&2
             exit 1
           fi
