@@ -29,6 +29,7 @@ CI and Release call the same quality and Docker workflows:
 - Node 22 and 24: frozen dependency installation, compilation, tests and coverage thresholds, and EPUBCheck E2E. Lint, formatting and TypeScript checks run once on Node 24.
 - Native Linux AMD64 and ARM64 runners: image build, all seven Docker/Compose E2E workflows, and a Trivy scan of OS and application packages, including Java dependencies that the scanner detects.
 - Docker layers are cached per architecture with the GitHub Actions cache backend. Cache restoration is an optimization, not a correctness dependency.
+- The runtime stage is rebuilt without its layer cache so Debian security updates are refreshed on every CI and release build. Dependency installation, compilation and the pinned EPUBCheck download still use their own stage caches. For a local security refresh, use `docker build --no-cache-filter runtime --target runtime -t epub-optimizer .`.
 - All jobs have time limits. Commands piped through `tee` use Bash with `pipefail`, so saved logs cannot hide a failing test.
 
 PR/CI images remain local to the runner. Release builds push technical `candidate-*` tags to GHCR to preserve provenance and SBOM attestations, then pull and test the exact digests. **These candidates are available in the registry but are not stable distribution tags.** Only digests whose E2E tests and scan policy pass enter the release record. There is no rebuild during promotion.

@@ -52,6 +52,8 @@ jobs:
           tags: ${{ inputs.candidate && format('ghcr.io/{0}:candidate-{1}-{2}-{3}-{4}', github.repository, github.sha, github.run_id, github.run_attempt, matrix.arch) || 'epub-optimizer:ci' }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
+          # Re-run apt updates even when the pinned base and Dockerfile are unchanged.
+          no-cache-filters: runtime
           cache-from: type=gha,scope=image-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=image-${{ matrix.arch }}
       - name: Select the exact image to test
