@@ -38,12 +38,15 @@ jobs:
           PRERELEASE: ${{ inputs.prerelease }}
           EXPECTED_RELEASE_SHA: ${{ inputs.expected-sha }}
         run: node --experimental-strip-types scripts/release.ts plan
+  audit:
+    needs: plan
+    uses: ./.github/workflows/security-audit.yml
   quality:
     needs: plan
     if: needs.plan.outputs.build == 'true'
     uses: ./.github/workflows/quality.yml
   images:
-    needs: [plan, quality]
+    needs: [plan, audit, quality]
     if: needs.plan.outputs.build == 'true'
     permissions:
       contents: read
@@ -52,8 +55,8 @@ jobs:
     with:
       candidate: true
   draft:
-    needs: [plan, quality, images]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.plan.outputs.build == 'false' || (needs.quality.result == 'success' && needs.images.result == 'success')) }}
+    needs: [plan, audit, quality, images]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.audit.result == 'success' && (needs.plan.outputs.build == 'false' || (needs.quality.result == 'success' && needs.images.result == 'success')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
