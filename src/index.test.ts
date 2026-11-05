@@ -97,6 +97,10 @@ vi.mock("./utils/epub-features.js", () => ({
   }),
 }));
 
+vi.mock("./utils/xml-dtd.js", () => ({
+  assertNoInternalDtdSubsets: vi.fn().mockResolvedValue(undefined),
+}));
+
 // vi.resetAllMocks() clears parseArguments' resolved value between tests, so
 // any test that drives optimizeEPUB past arg-parsing must re-establish it.
 function makeArgs(): Args {
@@ -192,6 +196,31 @@ describe("index.ts", () => {
       // The EPUB must never be repacked when refused.
       const { compressEPUB } = await import("./processors/archive-processor.js");
       expect(compressEPUB).not.toHaveBeenCalled();
+    });
+
+    it("refuses internal DTD subsets before input analysis or content processors", async () => {
+      const { assertNoInternalDtdSubsets } = await import("./utils/xml-dtd.js");
+      vi.mocked(assertNoInternalDtdSubsets).mockRejectedValueOnce(
+        new Error("Internal DTD subsets are not supported")
+      );
+      const afterExtract = vi.fn();
+      const { optimizeEPUB } = await import("./index.js");
+      await expect(optimizeEPUB(makeArgs(), { afterExtract })).rejects.toThrow("Internal DTD");
+      expect(afterExtract).not.toHaveBeenCalled();
+      const { detectEpubFeatures } = await import("./utils/epub-features.js");
+      const { processHTML } = await import("./processors/html-processor.js");
+      const { optimizeImages } = await import("./processors/image-processor.js");
+      const { optimizeSVGs } = await import("./processors/svg-optimizer.js");
+      const { compressEPUB } = await import("./processors/archive-processor.js");
+      for (const operation of [
+        detectEpubFeatures,
+        processHTML,
+        optimizeImages,
+        optimizeSVGs,
+        compressEPUB,
+      ]) {
+        expect(operation).not.toHaveBeenCalled();
+      }
     });
 
     it("disables image downscaling for fixed-layout EPUBs", async () => {
