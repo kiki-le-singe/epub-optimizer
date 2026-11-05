@@ -3,10 +3,10 @@
 // There were some issues like <br> tags that were not self-closed or invalid tags.
 
 import fs from "fs-extra";
-import path from "node:path";
 import * as cheerio from "cheerio";
 import { getTempDir, isEntryPoint, type RunOpts } from "../utils.js";
 import { normalizeNamedEntities, normalizeVoidElements } from "../../utils/xhtml.js";
+import { collectRepairFiles } from "./xhtml-files.js";
 
 // Properly format self-closing tags in XML/XHTML files
 export function fixXml(originalContent: string): string {
@@ -21,12 +21,14 @@ export function fixXml(originalContent: string): string {
   processedContent = processedContent.replace(/(<\?xml[^>]+>)[\s\r\n]+<html/, "$1<html");
 
   // Use cheerio for DOM manipulation
-  const $ = cheerio.load(processedContent, { xmlMode: true });
+  // Keep existing XML references and UTF-8 characters as written when serializing.
+  const $ = cheerio.load(processedContent, { xml: { decodeEntities: false } });
 
-  // Only keep <meta> tags that are direct children of <head>
+  // Microdata <meta itemprop="..." content="..."/> is valid in body content.
+  // Other metadata still belongs directly in <head>.
   $("meta").each((_, el) => {
     const parent = $(el).parent();
-    if (!parent.is("head")) {
+    if (!parent.is("head") && !$(el).is("[itemprop][content]")) {
       $(el).remove();
     }
   });
@@ -44,24 +46,9 @@ export function fixXml(originalContent: string): string {
   return $.xml();
 }
 
-import { getContentPath } from "../../utils/epub-utils.js";
-
 export async function run(opts: RunOpts = {}): Promise<void> {
   const extractedDir = opts.tempDir ?? getTempDir();
-
-  if (!fs.existsSync(extractedDir)) {
-    throw new Error(`Directory ${extractedDir} does not exist.`);
-  }
-
-  const contentDir = await getContentPath(extractedDir);
-  if (!fs.existsSync(contentDir)) {
-    throw new Error(`Content directory ${contentDir} does not exist.`);
-  }
-
-  const xhtmlFiles = fs
-    .readdirSync(contentDir)
-    .filter((file) => file.endsWith(".xhtml"))
-    .map((file) => path.join(contentDir, file));
+  const xhtmlFiles = await collectRepairFiles(extractedDir);
 
   for (const file of xhtmlFiles) {
     try {
