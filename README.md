@@ -446,6 +446,7 @@ Examples:
 - `author` runs this project's complete Pages/manual-summary workflow and is equivalent to `pnpm optimize:author`.
 - `--repair` explicitly enables the potentially modifying XHTML repair passes.
 - XHTML repair preserves valid scripts and text directly inside `<body>`; it does not remove scripting from an EPUB. XHTML normalization also preserves quoted attributes and markup-like strings inside scripts.
+- All three repair passes discover nested `.xhtml` files case-insensitively and XHTML documents declared in the OPF manifest, including `.html` and other extensions. Manifest paths are resolved relative to the OPF, so chapters may live outside its folder within the EPUB. Repair skips symbolic links and keeps valid microdata metadata, CDATA, and UTF-8 text.
 - `--author-workflow` remains supported and always enables the complete author workflow, including repairs.
 - `--author-config` optionally adapts the author workflow to another summary/cover/class mapping. Without it, the original project-author workflow is unchanged.
 - Font subsetting is opt-in through `--fonts` and is not enabled by any preset.

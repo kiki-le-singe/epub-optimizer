@@ -4,16 +4,16 @@
 import fs from "fs-extra";
 import path from "node:path";
 import * as cheerio from "cheerio";
-import { getContentPath } from "../../utils/epub-utils.js";
 import { getTempDir, isEntryPoint, type RunOpts } from "../utils.js";
 import { normalizeNamedEntities } from "../../utils/xhtml.js";
+import { collectRepairFiles } from "./xhtml-files.js";
 
 /**
  * Remove all empty `style=""` attributes from an XHTML string.
  * Pure function — easy to unit test.
  */
 export function removeEmptyStyles(content: string): { xml: string; removed: number } {
-  const $ = cheerio.load(normalizeNamedEntities(content), { xmlMode: true });
+  const $ = cheerio.load(normalizeNamedEntities(content), { xml: { decodeEntities: false } });
   let removed = 0;
   $('[style=""]').each((_index, element) => {
     $(element).removeAttr("style");
@@ -43,18 +43,7 @@ async function fixFile(file: string): Promise<number> {
 export async function run(opts: RunOpts = {}): Promise<void> {
   const extractedDir = opts.tempDir ?? getTempDir();
 
-  if (!(await fs.pathExists(extractedDir))) {
-    throw new Error(`Directory ${extractedDir} does not exist.`);
-  }
-
-  const contentDir = await getContentPath(extractedDir);
-  if (!(await fs.pathExists(contentDir))) {
-    throw new Error(`Content directory ${contentDir} does not exist.`);
-  }
-
-  const files = (await fs.readdir(contentDir))
-    .filter((file) => file.endsWith(".xhtml"))
-    .map((file) => path.join(contentDir, file));
+  const files = await collectRepairFiles(extractedDir);
 
   let totalRemoved = 0;
   for (const file of files) {
