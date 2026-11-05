@@ -35,7 +35,7 @@ function coordinator(overrides: Record<string, unknown> = {}) {
     event: "pull_request",
     head_sha: headSha,
     status: "completed",
-    conclusion: "success",
+    conclusion: "success" as string | null,
     pull_requests: [{ number: 8, head: { sha: headSha }, base: { sha: baseSha } }],
   };
   const state = {
@@ -43,7 +43,11 @@ function coordinator(overrides: Record<string, unknown> = {}) {
     runs: [run],
     existing: false,
     target: baseSha,
-    jobs: [{ name: "Required CI", status: "completed", conclusion: "success" }],
+    jobs: [{ name: "Required CI", status: "completed", conclusion: "success" }] as Array<{
+      name: string;
+      status: string;
+      conclusion: string | null;
+    }>,
     merged: true,
     ...overrides,
   };
@@ -74,6 +78,9 @@ function coordinator(overrides: Record<string, unknown> = {}) {
     pr,
     request,
     services,
+    advance: (milliseconds: number) => {
+      time += milliseconds;
+    },
     merge: () => mergeCheckedPullRequest(options, services),
   };
 }
@@ -105,8 +112,183 @@ describe("release PR checks", () => {
       expect(ctx.request.mock.calls.some(([method]) => method === "PUT")).toBe(false);
     }
   );
-  it("rejects successful CI without the aggregate gate", async () => {
-    await expect(coordinator({ jobs: [] }).merge()).rejects.toThrow("Required CI");
+  it.each(["absent", "queued", "in_progress"])(
+    "waits for a delayed %s gate after the workflow reports success",
+    async (status) => {
+      const ctx = coordinator({
+        jobs: status === "absent" ? [] : [{ name: "Required CI", status, conclusion: null }],
+      });
+      const pause = vi.fn(async () => {
+        expect(ctx.request.mock.calls.some(([method]) => method === "PUT")).toBe(false);
+        ctx.advance(10);
+        ctx.state.jobs = [{ name: "Required CI", status: "completed", conclusion: "success" }];
+      });
+      ctx.services.pause = pause;
+      await expect(ctx.merge()).resolves.toBe(mergedSha);
+      expect(pause).toHaveBeenCalledTimes(1);
+      expect(ctx.request).toHaveBeenLastCalledWith("PUT", "pulls/8/merge", {
+        sha: headSha,
+        merge_method: "merge",
+      });
+    }
+  );
+  it.each(["absent", "queued", "in_progress"])(
+    "bounds the wait for a permanently %s gate to three minutes",
+    async (status) => {
+      const ctx = coordinator({
+        jobs: status === "absent" ? [] : [{ name: "Required CI", status, conclusion: null }],
+      });
+      ctx.services.timeoutMs = 10 * 60_000;
+      ctx.services.pause = vi.fn(async () => {
+        ctx.advance(60_000);
+      });
+      await expect(ctx.merge()).rejects.toThrow(/Timed out.*Required CI.*run 12/);
+      expect(ctx.services.pause).toHaveBeenCalledTimes(3);
+      expect(ctx.request.mock.calls.some(([method]) => method === "PUT")).toBe(false);
+    }
+  );
+  it("keeps the original overall PR deadline when the gate is delayed", async () => {
+    const ctx = coordinator({ jobs: [] });
+    ctx.services.pause = vi.fn(async () => {
+      ctx.advance(10);
+    });
+    await expect(ctx.merge()).rejects.toThrow(/Timed out.*Required CI/);
+    expect(ctx.services.pause).toHaveBeenCalledTimes(2);
+    expect(ctx.request.mock.calls.some(([method]) => method === "PUT")).toBe(false);
+  });
+  it.each(["failure", "cancelled", "skipped", "neutral", "action_required", null])(
+    "stops immediately when a delayed gate completes with %s",
+    async (conclusion) => {
+      const ctx = coordinator({
+        jobs: [{ name: "Required CI", status: "queued", conclusion: null }],
+      });
+      ctx.services.pause = vi.fn(async () => {
+        ctx.advance(10);
+        ctx.state.jobs = [{ name: "Required CI", status: "completed", conclusion }];
+      });
+      await expect(ctx.merge()).rejects.toThrow("Required CI");
+      expect(ctx.services.pause).toHaveBeenCalledTimes(1);
+      expect(ctx.request.mock.calls.some(([method]) => method === "PUT")).toBe(false);
+    }
+  );
+  it("rejects duplicate aggregate gates without waiting or merging", async () => {
+    const ctx = coordinator({
+      jobs: [
+        { name: "Required CI", status: "completed", conclusion: "success" },
+        { name: "Required CI", status: "queued", conclusion: null },
+      ],
+    });
+    ctx.services.pause = vi.fn();
+    await expect(ctx.merge()).rejects.toThrow("Required CI");
+    expect(ctx.services.pause).not.toHaveBeenCalled();
+    expect(ctx.request.mock.calls.some(([method]) => method === "PUT")).toBe(false);
+  });
+  it.each(["head", "base", "target", "conflict"])(
+    "rechecks the PR and target after waiting when %s changes",
+    async (change) => {
+      const ctx = coordinator({ jobs: [] });
+      ctx.services.pause = vi.fn(async () => {
+        ctx.advance(10);
+        ctx.state.jobs = [{ name: "Required CI", status: "completed", conclusion: "success" }];
+        if (change === "head") ctx.pr.head.sha = "d".repeat(40);
+        if (change === "base") ctx.pr.base.sha = "d".repeat(40);
+        if (change === "target") ctx.state.target = "d".repeat(40);
+        if (change === "conflict") ctx.pr.mergeable = false;
+      });
+      await expect(ctx.merge()).rejects.toThrow();
+      expect(ctx.services.pause).toHaveBeenCalledTimes(1);
+      expect(ctx.request.mock.calls.some(([method]) => method === "PUT")).toBe(false);
+    }
+  );
+  it("ignores the older successful run when a newer run appears during the gate wait", async () => {
+    const ctx = coordinator({ jobs: [] });
+    ctx.services.timeoutMs = 30;
+    let pauses = 0;
+    ctx.services.pause = vi.fn(async () => {
+      ctx.advance(10);
+      if (++pauses === 1) {
+        ctx.state.runs.push({ ...ctx.run, id: 13, status: "in_progress", conclusion: null });
+        ctx.state.jobs = [{ name: "Required CI", status: "completed", conclusion: "success" }];
+      } else {
+        expect(ctx.request.mock.calls.some(([method]) => method === "PUT")).toBe(false);
+        ctx.state.runs[1]!.status = "completed";
+        ctx.state.runs[1]!.conclusion = "success";
+      }
+    });
+    await expect(ctx.merge()).resolves.toBe(mergedSha);
+    expect(ctx.services.pause).toHaveBeenCalledTimes(2);
+    expect(ctx.request).toHaveBeenCalledWith(
+      "GET",
+      "actions/runs/13/jobs?filter=latest&per_page=100&page=1"
+    );
+  });
+  it("does not restart the gate deadline when pending states change", async () => {
+    const ctx = coordinator({ jobs: [] });
+    ctx.services.timeoutMs = 10 * 60_000;
+    let pauses = 0;
+    ctx.services.pause = vi.fn(async () => {
+      ctx.advance(60_000);
+      ctx.state.jobs = [
+        {
+          name: "Required CI",
+          status: ++pauses === 1 ? "queued" : "in_progress",
+          conclusion: null,
+        },
+      ];
+    });
+    await expect(ctx.merge()).rejects.toThrow(/Timed out.*Required CI.*run 12/);
+    expect(ctx.services.pause).toHaveBeenCalledTimes(3);
+    expect(ctx.request.mock.calls.some(([method]) => method === "PUT")).toBe(false);
+  });
+  it("keeps the gate deadline when the same run briefly disappears from the API", async () => {
+    const ctx = coordinator({ jobs: [] });
+    ctx.services.timeoutMs = 10 * 60_000;
+    let pauses = 0;
+    ctx.services.pause = vi.fn(async () => {
+      ctx.advance(60_000);
+      ctx.state.runs = ++pauses === 1 ? [] : [ctx.run];
+    });
+    await expect(ctx.merge()).rejects.toThrow(/Timed out.*Required CI.*run 12/);
+    expect(ctx.services.pause).toHaveBeenCalledTimes(3);
+    expect(ctx.request.mock.calls.some(([method]) => method === "PUT")).toBe(false);
+  });
+  it.each([401, 403, 503])("does not retry API errors (%s) during the gate wait", async (code) => {
+    const ctx = coordinator({ jobs: [] });
+    const request = ctx.request.getMockImplementation()!;
+    let reads = 0;
+    ctx.request.mockImplementation((method, endpoint, body) => {
+      if (endpoint.startsWith("actions/runs/") && ++reads === 2) throw new Error(`API ${code}`);
+      return request(method, endpoint, body);
+    });
+    ctx.services.pause = vi.fn(async () => {
+      ctx.advance(10);
+    });
+    await expect(ctx.merge()).rejects.toThrow(`API ${code}`);
+    expect(ctx.services.pause).toHaveBeenCalledTimes(1);
+    expect(ctx.request.mock.calls.some(([method]) => method === "PUT")).toBe(false);
+  });
+  it("reads every job page before accepting the aggregate gate", async () => {
+    const ctx = coordinator();
+    const request = ctx.request.getMockImplementation()!;
+    ctx.request.mockImplementation((method, endpoint, body) => {
+      if (endpoint.startsWith("actions/runs/"))
+        return {
+          total_count: 101,
+          jobs: endpoint.endsWith("page=1")
+            ? Array.from({ length: 100 }, (_, i) => ({
+                name: `other ${i}`,
+                status: "completed",
+                conclusion: "success",
+              }))
+            : ctx.state.jobs,
+        };
+      return request(method, endpoint, body);
+    });
+    await expect(ctx.merge()).resolves.toBe(mergedSha);
+    expect(ctx.request).toHaveBeenCalledWith(
+      "GET",
+      "actions/runs/12/jobs?filter=latest&per_page=100&page=2"
+    );
   });
   it.each(["workflow_dispatch", "push"])(
     "does not accept a %s run as PR validation",
