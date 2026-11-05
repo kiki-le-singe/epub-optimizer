@@ -38,7 +38,7 @@ describe("fixXml", () => {
 
   it("preserves quoted attribute text while repairing real void tags", () => {
     const out = fixXml(wrap('<img src="x.jpg" alt="a > b"><p>a<br>b</p>'));
-    expect(out).toContain('alt="a &gt; b"');
+    expect(out).toContain('alt="a > b"');
     expect(out).toContain("<p>a<br/>b</p>");
   });
 
@@ -52,6 +52,13 @@ describe("fixXml", () => {
     const input = `<?xml version="1.0"?>\n<html><head><meta charset="utf-8"/><title>t</title></head><body/></html>`;
     const out = fixXml(input);
     expect(out).toContain('charset="utf-8"');
+  });
+
+  it("preserves microdata meta elements in body content", () => {
+    const input = wrap(
+      '<p itemscope="itemscope">Before <meta itemprop="name" content="Example"/>after.</p>'
+    );
+    expect(fixXml(input)).toContain('<meta itemprop="name" content="Example"/>');
   });
 
   it("is a no-op on already-clean XHTML", () => {
