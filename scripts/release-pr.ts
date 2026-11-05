@@ -171,6 +171,7 @@ export async function mergeCheckedPullRequest(
     });
   summary(`Automation PR: ${pr.html_url}`);
   const deadline = now() + timeoutMs;
+  let pendingGate: { runId: number; deadline: number; state: string } | undefined;
   const snapshot = () => {
     const current = request<PullRequest>("GET", `pulls/${pr.number}`);
     if (
@@ -208,6 +209,7 @@ export async function mergeCheckedPullRequest(
       )
       .sort((a, b) => b.id - a.id);
     const run = runs[0];
+    if (pendingGate && run && run.id !== pendingGate.runId) pendingGate = undefined;
     if (run?.status === "completed") {
       if (run.conclusion !== "success")
         throw new Error(`CI failed for PR #${pr.number}: ${run.conclusion}.`);
@@ -222,12 +224,37 @@ export async function mergeCheckedPullRequest(
         if (!result.jobs.length) throw new Error("Incomplete CI job response.");
       }
       const gates = jobs.filter((job) => job.name === "Required CI");
-      if (
-        gates.length !== 1 ||
-        gates[0]!.status !== "completed" ||
-        gates[0]!.conclusion !== "success"
-      )
-        throw new Error(`PR #${pr.number} is missing a successful Required CI check.`);
+      if (gates.length > 1)
+        throw new Error(`PR #${pr.number} has multiple Required CI checks; inspect run ${run.id}.`);
+      const gate = gates[0];
+      if (gate?.status === "completed" && gate.conclusion !== "success")
+        throw new Error(
+          `Required CI failed for PR #${pr.number} (run ${run.id}): ${gate.conclusion}.`
+        );
+      if (gate?.status !== "completed") {
+        // GitHub can report a successful workflow before its jobs endpoint
+        // exposes the completed gate. Re-read the same PR, target and newest
+        // eligible run, without extending the existing overall PR deadline.
+        const state = gate
+          ? `status=${gate.status}, conclusion=${gate.conclusion ?? "null"}`
+          : "gate absent from the job response";
+        pendingGate ??= {
+          runId: run.id,
+          deadline: Math.min(deadline, now() + 3 * 60_000),
+          state: "",
+        };
+        if (now() >= pendingGate.deadline)
+          throw new Error(
+            `Timed out waiting for Required CI on PR #${pr.number} (run ${run.id}). Last observed: ${state}. The PR remains open; inspect GitHub before retrying.`
+          );
+        if (state !== pendingGate.state) {
+          summary(`Waiting for Required CI on PR #${pr.number} (run ${run.id}): ${state}`);
+          pendingGate.state = state;
+        }
+        await pause();
+        continue;
+      }
+      pendingGate = undefined;
       if (snapshot().mergeable !== true) {
         await pause();
         continue;
@@ -249,6 +276,6 @@ export async function mergeCheckedPullRequest(
     await pause();
   }
   throw new Error(
-    `Timed out waiting for PR #${pr.number}. It remains open; check CI, approvals and App credentials before retrying.`
+    `Timed out waiting for PR #${pr.number}.${pendingGate ? ` Last observed Required CI for run ${pendingGate.runId}: ${pendingGate.state}.` : ""} It remains open; check CI, approvals and App credentials before retrying.`
   );
 }
