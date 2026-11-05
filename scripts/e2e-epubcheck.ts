@@ -142,7 +142,7 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
   <body>
     <section epub:type="chapter">
       <h1>Chapter 1</h1>
-      <p class="hero">Nested XHTML image references should migrate safely.</p>
+      <p class="hero" style="">Nested XHTML image references should migrate safely.</p>
       <p class="poem">First line
     Second line</p>
       <p id="inline-attribute" style="font-family: &quot;Georgia&quot;; color: black;">Le café est déjà prêt — 日本語。</p>
@@ -197,7 +197,7 @@ async function createFixtureEpubStructure(root: string): Promise<void> {
     path.join(oebps, "chapters", "typed.content"),
     `<!--${" ".repeat(2100)}--><html xmlns='http://www.w3.org/1999/xhtml'>
 <head><title>Manifest-discovered XHTML</title><style>p { color: black; }</style></head>
-<body><p><span/>Text after an empty span.</p><!-- manifest-discovery-marker --></body></html>`
+<body><p style=""><span/>Text after an empty span.</p><!-- manifest-discovery-marker --></body></html>`
   );
 
   await fs.writeFile(
@@ -1178,6 +1178,16 @@ async function main(): Promise<void> {
     assertStepStatus(repair.report, "Repair XHTML", "success");
     assertStepStatus(repair.report, "Author workflow", "skipped");
     await assertOptimizedOutput(repair.outputEpub, runDir);
+    for (const file of ["chapter-1.xhtml", "typed.content"]) {
+      const content = await fs.readFile(
+        path.join(runDir, "inspect", "OEBPS", "chapters", file),
+        "utf8"
+      );
+      const $ = cheerio.load(content, { xmlMode: true });
+      if ($('[style=""]').length > 0) {
+        throw new Error(`Repair must remove empty styles in nested, manifest-discovered ${file}.`);
+      }
+    }
 
     const author = await runPnpmWorkflowCase(
       runDir,

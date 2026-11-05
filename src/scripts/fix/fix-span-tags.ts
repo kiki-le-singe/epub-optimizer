@@ -4,15 +4,15 @@
 import fs from "fs-extra";
 import path from "node:path";
 import * as cheerio from "cheerio";
-import { getContentPath } from "../../utils/epub-utils.js";
 import { getTempDir, isEntryPoint, type RunOpts } from "../utils.js";
 import { normalizeNamedEntities } from "../../utils/xhtml.js";
+import { collectRepairFiles } from "./xhtml-files.js";
 
 async function fixFile(file: string) {
   try {
     console.log(`Processing ${file}`);
     const content = await fs.readFile(file, "utf8");
-    const $ = cheerio.load(normalizeNamedEntities(content), { xmlMode: true });
+    const $ = cheerio.load(normalizeNamedEntities(content), { xml: { decodeEntities: false } });
     // Cheerio auto-closes tags on serialization
     await fs.writeFile(file, $.xml());
     console.log(`Fixed ${path.basename(file)}`);
@@ -24,18 +24,7 @@ async function fixFile(file: string) {
 export async function run(opts: RunOpts = {}): Promise<void> {
   const extractedDir = opts.tempDir ?? getTempDir();
 
-  if (!(await fs.pathExists(extractedDir))) {
-    throw new Error(`Directory ${extractedDir} does not exist.`);
-  }
-
-  const contentDir = await getContentPath(extractedDir);
-  if (!(await fs.pathExists(contentDir))) {
-    throw new Error(`Content directory ${contentDir} does not exist.`);
-  }
-
-  const files = (await fs.readdir(contentDir))
-    .filter((file) => file.endsWith(".xhtml"))
-    .map((file) => path.join(contentDir, file));
+  const files = await collectRepairFiles(extractedDir);
 
   for (const file of files) {
     await fixFile(file);
