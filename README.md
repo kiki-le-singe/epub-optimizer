@@ -1,7 +1,7 @@
 # EPUB Optimizer
 
 [![CI](https://github.com/kiki-le-singe/epub-optimizer/actions/workflows/ci.yml/badge.svg)](https://github.com/kiki-le-singe/epub-optimizer/actions/workflows/ci.yml)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22.12-brightgreen.svg)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 A Node.js utility to optimize EPUB files by compressing HTML, CSS, images and recompressing the archive. This tool can significantly reduce EPUB file sizes while maintaining compatibility with e-readers and ensuring EPUB specification compliance.
@@ -49,6 +49,8 @@ Most of the savings come from image optimization (PNG→JPEG + recompression), s
   - [Modern Workflow](#modern-workflow)
   - [Command Line Options](#command-line-options)
   - [Modes and Presets](#modes-and-presets)
+  - [Safe Temporary Directories and Validation Deadlines](#safe-temporary-directories-and-validation-deadlines)
+  - [Image Concurrency](#image-concurrency)
   - [Doctor / Inspect Mode](#doctor--inspect-mode)
   - [Structured Reports and Profiling](#structured-reports-and-profiling)
   - [Safety Model](#safety-model)
@@ -59,6 +61,7 @@ Most of the savings come from image optimization (PNG→JPEG + recompression), s
   - [Source and Build Separation](#source-and-build-separation)
   - [Import Structure](#import-structure)
   - [Testing](#testing)
+  - [Production Validation](#production-validation)
   - [Release Validation](#release-validation)
   - [Development and Production](#development-and-production)
 - [Linting and Formatting](#linting-and-formatting)
@@ -136,7 +139,7 @@ The image ships Node.js, Java, and EPUBCheck pre-installed and supports amd64 an
 **Traditional installation:**
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
 pnpm build
 pnpm optimize -i YourBook.epub -o YourBook-optimized.epub
 ```
@@ -175,7 +178,7 @@ Version 3 makes the default command safer and less specific to this project's or
 ## Features
 
 - **Discovers the package/content root through `META-INF/container.xml` and resolves navigation/resources through the OPF manifest**
-- HTML/XHTML minification (removes whitespace, comments, and unnecessary code)
+- HTML/XHTML minification (removes comments and minifies embedded code while preserving text and significant whitespace)
 - CSS optimization (minifies and combines rules)
 - Image compression (JPEG, PNG, WebP, GIF, AVIF, and SVG according to the selected preset and quality settings)
 - JPEG recompression applies EXIF orientation to the pixels before encoding, preserving the displayed rotation and mirroring.
@@ -212,7 +215,7 @@ Version 3 makes the default command safer and less specific to this project's or
 
 **Only required for traditional installation** (skip if using Docker):
 
-- Node.js 22 or higher (CI validates Node.js 22 and 24)
+- Node.js 22.12 or higher (CI validates Node.js 22 and 24; use Node.js 24 for development)
 - Java Runtime Environment (JRE) 17 or higher for EPUBCheck (CI and Docker use OpenJDK 17)
 - pnpm 10.30.3, pinned by the repository's `packageManager` field
 
@@ -224,7 +227,7 @@ git clone https://github.com/kiki-le-singe/epub-optimizer.git
 cd epub-optimizer
 
 # Install dependencies
-pnpm install
+pnpm install --frozen-lockfile
 
 # Build the project (required before running optimize commands)
 pnpm build
@@ -398,6 +401,10 @@ Options:
   --no-lazy-loading Disable lazy loading
   --max-image-dim   Maximum image width/height; 0 disables resizing
   --strict          Fail when a step emits warnings or errors
+  --validation-timeout
+                    Maximum EPUBCheck runtime in milliseconds [number] [default: 120000]
+  --image-concurrency
+                    Concurrent image operations, from 1 to 64 [number] [default: CPU parallelism, capped at 8]
   --profile         Print execution time for each pipeline step
   --report-json     Write a structured pipeline report to a JSON file
   --doctor, --inspect
@@ -487,6 +494,25 @@ an error or warning, or offers no smaller result. XHTML styles also retain their
 original CSS if minification would introduce XML delimiters. Raster recompressions
 are committed only when smaller, unless they actually change the dimensions
 requested by the user.
+
+### Image Concurrency
+
+Use `--image-concurrency 2` on memory-constrained machines, or adjust from 1 to 64.
+The default is the available CPU parallelism capped at 8. The setting applies to
+both PNG-to-JPEG conversion and image recompression. Lower values trade runtime for
+lower peak memory; compare with `--profile` on representative books before tuning.
+
+A local Node 24 measurement on the 60 MB example, for the image stage alone, gave:
+
+| Concurrent images | Time    | Peak Node RSS |
+| ----------------- | ------- | ------------- |
+| 1                 | 13.31 s | 210 MiB       |
+| 2                 | 6.99 s  | 307 MiB       |
+| 4                 | 4.53 s  | 417 MiB       |
+| 8                 | 4.39 s  | 429 MiB       |
+
+These are single measurements on one Mac, not cross-platform guarantees. All four
+runs produced identical raster bytes (SHA-256 comparison). Java memory is excluded.
 
 ### Doctor / Inspect Mode
 
@@ -717,12 +743,18 @@ Failures before successful cleanup preserve temporary files even when `--clean` 
 ```
 epub-optimizer/
 ├── .github/workflows/
-│   ├── ci.yml                 # Node 22/24, EPUBCheck, and Docker E2E validation
+│   ├── ci.yml                 # Audit, shared quality/Docker checks, and Required CI gate
+│   ├── docker-check.yml       # Shared native AMD64/ARM64 Docker E2E and image scans
 │   ├── epubcheck-watch.yml    # Weekly check for new EPUBCheck releases (opens an issue)
-│   └── release.yml            # Manual release automation with CI gates, GHCR image, tag, and GitHub Release
+│   ├── prepare-release.yml    # Prepare and merge a checked release PR to main
+│   ├── quality.yml            # Shared Node 22/24, coverage, lint, types, and EPUBCheck checks
+│   ├── release-published.yml  # Promote tested image digests and sync main into develop by PR
+│   ├── release.yml            # Validate candidates, tag the source, and create a release draft
+│   └── security-audit.yml     # Required production audit, also available weekly/manually
 ├── compose.yaml            # Recommended cross-platform Docker interface
 ├── Dockerfile              # Multi-stage production container image
 ├── docker-entrypoint.sh    # Docker defaults and CLI entrypoint
+├── docs/RELEASING.md        # Release preparation, publication, diagnostics, and recovery
 ├── dist/                   # Compiled JavaScript (production code)
 ├── package.json            # Package configuration
 ├── README.md               # Documentation
@@ -760,6 +792,7 @@ epub-optimizer/
     │   │   ├── fix-span-tags.ts
     │   │   ├── fix-xml.ts
     │   │   ├── remove-empty-styles.ts
+    │   │   ├── xhtml-files.ts # Shared recursive and manifest-based repair discovery
     │   │   └── index.ts    # runFixes(): call every fix in sequence
     │   └── ops/            # EPUB structure modifications
     │       ├── add-cover-image-property.ts
@@ -824,6 +857,15 @@ This project is built with TypeScript and uses modern ESM modules. Here's how th
 - Docker E2E verifies reports, content integrity, EPUBCheck output, workflow-specific transformations, and clean/keep-temp behavior
 - CI validates the project on Node.js 22 and 24, and runs the Docker E2E workflow on Node.js 24
 - Unit tests run in a Node.js environment and mock external dependencies where appropriate
+
+### Production Validation
+
+Use Node 24 LTS for development and release checks (`.node-version`); the minimum
+supported runtime is Node 22.12. Install with `pnpm install --frozen-lockfile`.
+CI validates Node 22 and 24, coverage, formatting, EPUBCheck and Docker workflows.
+The production dependency audit is required by every CI and release run, including
+release retries; it also runs weekly and can be started manually.
+Publishing a prerelease promotes its tested image to the version tag without changing `latest`.
 
 ### Release Validation
 
@@ -992,7 +1034,7 @@ This project uses the following dependencies:
 
 ### System Requirements
 
-- Node.js 22 or higher
+- Node.js 22.12 or higher (Node.js 24 for development)
 - Java Runtime Environment (JRE) 17 or higher (for EPUBCheck validation)
 - pnpm 10.30.3
 
@@ -1019,30 +1061,3 @@ This project uses the following dependencies:
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
-
-### Production validation
-
-Use Node 24 LTS for development and release checks (`.node-version`); the minimum
-supported runtime is Node 22.12. Install with `pnpm install --frozen-lockfile`.
-CI validates Node 22 and 24, coverage, formatting, EPUBCheck and Docker workflows.
-The production dependency audit runs weekly and on dependency pull requests.
-Prerelease container builds publish their version tag without changing `latest`.
-
-### Image concurrency
-
-Use `--image-concurrency 2` on memory-constrained machines, or adjust from 1 to 64.
-The default is the available CPU parallelism capped at 8. The setting applies to
-both PNG-to-JPEG conversion and image recompression. Lower values trade runtime for
-lower peak memory; compare with `--profile` on representative books before tuning.
-
-A local Node 24 measurement on the 60 MB example, for the image stage alone, gave:
-
-| Concurrent images | Time    | Peak Node RSS |
-| ----------------- | ------- | ------------- |
-| 1                 | 13.31 s | 210 MiB       |
-| 2                 | 6.99 s  | 307 MiB       |
-| 4                 | 4.53 s  | 417 MiB       |
-| 8                 | 4.39 s  | 429 MiB       |
-
-These are single measurements on one Mac, not cross-platform guarantees. All four
-runs produced identical raster bytes (SHA-256 comparison). Java memory is excluded.
