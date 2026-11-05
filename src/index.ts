@@ -13,6 +13,7 @@ import { assertSafeTempDir, removeTempDir } from "./utils/temp-dir.js";
 import path from "node:path";
 import { assertDistinctInputOutput, assertSafeOutputTarget } from "./utils/output-transaction.js";
 import { detectEpubFeatures } from "./utils/epub-features.js";
+import { assertNoInternalDtdSubsets } from "./utils/xml-dtd.js";
 
 interface OptimizeOptions {
   /** If true, skip the final zip + cleanup. The pipeline uses this so the
@@ -68,6 +69,7 @@ async function optimizeEPUB(
     //     silently corrupting them: refuse DRM-encrypted books, leave obfuscated
     //     fonts untouched, and keep fixed-layout page images at their native size.
     await runStep("Analyze EPUB structure", async () => {
+      await assertNoInternalDtdSubsets(resolvedArgs.temp);
       const features = await detectEpubFeatures(resolvedArgs.temp);
       if (features.encryptionKind === "drm") {
         throw new Error(
