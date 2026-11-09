@@ -1106,6 +1106,103 @@ async function assertAuthorWarningRejected(runDir: string, input: string): Promi
   }
 }
 
+async function assertInternalDtdRejected(runDir: string, fixtureDir: string): Promise<void> {
+  const root = path.join(runDir, "dtd-fixture");
+  await fs.copy(fixtureDir, root);
+  const relativeChapter = path.join("OEBPS", "chapters", "chapter-1.xhtml");
+  const chapter = path.join(root, relativeChapter);
+  const original = (await fs.readFile(chapter, "utf8"))
+    .replace("?>", '?>\n<!DOCTYPE html [<!ENTITY copy "Éditions Exemple">]>')
+    .replace("</body>", "<p>Publié par &copy;.</p></body>");
+  await fs.writeFile(chapter, original);
+  const input = path.join(runDir, "dtd-input.epub");
+  await createEpub(input, root);
+  const inputBytes = await fs.readFile(input);
+  const validation = spawnSync("java", ["-jar", epubcheckPath, input], {
+    env: withJavaFallback(process.env),
+    encoding: "utf8",
+    timeout: 60_000,
+  });
+  await fs.writeFile(
+    path.join(runDir, "dtd-input-validation.log"),
+    `${validation.stdout ?? ""}\n${validation.stderr ?? ""}`
+  );
+  if (validation.error) throw validation.error;
+  if (validation.status !== 0)
+    throw new Error("The generated internal-DTD input must pass EPUBCheck.");
+
+  for (const mode of ["balanced", "lossless", "repair", "author"]) {
+    for (const strict of [false, true]) {
+      const name = `dtd-${mode}-${strict ? "strict" : "normal"}`;
+      const output = path.join(runDir, `${name}.epub`);
+      const temp = path.join(runDir, `extract-${name}`);
+      const reportPath = path.join(runDir, `${name}.json`);
+      await fs.writeFile(output, "previous-output");
+      const result = spawnSync(
+        process.execPath,
+        [
+          pipelinePath,
+          "-i",
+          input,
+          "-o",
+          output,
+          "--temp",
+          temp,
+          "--clean",
+          "--report-json",
+          reportPath,
+          ...(mode === "repair" ? ["--repair"] : ["--preset", mode]),
+          ...(strict ? ["--strict"] : []),
+        ],
+        { cwd: runDir, env: withJavaFallback(process.env), encoding: "utf8", timeout: 60_000 }
+      );
+      const log = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+      await fs.writeFile(path.join(runDir, `${name}.log`), log);
+      if (result.error) throw result.error;
+      const report = await fs.readJson(reportPath);
+      const analysis = report.steps.find(
+        (step: { name: string }) => step.name === "Analyze EPUB structure"
+      );
+      if (
+        result.status === 0 ||
+        report.success ||
+        analysis?.status !== "failed" ||
+        !String(report.error).includes("Internal DTD subsets are not supported") ||
+        !String(report.error).includes("OEBPS/chapters/chapter-1.xhtml")
+      ) {
+        throw new Error(`Expected explicit internal-DTD refusal in ${name}.\n${log}`);
+      }
+      if (
+        report.steps.some((step: { name: string }) =>
+          [
+            "Analyze input content",
+            "Optimize HTML/CSS",
+            "Repair XHTML",
+            "Create candidate EPUB",
+          ].includes(step.name)
+        )
+      ) {
+        throw new Error(`Internal DTD refusal happened after content processing in ${name}.`);
+      }
+      if (
+        (await fs.readFile(output, "utf8")) !== "previous-output" ||
+        !(await fs.readFile(input)).equals(inputBytes)
+      ) {
+        throw new Error(`Internal DTD refusal modified the input or existing output in ${name}.`);
+      }
+      if ((await fs.readFile(path.join(temp, relativeChapter), "utf8")) !== original) {
+        throw new Error(`Internal DTD refusal changed the extracted chapter in ${name}.`);
+      }
+      if ((await fs.readdir(runDir)).some((file) => file.startsWith(`.${name}.candidate-`))) {
+        throw new Error(`Internal DTD refusal left a candidate archive behind in ${name}.`);
+      }
+    }
+  }
+  console.log(
+    "Internal DTD refusal preserved input, existing output and extracted text in all presets, with and without strict mode."
+  );
+}
+
 async function main(): Promise<void> {
   const env = withJavaFallback(process.env);
   assertPrerequisites(env);
@@ -1143,6 +1240,7 @@ async function main(): Promise<void> {
     await assertConcurrentDefaultsAndTimeout(runDir, inputEpub);
     await assertLocalizedWarnings(runDir, fixtureDir);
     await assertAuthorWarningRejected(runDir, authorInputEpub);
+    await assertInternalDtdRejected(runDir, fixtureDir);
 
     const balanced = await runPnpmWorkflowCase(runDir, inputEpub, "balanced", "optimize", false, [
       "--strict",

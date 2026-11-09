@@ -33,7 +33,7 @@ jobs:
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Candidate registry login
         if: inputs.candidate
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -100,7 +100,7 @@ jobs:
           node -e 'require("fs").writeFileSync(`digests/${process.env.IMAGE_ARCH}.json`, JSON.stringify({sha:process.env.GITHUB_SHA,arch:process.env.IMAGE_ARCH,digest:process.env.IMAGE_DIGEST}))'
       - name: Upload tested digest
         if: inputs.candidate
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: digest-${{ matrix.arch }}
           overwrite: true
@@ -109,7 +109,7 @@ jobs:
           retention-days: 14
       - name: Upload Docker diagnostics
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: docker-${{ matrix.arch }}-${{ github.run_attempt }}
           path: reports/
