@@ -2,6 +2,8 @@ export type Preset = "balanced" | "lossless" | "author";
 
 export interface Args {
   input: string;
+  batch?: string;
+  outputDir?: string;
   output: string;
   temp: string;
   clean: boolean;
@@ -22,6 +24,8 @@ export interface Args {
   preset: Preset;
   "report-json"?: string;
   reportJson?: string;
+  "report-html"?: string;
+  reportHtml?: string;
   doctor: boolean;
   inspect: boolean;
   "max-image-dim": number;

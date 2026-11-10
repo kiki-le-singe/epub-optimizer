@@ -3,6 +3,8 @@ import { runOptimization } from "./optimization.js";
 import { processEpubContent, type ContentProcessingOptions } from "./processors/epub-processor.js";
 import type { Args } from "./types.js";
 
+export { runBatch, type BatchReport } from "./batch.js";
+
 export { formatFileSize, reportFileSizeComparison } from "./utils/file-size.js";
 
 interface OptimizeOptions extends ContentProcessingOptions {
@@ -17,6 +19,7 @@ export async function optimizeEPUB(
 ): Promise<{ success: boolean; input: string; output: string }> {
   // Keep the caller's options intact when feature detection adjusts processing.
   const resolvedArgs = { ...(args ?? (await parseArguments())) };
+  if (resolvedArgs.batch) throw new Error("Use runBatch(args) for batch optimization.");
   if (options.skipPackaging) {
     return processEpubContent(resolvedArgs, options);
   }
