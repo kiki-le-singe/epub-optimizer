@@ -2,6 +2,8 @@ export type Preset = "balanced" | "lossless" | "author";
 
 export interface Args {
   input: string;
+  batch?: string;
+  outputDir?: string;
   output: string;
   temp: string;
   clean: boolean;

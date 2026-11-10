@@ -32,6 +32,14 @@ async function parseArguments(): Promise<Args> {
       type: "string",
       default: config.outputEPUB,
     })
+    .option("batch", {
+      describe: "Optimize regular EPUB files in this directory (non-recursive)",
+      type: "string",
+    })
+    .option("output-dir", {
+      describe: "Destination directory for batch outputs and per-book reports",
+      type: "string",
+    })
     .option("temp", {
       alias: "t",
       describe: "New temporary directory (must not already exist); unique by default",
@@ -155,6 +163,18 @@ async function parseArguments(): Promise<Args> {
     .alias("version", "v")
     .strict()
     .check((argv) => {
+      if (argv.batch) {
+        if (!argv["output-dir"]) throw new Error("--batch requires --output-dir.");
+        if (argv.doctor || argv.inspect) throw new Error("--batch supports optimization only.");
+        const explicit = hideBin(process.argv);
+        if (
+          explicit.some(
+            (value) => /^(--input|--output|--temp)(=|$)/.test(value) || /^-[iot]/.test(value)
+          )
+        ) {
+          throw new Error("--batch cannot be combined with explicit --input, --output or --temp.");
+        }
+      } else if (argv["output-dir"]) throw new Error("--output-dir requires --batch.");
       if (argv["report-html"] && (argv.doctor || argv.inspect))
         throw new Error("--report-html is for optimization runs; use --report-json with --doctor.");
       if (
