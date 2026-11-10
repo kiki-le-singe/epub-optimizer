@@ -37,4 +37,17 @@ describe("CLI options", () => {
     expect(args.lossless).toBe(true);
     expect(args.convertPng).toBe(false);
   });
+  it("accepts a standalone HTML report alongside JSON", async () => {
+    process.argv = [
+      "node",
+      "epub-optimizer",
+      "--report-html",
+      "reports/book.html",
+      "--report-json",
+      "reports/book.json",
+    ];
+    const args = await parseArguments();
+    expect(args.reportHtml).toBe("reports/book.html");
+    expect(args.reportJson).toBe("reports/book.json");
+  });
 });
