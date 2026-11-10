@@ -95,20 +95,30 @@ async function hasInternalDtd(file: string): Promise<boolean> {
   return scan(decoder ? decoder.decode() : xmlDecoder(prefix).decode(prefix)) === true;
 }
 
-/** Reject unsupported DTD semantics before parsing or changing any EPUB resource. */
-export async function assertNoInternalDtdSubsets(epubDir: string): Promise<void> {
+/** List unsupported declarations without parsing XML or resolving entities. */
+export async function findInternalDtdSubsets(epubDir: string): Promise<string[]> {
   // Inspect regular archive entries regardless of their extension: content
   // documents and even the OPF may have producer-specific filenames.
   const files = await collectFiles(epubDir, () => true);
+  const matches: string[] = [];
   await forEachFileLimited(files, async (file) => {
     if (!(await fs.lstat(file)).isFile()) return;
     if (await hasInternalDtd(file)) {
       const relative = path.relative(epubDir, file).split(path.sep).join("/");
-      throw new Error(
-        `Internal DTD subsets are not supported: ${JSON.stringify(relative)}. ` +
-          "Optimization was refused to preserve entity-defined content. " +
-          "Replace internal declarations with literal text or numeric character references before retrying."
-      );
+      matches.push(relative);
     }
   });
+  return matches.sort();
+}
+
+/** Reject unsupported DTD semantics before parsing or changing any EPUB resource. */
+export async function assertNoInternalDtdSubsets(epubDir: string): Promise<void> {
+  const files = await findInternalDtdSubsets(epubDir);
+  if (files.length > 0) {
+    throw new Error(
+      `Internal DTD subsets are not supported: ${JSON.stringify(files[0])}. ` +
+        "Optimization was refused to preserve entity-defined content. " +
+        "Replace internal declarations with literal text or numeric character references before retrying."
+    );
+  }
 }
