@@ -31,8 +31,8 @@ vi.mock("./cli.js", () => ({
     $0: "epub-optimizer",
   }),
 }));
-vi.mock("./index.js", () => ({
-  optimizeEPUB: vi
+vi.mock("./processors/epub-processor.js", () => ({
+  processEpubContent: vi
     .fn()
     .mockImplementation(
       async (
@@ -43,6 +43,8 @@ vi.mock("./index.js", () => ({
         return { success: true, input: "in.epub", output: "out.epub" };
       }
     ),
+}));
+vi.mock("./utils/file-size.js", () => ({
   reportFileSizeComparison: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("./scripts/fix/index.js", () => ({
@@ -115,7 +117,7 @@ describe("pipeline orchestration", () => {
 
   it("runs generic optimization without author workflow structure updates by default", async () => {
     const { main } = await import("./pipeline.js");
-    const { optimizeEPUB } = await import("./index.js");
+    const { processEpubContent } = await import("./processors/epub-processor.js");
     const { runFixes } = await import("./scripts/fix/index.js");
     const { runStructureUpdates } = await import("./scripts/ops/update-structure.js");
     const { run: createEPUBFile } = await import("./scripts/create-epub.js");
@@ -123,10 +125,10 @@ describe("pipeline orchestration", () => {
 
     await main();
 
-    expect(optimizeEPUB).toHaveBeenCalledTimes(1);
-    expect(optimizeEPUB).toHaveBeenCalledWith(
+    expect(processEpubContent).toHaveBeenCalledTimes(1);
+    expect(processEpubContent).toHaveBeenCalledWith(
       expect.objectContaining({ temp: "/tmp/ep" }),
-      expect.objectContaining({ skipPackaging: true })
+      expect.objectContaining({ afterExtract: expect.any(Function) })
     );
     expect(runFixes).not.toHaveBeenCalled();
     expect(runStructureUpdates).not.toHaveBeenCalled();
@@ -260,13 +262,13 @@ describe("pipeline orchestration", () => {
     });
     const { main } = await import("./pipeline.js");
     const { runDoctor } = await import("./utils/epub-doctor.js");
-    const { optimizeEPUB } = await import("./index.js");
+    const { processEpubContent } = await import("./processors/epub-processor.js");
     const { createCandidateOutputPath } = await import("./utils/output-transaction.js");
 
     await main();
 
     expect(runDoctor).toHaveBeenCalledWith({ input: "in.epub", reportJson: undefined });
-    expect(optimizeEPUB).not.toHaveBeenCalled();
+    expect(processEpubContent).not.toHaveBeenCalled();
     expect(createCandidateOutputPath).not.toHaveBeenCalled();
   });
 

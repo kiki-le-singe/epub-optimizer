@@ -161,7 +161,7 @@ describe("index.ts", () => {
   describe("optimizeEPUB", () => {
     it("processes an EPUB file correctly", async () => {
       const module = await import("./index.js");
-      await module.optimizeEPUB();
+      await module.optimizeEPUB(undefined, { skipPackaging: true });
 
       // Check that extractEPUB was called with the right arguments
       const { extractEPUB } = await import("./processors/archive-processor.js");
@@ -175,9 +175,9 @@ describe("index.ts", () => {
       const { optimizeImages } = await import("./processors/image-processor.js");
       expect(optimizeImages).toHaveBeenCalled();
 
-      // Check that compressEPUB was called with the right arguments
+      // Content-only preparation must never publish an unvalidated output
       const { compressEPUB } = await import("./processors/archive-processor.js");
-      expect(compressEPUB).toHaveBeenCalledWith("optimized.epub", "/tmp/epub-extract");
+      expect(compressEPUB).not.toHaveBeenCalled();
     });
 
     it("refuses a DRM-encrypted EPUB before any processing", async () => {
@@ -191,7 +191,9 @@ describe("index.ts", () => {
       });
 
       const module = await import("./index.js");
-      await expect(module.optimizeEPUB()).rejects.toThrow(/encrypted\/DRM-protected/);
+      await expect(module.optimizeEPUB(undefined, { skipPackaging: true })).rejects.toThrow(
+        /encrypted\/DRM-protected/
+      );
 
       // The EPUB must never be repacked when refused.
       const { compressEPUB } = await import("./processors/archive-processor.js");
@@ -205,7 +207,9 @@ describe("index.ts", () => {
       );
       const afterExtract = vi.fn();
       const { optimizeEPUB } = await import("./index.js");
-      await expect(optimizeEPUB(makeArgs(), { afterExtract })).rejects.toThrow("Internal DTD");
+      await expect(optimizeEPUB(makeArgs(), { skipPackaging: true, afterExtract })).rejects.toThrow(
+        "Internal DTD"
+      );
       expect(afterExtract).not.toHaveBeenCalled();
       const { detectEpubFeatures } = await import("./utils/epub-features.js");
       const { processHTML } = await import("./processors/html-processor.js");
@@ -234,7 +238,7 @@ describe("index.ts", () => {
       });
 
       const module = await import("./index.js");
-      await module.optimizeEPUB();
+      await module.optimizeEPUB(undefined, { skipPackaging: true });
 
       const { optimizeImages } = await import("./processors/image-processor.js");
       expect(optimizeImages).toHaveBeenCalledWith(
@@ -285,7 +289,9 @@ describe("index.ts", () => {
       const consoleSpy = vi.spyOn(console, "error");
 
       // The function should now throw due to our modification
-      await expect(module.optimizeEPUB()).rejects.toThrow("Input file not found: test.epub");
+      await expect(module.optimizeEPUB(undefined, { skipPackaging: true })).rejects.toThrow(
+        "Input file not found: test.epub"
+      );
 
       // Check that console.error was called with the error message
       expect(consoleSpy).toHaveBeenCalledWith(

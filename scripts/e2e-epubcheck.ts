@@ -1106,6 +1106,92 @@ async function assertAuthorWarningRejected(runDir: string, input: string): Promi
   }
 }
 
+async function assertPublicApiValidation(runDir: string, input: string): Promise<void> {
+  const entry = path.join(runDir, "public-api.mjs");
+  const apiUrl = pathToFileURL(path.join(repoRoot, "dist/src/index.js")).href;
+  await fs.writeFile(
+    entry,
+    `const { optimizeEPUB } = await import(${JSON.stringify(apiUrl)}); await optimizeEPUB();\n`
+  );
+  const inputBefore = await fs.readFile(input);
+  for (const mode of ["valid", "missing-validator", "timeout"]) {
+    const name = `api-${mode}`;
+    const output = path.join(runDir, `${name}.epub`);
+    const temp = path.join(runDir, `extract-${name}`);
+    const reportPath = path.join(runDir, `${name}.json`);
+    await fs.writeFile(output, "previous-output");
+    const result = spawnSync(
+      process.execPath,
+      [
+        entry,
+        "-i",
+        input,
+        "-o",
+        output,
+        "--temp",
+        temp,
+        "--preset",
+        "lossless",
+        "--clean",
+        "--report-json",
+        reportPath,
+        ...(mode === "timeout" ? ["--validation-timeout", "1"] : []),
+      ],
+      {
+        cwd: runDir,
+        env: withJavaFallback({
+          ...process.env,
+          EPUBCHECK_PATH:
+            mode === "missing-validator"
+              ? path.join(runDir, "absent-validator.jar")
+              : epubcheckPath,
+        }),
+        encoding: "utf8",
+        timeout: 60_000,
+      }
+    );
+    const log = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+    await fs.writeFile(path.join(runDir, `${name}.log`), log);
+    if (result.error) throw result.error;
+    const report = await fs.readJson(reportPath);
+    const validation = report.steps.find(
+      (step: { name: string }) => step.name === "Validate candidate EPUB"
+    );
+    if (mode === "valid") {
+      if (result.status !== 0 || !report.success || validation?.status !== "success") {
+        throw new Error(`Public API did not validate and publish its candidate.\n${log}`);
+      }
+      if (await fs.pathExists(temp))
+        throw new Error("Successful API run did not clean its temporary directory.");
+      await assertLosslessOutput(output, path.join(runDir, "api-inspection"));
+    } else {
+      if (
+        result.status === 0 ||
+        report.success ||
+        validation?.status !== "failed" ||
+        (await fs.readFile(output, "utf8")) !== "previous-output" ||
+        !(await fs.pathExists(temp))
+      ) {
+        throw new Error(
+          `Public API validation failure did not preserve existing output and diagnostics: ${mode}.\n${log}`
+        );
+      }
+      if (mode === "timeout" && !String(report.error).includes("time limit")) {
+        throw new Error(`Expected an API EPUBCheck timeout.\n${log}`);
+      }
+    }
+    if (
+      !(await fs.readFile(input)).equals(inputBefore) ||
+      (await fs.readdir(runDir)).some((file) => file.startsWith(`.${name}.candidate-`))
+    ) {
+      throw new Error("Public API changed the input or left a candidate archive behind.");
+    }
+  }
+  console.log(
+    "Public API validates candidates before publication and preserves existing outputs on validation failures and timeouts."
+  );
+}
+
 async function assertInternalDtdRejected(runDir: string, fixtureDir: string): Promise<void> {
   const root = path.join(runDir, "dtd-fixture");
   await fs.copy(fixtureDir, root);
@@ -1130,6 +1216,31 @@ async function assertInternalDtdRejected(runDir: string, fixtureDir: string): Pr
   if (validation.error) throw validation.error;
   if (validation.status !== 0)
     throw new Error("The generated internal-DTD input must pass EPUBCheck.");
+
+  const doctorPath = path.join(runDir, "dtd-doctor.json");
+  const doctor = spawnSync(
+    process.execPath,
+    [pipelinePath, "--doctor", "-i", input, "--report-json", doctorPath],
+    {
+      cwd: runDir,
+      encoding: "utf8",
+      timeout: 60_000,
+    }
+  );
+  if (doctor.error) throw doctor.error;
+  const diagnosis = await fs.readJson(doctorPath);
+  if (
+    doctor.status !== 0 ||
+    diagnosis.analysisComplete !== false ||
+    !diagnosis.optimization?.blocked ||
+    diagnosis.optimization.blockers[0]?.code !== "internal-dtd" ||
+    diagnosis.content ||
+    diagnosis.images
+  ) {
+    throw new Error(
+      "Doctor did not report the internal-DTD blocker without unsupported content metrics."
+    );
+  }
 
   for (const mode of ["balanced", "lossless", "repair", "author"]) {
     for (const strict of [false, true]) {
@@ -1241,6 +1352,7 @@ async function main(): Promise<void> {
     await assertLocalizedWarnings(runDir, fixtureDir);
     await assertAuthorWarningRejected(runDir, authorInputEpub);
     await assertInternalDtdRejected(runDir, fixtureDir);
+    await assertPublicApiValidation(runDir, inputEpub);
 
     const balanced = await runPnpmWorkflowCase(runDir, inputEpub, "balanced", "optimize", false, [
       "--strict",

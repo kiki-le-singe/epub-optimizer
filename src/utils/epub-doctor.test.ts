@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import fs from "fs-extra";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
-import { inspectExtractedEpub } from "./epub-doctor.js";
+import { compressEPUB } from "../processors/archive-processor.js";
+import unzipper from "unzipper";
+import { inspectExtractedEpub, runDoctor } from "./epub-doctor.js";
 
 const tempDirs: string[] = [];
 
@@ -67,6 +69,7 @@ async function createExtractedFixture(): Promise<string> {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(tempDirs.splice(0).map((dir) => fs.remove(dir)));
 });
 
@@ -78,6 +81,9 @@ describe("EPUB doctor", () => {
       archiveBytes: 1024 * 1024,
     });
 
+    if (!report.analysisComplete) throw new Error("Expected a complete diagnosis");
+    expect(report.optimization.blocked).toBe(false);
+    expect(report.images.archivePercent).toBeNull();
     expect(report.opf).toMatchObject({
       path: "OPS/content.opf",
       version: "3.0",
@@ -102,5 +108,106 @@ describe("EPUB doctor", () => {
     expect(report.risks.map((risk) => risk.code)).toEqual(
       expect.arrayContaining(["large-raster-images", "duplicate-image-basenames"])
     );
+  });
+  it.each(["OPS/chapter.xhtml", "OPS/content.opf", "OPS/resource.custom"])(
+    "reports DTD blockers without interpreting XML metrics: %s",
+    async (file) => {
+      const root = await createExtractedFixture();
+      await fs.writeFile(
+        path.join(root, file),
+        '<!DOCTYPE html [<!ENTITY custom "Example">]><html>&custom;</html>'
+      );
+      const report = await inspectExtractedEpub(root, {
+        input: "fixture.epub",
+        archiveBytes: 1000,
+      });
+      expect(report.analysisComplete).toBe(false);
+      expect(report.optimization).toMatchObject({
+        blocked: true,
+        blockers: [{ code: "internal-dtd", level: "error" }],
+      });
+      expect(report.optimization.blockers[0].message).toContain(file);
+      expect(report).not.toHaveProperty("content");
+      expect(report).not.toHaveProperty("images");
+    }
+  );
+
+  it("reports content DRM as a blocker but keeps font obfuscation inspectable", async () => {
+    const root = await createExtractedFixture();
+    const encryption = (algorithm: string, href: string) =>
+      `<encryption><EncryptedData><EncryptionMethod Algorithm="${algorithm}"/><CipherData><CipherReference URI="${href}"/></CipherData></EncryptedData></encryption>`;
+    await fs.writeFile(
+      path.join(root, "META-INF/encryption.xml"),
+      encryption("http://www.w3.org/2001/04/xmlenc#aes256-cbc", "OPS/chapter.xhtml")
+    );
+    const blocked = await inspectExtractedEpub(root, { input: "fixture.epub", archiveBytes: 1000 });
+    expect(blocked.analysisComplete).toBe(false);
+    expect(blocked.optimization.blockers.map((risk) => risk.code)).toEqual(["drm"]);
+    await fs.writeFile(
+      path.join(root, "META-INF/encryption.xml"),
+      encryption("http://www.idpf.org/2008/embedding", "OPS/font.ttf")
+    );
+    const supported = await inspectExtractedEpub(root, {
+      input: "fixture.epub",
+      archiveBytes: 1000,
+    });
+    expect(supported.analysisComplete).toBe(true);
+    expect(supported.optimization.blocked).toBe(false);
+  });
+
+  it("measures compressed image share once per archive resource, even with duplicate manifest references", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const root = await createExtractedFixture();
+    const opf = path.join(root, "OPS/content.opf");
+    await fs.writeFile(
+      opf,
+      (await fs.readFile(opf, "utf8")).replace(
+        "</manifest>",
+        '<item id="alias" href="images/a/photo.png" media-type="image/png"/><item id="svg" href="diagram.svg" media-type="image/svg+xml"/></manifest>'
+      )
+    );
+    await fs.writeFile(
+      path.join(root, "OPS/diagram.svg"),
+      '<svg xmlns="http://www.w3.org/2000/svg">' +
+        Array.from(
+          { length: 4000 },
+          (_, i) => `<rect x="${i % 100}" width="10" height="10"/>`
+        ).join("") +
+        "</svg>"
+    );
+    const archiveDir = await fs.mkdtemp(path.join(os.tmpdir(), "epub-doctor-zip-"));
+    tempDirs.push(archiveDir);
+    const archive = path.join(archiveDir, "book.epub");
+    await compressEPUB(archive, root);
+    const entries = (await unzipper.Open.file(archive)).files;
+    const imageBytes = entries
+      .filter((entry) => /\.(png|svg)$/.test(entry.path))
+      .reduce((sum, entry) => sum + entry.compressedSize, 0);
+    const inputBefore = await fs.readFile(archive);
+    const report = await runDoctor({ input: archive });
+    if (!report.analysisComplete) throw new Error("Expected complete image analysis");
+    expect(report.images.totalBytes).toBeGreaterThan(report.archiveBytes);
+    expect(report.images.compressedBytes).toBe(imageBytes);
+    expect(report.images.archivePercent).toBeCloseTo((imageBytes / report.archiveBytes) * 100);
+    expect(report.images.archivePercent).toBeLessThanOrEqual(100);
+    expect(await fs.readFile(archive)).toEqual(inputBefore);
+  });
+
+  it("writes a structured blocked diagnosis even when the OPF contains an internal DTD", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const root = await createExtractedFixture();
+    await fs.writeFile(
+      path.join(root, "OPS/content.opf"),
+      '<!DOCTYPE package [<!ENTITY custom "Example">]><package>&custom;</package>'
+    );
+    const archiveDir = await fs.mkdtemp(path.join(os.tmpdir(), "epub-doctor-blocked-"));
+    tempDirs.push(archiveDir);
+    const archive = path.join(archiveDir, "book.epub");
+    const reportJson = path.join(archiveDir, "report.json");
+    await compressEPUB(archive, root);
+    const report = await runDoctor({ input: archive, reportJson });
+    expect(report.analysisComplete).toBe(false);
+    expect(await fs.readJson(reportJson)).toEqual(report);
+    expect(report.optimization.blockers[0].message).toContain("OPS/content.opf");
   });
 });
