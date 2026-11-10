@@ -50,4 +50,22 @@ describe("CLI options", () => {
     expect(args.reportHtml).toBe("reports/book.html");
     expect(args.reportJson).toBe("reports/book.json");
   });
+  it("parses batch directories without changing per-book preset settings", async () => {
+    process.argv = [
+      "node",
+      "epub-optimizer",
+      "--batch",
+      "books",
+      "--output-dir",
+      "optimized",
+      "--preset",
+      "lossless",
+      "--clean",
+    ];
+    const args = await parseArguments();
+    expect(args.batch).toBe("books");
+    expect(args.outputDir).toBe("optimized");
+    expect(args.lossless).toBe(true);
+    expect(args.clean).toBe(true);
+  });
 });

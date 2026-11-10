@@ -53,6 +53,7 @@ Most of the savings come from image optimization (PNG→JPEG + recompression), s
   - [Image Concurrency](#image-concurrency)
   - [Doctor / Inspect Mode](#doctor--inspect-mode)
   - [Structured Reports and Profiling](#structured-reports-and-profiling)
+  - [Batch Optimization](#batch-optimization)
   - [Safety Model](#safety-model)
   - [Docker Usage](#docker-usage)
   - [Debugging with Temporary Files](#debugging-with-temporary-files)
@@ -386,6 +387,8 @@ Usage: epub-optimizer [options]
 Options:
   -i, --input       Input EPUB file path                    [string] [default: "mybook.epub"]
   -o, --output      Output EPUB file path                   [string] [default: "mybook_opt.epub"]
+  --batch           Directory of EPUB files to optimize (non-recursive)
+  --output-dir      Destination directory required with --batch
   -t, --temp        Temporary directory for processing      [string] [default: unique temp_epub-<id>]
   --jpg-quality     JPEG compression quality (0-100)        [number] [default: 70]
   --png-quality     PNG compression quality (0-1 scale)     [number] [default: 0.6]
@@ -406,7 +409,8 @@ Options:
   --image-concurrency
                     Concurrent image operations, from 1 to 64 [number] [default: CPU parallelism, capped at 8]
   --profile         Print execution time for each pipeline step
-  --report-json     Write a structured pipeline report to a JSON file
+  --report-json     Write a structured pipeline or batch summary report to JSON
+  --report-html     Write a standalone HTML optimization or batch summary report
   --doctor, --inspect
                     Inspect an EPUB without optimizing or writing an output EPUB
   --clean           Clean temporary files after processing  [boolean] [default: false]
@@ -621,6 +625,23 @@ Reports contain the configured input/output paths, preset, strict mode, timestam
 
 The report path must differ from the input and output EPUB paths and must be absent or a regular file. A report write failure fails the command.
 
+### Batch optimization
+
+Optimize the regular `.epub` files directly inside a directory (case-insensitive extension, non-recursive):
+
+```bash
+pnpm optimize --batch books --output-dir optimized --preset balanced --clean \
+  --report-json reports/batch.json --report-html reports/batch.html
+```
+
+Books are processed one at a time in filename order, using the same candidate validation and transactional output publication as single-book runs. Image concurrency still applies within each book. A failure is recorded and the remaining books continue. Exit code 0 means every book succeeded; exit code 1 means one or more books failed, or planning/report writing failed.
+
+Outputs are named `<original-stem>-optimized.epub`. Per-book JSON reports are always written under `<output-dir>/reports`; requesting an HTML summary also creates per-book HTML reports there. Without `--report-json`, the JSON summary defaults to `<output-dir>/batch-report.json`. The summary lists each book's result, whether this invocation published a validated output, and any error. A later cleanup/report failure can mark a run failed even though its validated output was already published.
+
+The entire path plan is checked before processing: input/output/report aliases, hard links, duplicate target names and file/parent collisions are rejected. EPUB input symlinks and symbolic-link directory roots are refused. Use a distinct output directory. Do not combine `--batch` with explicit `--input`, `--output`, `--temp`, or doctor mode. Empty directories fail without creating outputs. Each book receives a unique system temporary directory; `--clean` removes successful extraction directories while failed runs keep their diagnostics.
+
+The exported `runBatch(args)` API returns the structured summary without setting a process exit code. Pass resolved options, including `batch` and `outputDir`; use `optimizeEPUB(args)` for single-book calls.
+
 ### Safety Model
 
 The exported `optimizeEPUB(args)` Node.js entry point uses the same pipeline as the CLI: content/text preservation checks, optional repair and author passes, candidate EPUBCheck validation, and transactional publication. Java and EPUBCheck must be available for API calls too; `validationTimeout`, `strict`, `reportJson`, and `clean` apply as they do in the CLI. Validation failure or timeout preserves an existing output. The supplied options object is copied before feature detection adjusts processing settings.
@@ -791,6 +812,7 @@ epub-optimizer/
 │   └── validate-release.ts    # Release version/tag/ref guards (pnpm release:check)
 └── src/                    # Source code directory
     ├── index.ts            # Validated Node.js API entry point
+    ├── batch.ts            # Sequential batch planning, reports and execution
     ├── optimization.ts     # Shared API/CLI validation and publication pipeline
     ├── pipeline.ts         # CLI entry point for the shared optimization pipeline
     ├── cli.ts              # yargs-based argument parser

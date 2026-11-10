@@ -137,3 +137,33 @@ export async function commitCandidateOutput(
     );
   }
 }
+
+/** Reject aliases and file/parent collisions across a complete batch plan. */
+export function assertDistinctPathSet(paths: readonly string[]): void {
+  const canonical = new Set<string>();
+  const identities = new Set<string>();
+  for (const file of paths) {
+    const normalized = canonicalize(file);
+    if (canonical.has(normalized)) throw new Error(`Batch paths must be distinct: ${file}`);
+    canonical.add(normalized);
+    let stats;
+    try {
+      stats = fs.statSync(file);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (stats) {
+      const identity = `${stats.dev}:${stats.ino}`;
+      if (identities.has(identity)) throw new Error(`Batch paths alias the same file: ${file}`);
+      identities.add(identity);
+    }
+  }
+  for (const file of canonical) {
+    let parent = path.dirname(file);
+    while (parent !== path.dirname(parent)) {
+      if (canonical.has(parent))
+        throw new Error(`Batch file target is also a parent directory: ${parent}`);
+      parent = path.dirname(parent);
+    }
+  }
+}

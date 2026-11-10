@@ -1106,6 +1106,103 @@ async function assertAuthorWarningRejected(runDir: string, input: string): Promi
   }
 }
 
+async function assertBatchWorkflow(runDir: string, input: string): Promise<void> {
+  const source = path.join(runDir, "batch-input");
+  const output = path.join(runDir, "batch-output");
+  await fs.ensureDir(source);
+  await fs.ensureDir(output);
+  await fs.copyFile(input, path.join(source, "a-valid.epub"));
+  await fs.writeFile(path.join(source, "b-invalid.epub"), "not an EPUB archive");
+  await fs.copyFile(input, path.join(source, "c-valid.EPUB"));
+  await fs.writeFile(path.join(output, "b-invalid-optimized.epub"), "previous-output");
+  const inputBytes = await fs.readFile(input);
+  const htmlPath = path.join(runDir, "batch.html");
+  const jsonPath = path.join(runDir, "batch.json");
+  const result = spawnSync(
+    process.execPath,
+    [
+      pipelinePath,
+      "--batch",
+      source,
+      "--output-dir",
+      output,
+      "--preset",
+      "lossless",
+      "--clean",
+      "--report-json",
+      jsonPath,
+      "--report-html",
+      htmlPath,
+    ],
+    {
+      cwd: runDir,
+      env: withJavaFallback(process.env),
+      encoding: "utf8",
+      timeout: 120_000,
+    }
+  );
+  if (result.error) throw result.error;
+  const report = await fs.readJson(jsonPath);
+  if (
+    result.status !== 1 ||
+    report.success ||
+    report.total !== 3 ||
+    report.succeeded !== 2 ||
+    report.failed !== 1 ||
+    report.books.map((book: { success: boolean }) => book.success).join(",") !== "true,false,true"
+  ) {
+    throw new Error(
+      `Batch did not continue after its invalid EPUB.\n${result.stdout}\n${result.stderr}`
+    );
+  }
+  if (
+    (await fs.readFile(path.join(output, "b-invalid-optimized.epub"), "utf8")) !== "previous-output"
+  )
+    throw new Error("Failed batch book replaced an existing output.");
+  for (const name of ["a-valid", "c-valid"]) {
+    const detail = await fs.readJson(path.join(output, "reports", `${name}.json`));
+    if (await fs.pathExists(detail.tempDir))
+      throw new Error("Successful batch book retained its temporary directory despite --clean.");
+    const html = await fs.readFile(path.join(output, "reports", `${name}.html`), "utf8");
+    if (!html.includes("Output publication: <strong>completed</strong>"))
+      throw new Error("Batch is missing its validated per-book HTML report.");
+    await assertLosslessOutput(
+      path.join(output, `${name}-optimized.epub`),
+      path.join(runDir, `inspect-batch-${name}`)
+    );
+  }
+  if (
+    !(await fs.readFile(path.join(source, "a-valid.epub"))).equals(inputBytes) ||
+    !(await fs.readFile(path.join(source, "c-valid.EPUB"))).equals(inputBytes)
+  )
+    throw new Error("Batch changed an original EPUB.");
+  if (!(await fs.readFile(htmlPath, "utf8")).includes("Batch optimization report"))
+    throw new Error("Missing batch HTML summary.");
+  const successOnly = path.join(runDir, "batch-success");
+  await fs.ensureDir(successOnly);
+  await fs.copyFile(input, path.join(successOnly, "valid.epub"));
+  const success = spawnSync(
+    process.execPath,
+    [
+      pipelinePath,
+      "--batch",
+      successOnly,
+      "--output-dir",
+      path.join(runDir, "batch-success-output"),
+      "--preset",
+      "lossless",
+      "--clean",
+    ],
+    { cwd: runDir, env: withJavaFallback(process.env), encoding: "utf8", timeout: 60_000 }
+  );
+  if (success.error) throw success.error;
+  if (success.status !== 0)
+    throw new Error(`Successful batch exited nonzero.\n${success.stdout}\n${success.stderr}`);
+  console.log(
+    "Batch workflows preserve inputs and existing failed outputs, continue after failures, and generate per-book reports and summaries."
+  );
+}
+
 async function assertPublicApiValidation(runDir: string, input: string): Promise<void> {
   const entry = path.join(runDir, "public-api.mjs");
   const apiUrl = pathToFileURL(path.join(repoRoot, "dist/src/index.js")).href;
@@ -1353,6 +1450,7 @@ async function main(): Promise<void> {
     await assertAuthorWarningRejected(runDir, authorInputEpub);
     await assertInternalDtdRejected(runDir, fixtureDir);
     await assertPublicApiValidation(runDir, inputEpub);
+    await assertBatchWorkflow(runDir, inputEpub);
 
     const balanced = await runPnpmWorkflowCase(runDir, inputEpub, "balanced", "optimize", false, [
       "--strict",

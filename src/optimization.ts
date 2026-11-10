@@ -36,12 +36,13 @@ import {
   collectEpubTextSnapshot,
   type EpubTextSnapshot,
 } from "./utils/epub-text.js";
+import type { PipelineReport } from "./utils/run-report.js";
 import { loadAuthorWorkflowConfig } from "./utils/author-workflow-config.js";
 import { runDoctor } from "./utils/epub-doctor.js";
 
 export async function runOptimization(
   args: Args,
-  processingOptions: ContentProcessingOptions = {}
+  processingOptions: ContentProcessingOptions & { onReport?: (report: PipelineReport) => void } = {}
 ): Promise<void> {
   if (args.reportHtml) {
     assertSafeReportPath(args.reportHtml, args.input, args.output);
@@ -245,6 +246,7 @@ export async function runOptimization(
         reportWriteError ??= error;
       }
     }
+    processingOptions.onReport?.(report);
     if (args.profile) {
       printProfile(report);
     }
