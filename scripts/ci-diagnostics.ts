@@ -8,7 +8,7 @@ export async function saveDiagnostics(runDir: string, suite: string): Promise<vo
   const output = path.resolve(destination, suite, path.basename(runDir));
   await fs.ensureDir(output);
   for (const file of await fs.readdir(runDir)) {
-    if (file.endsWith(".json")) {
+    if (file.endsWith(".json") || file.endsWith(".html")) {
       const source = path.join(runDir, file);
       if ((await fs.lstat(source)).isFile()) await fs.copy(source, path.join(output, file));
     }

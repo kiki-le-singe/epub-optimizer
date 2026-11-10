@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import fs from "fs-extra";
+import { snapshotResources, compareResources, writeHtmlReport } from "./utils/html-report.js";
+import type { ResourceSnapshot } from "./utils/html-report.js";
 import { processEpubContent, type ContentProcessingOptions } from "./processors/epub-processor.js";
 import { reportFileSizeComparison } from "./utils/file-size.js";
 import type { Args } from "./types.js";
@@ -41,6 +43,12 @@ export async function runOptimization(
   args: Args,
   processingOptions: ContentProcessingOptions = {}
 ): Promise<void> {
+  if (args.reportHtml) {
+    assertSafeReportPath(args.reportHtml, args.input, args.output);
+    if (args.reportJson) assertDistinctInputOutput(args.reportJson, args.reportHtml);
+    if (args.doctor || args.inspect)
+      throw new Error("HTML reports are available for optimization runs only.");
+  }
   if (args.doctor || args.inspect) {
     if (args.reportJson) {
       assertSafeReportPath(args.reportJson, args.input, args.output);
@@ -63,6 +71,7 @@ export async function runOptimization(
   let candidateOutput: string | undefined;
   let reportWriteError: unknown;
   let textBefore: EpubTextSnapshot | undefined;
+  let resourcesBefore: Map<string, ResourceSnapshot> | undefined;
 
   try {
     candidateOutput = await createCandidateOutputPath(args.output);
@@ -85,6 +94,7 @@ export async function runOptimization(
           before: await collectEpubContentMetrics(tempDir),
         };
         textBefore = await collectEpubTextSnapshot(tempDir);
+        if (args.reportHtml) resourcesBefore = await snapshotResources(tempDir);
         await processingOptions.afterExtract?.(tempDir);
       },
     });
@@ -144,6 +154,9 @@ export async function runOptimization(
       assertEpubContentIntegrity(integrity);
       console.log("Content counts and internal references passed before/after validation.");
     });
+
+    if (resourcesBefore)
+      report.resources = compareResources(resourcesBefore, await snapshotResources(args.temp));
 
     // Step 4: Build and validate a candidate. The requested output is not
     // touched until EPUBCheck has accepted the candidate.
@@ -220,6 +233,16 @@ export async function runOptimization(
           `Failed to write JSON report: ${reportError instanceof Error ? reportError.message : String(reportError)}`
         );
         reportWriteError = reportError;
+      }
+    }
+    if (args.reportHtml) {
+      try {
+        await writeHtmlReport(report, args.reportHtml);
+      } catch (error) {
+        console.error(
+          `Failed to write HTML report: ${error instanceof Error ? error.message : String(error)}`
+        );
+        reportWriteError ??= error;
       }
     }
     if (args.profile) {

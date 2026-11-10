@@ -563,9 +563,17 @@ The configuration is validated before structure updates. Unknown keys, unsafe pa
 ### Structured Reports and Profiling
 
 - `--strict` also fails the run on processing or EPUBCheck warnings; processing and EPUBCheck errors always fail.
+- `--report-html reports/book.html` writes a standalone, offline HTML report with archive size changes, validation/publication status, step diagnostics and a byte/content comparison of extracted resources. It is available for optimization runs; doctor mode continues to use JSON.
 - `--profile` prints each pipeline step's status and duration.
 - `--report-json reports/report.json` writes a structured report on success and on pipeline failures that occur after preflight path validation.
 - The report directory is created automatically. Local reports under `reports/` are ignored by Git.
+
+HTML reports can be used alongside `--report-json`; all report paths must be distinct from the EPUBs and from each other, including symbolic/hard-link aliases. Reports are written on success and on processing/validation failures after preflight. A report write failure makes the command fail, while preserving any already-published validated EPUB. Resource hashing adds disk reads only when HTML reporting is requested. The report contains no external assets or scripts and escapes book-derived filenames and diagnostics. It contains local paths; review it before sharing. Added and removed resources can describe format conversion, and byte comparisons do not certify visual rendering.
+
+```bash
+pnpm optimize -i book.epub -o book-optimized.epub --clean \
+  --report-html reports/book.html --report-json reports/book.json
+```
 
 Reports contain the configured input/output paths, preset, strict mode, timestamps, total duration, size reduction when available, per-step statuses/durations/messages, before/after content metrics, integrity checks, and the final error when a run fails:
 

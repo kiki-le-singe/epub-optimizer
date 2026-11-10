@@ -114,6 +114,10 @@ async function parseArguments(): Promise<Args> {
       describe: "Write a structured pipeline report to this JSON file",
       type: "string",
     })
+    .option("report-html", {
+      describe: "Write a standalone HTML optimization report",
+      type: "string",
+    })
     .option("doctor", {
       alias: "inspect",
       describe: "Inspect an EPUB without optimizing or writing an output EPUB",
@@ -151,6 +155,8 @@ async function parseArguments(): Promise<Args> {
     .alias("version", "v")
     .strict()
     .check((argv) => {
+      if (argv["report-html"] && (argv.doctor || argv.inspect))
+        throw new Error("--report-html is for optimization runs; use --report-json with --doctor.");
       if (
         !Number.isInteger(argv["image-concurrency"]) ||
         argv["image-concurrency"] < 1 ||

@@ -1356,7 +1356,15 @@ async function main(): Promise<void> {
 
     const balanced = await runPnpmWorkflowCase(runDir, inputEpub, "balanced", "optimize", false, [
       "--strict",
+      "--report-html",
+      path.join(runDir, "balanced.html"),
     ]);
+    const html = await fs.readFile(path.join(runDir, "balanced.html"), "utf8");
+    if (
+      !html.includes("Output publication: <strong>completed</strong>") ||
+      !html.includes("Resources before and after")
+    )
+      throw new Error("Missing validated HTML optimization report.");
     if (balanced.report.preset !== "balanced") {
       throw new Error("Expected default E2E report to use the balanced preset.");
     }
