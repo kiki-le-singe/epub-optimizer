@@ -525,7 +525,13 @@ pnpm optimize --inspect -i book.epub --report-json reports/book-doctor.json
 
 Doctor mode extracts the EPUB to a system temporary directory, reads `container.xml` and the OPF manifest, prints a console summary, writes JSON when `--report-json` is provided, and removes its temporary extraction directory. It does not run the optimizing processors and it does not replace EPUBCheck.
 
-The report includes OPF path/version, manifest and spine counts, EPUB3/NCX navigation presence, internal reference counts and missing targets, image byte totals and largest images, duplicate image basenames, large raster images, opaque PNG conversion candidates, and other optimization-risk hints.
+For supported books, the report includes OPF path/version, manifest and spine counts, EPUB3/NCX navigation presence, internal reference counts and missing targets, image byte totals and largest images, duplicate image basenames, large raster images, opaque PNG conversion candidates, and other optimization-risk hints.
+
+Doctor checks internal DTD subsets and content DRM before interpreting package or content XML. When either blocks optimization, it prints the reason and writes `analysisComplete: false`, `optimization.blocked: true`, and structured blockers in `optimization.blockers` and `risks`. Detailed `opf`, `navigation`, `references`, `images`, and `content` fields are omitted rather than reporting misleading metrics. Font obfuscation alone remains inspectable. Exit code 0 means the diagnosis completed, including a diagnosis that finds a blocker; optimizing a blocked book still fails.
+
+For a complete diagnosis, `analysisComplete` is true and `optimization.blocked` is false. These fields do not certify EPUB validity or replace EPUBCheck. Consumers of doctor JSON must check `analysisComplete` before reading detailed metrics.
+
+Image reporting distinguishes `images.totalBytes` (uncompressed manifest image file bytes) from `images.compressedBytes` (the compressed ZIP payload of unique image resources). `images.archivePercent` uses compressed image bytes divided by the EPUB archive size, including ZIP overhead. Multiple manifest references to the same resource count once in the compressed share. When inspecting only an extracted directory without ZIP metadata, `compressedBytes` and `archivePercent` are `null`; uncompressed bytes are never presented as a percentage of compressed archive size.
 
 #### Optional Author Workflow Configuration
 
@@ -608,6 +614,10 @@ Reports contain the configured input/output paths, preset, strict mode, timestam
 The report path must differ from the input and output EPUB paths and must be absent or a regular file. A report write failure fails the command.
 
 ### Safety Model
+
+The exported `optimizeEPUB(args)` Node.js entry point uses the same pipeline as the CLI: content/text preservation checks, optional repair and author passes, candidate EPUBCheck validation, and transactional publication. Java and EPUBCheck must be available for API calls too; `validationTimeout`, `strict`, `reportJson`, and `clean` apply as they do in the CLI. Validation failure or timeout preserves an existing output. The supplied options object is copied before feature detection adjusts processing settings.
+
+Advanced `optimizeEPUB(args, { skipPackaging: true })` calls only prepare extracted content. They never create, replace or validate an output EPUB, and leave the extraction directory available even when `clean` is true. Processing hooks apply to the content-processing stage and do not replace final validation.
 
 The final EPUB is transactional: the optimizer creates a hidden candidate next to the requested output, validates that candidate with EPUBCheck, and publishes it only after validation succeeds. If optimization, packaging, validation, or publication fails before the commit, the candidate is discarded, the previous output remains untouched, and any temporary processing directory already created is preserved for debugging.
 
@@ -772,12 +782,14 @@ epub-optimizer/
 │   ├── prepare-release.ts     # Prepare and validate a release PR (pnpm release:prepare)
 │   └── validate-release.ts    # Release version/tag/ref guards (pnpm release:check)
 └── src/                    # Source code directory
-    ├── index.ts            # optimizeEPUB(): extract + run every content processor
-    ├── pipeline.ts         # In-process CLI orchestrator (bin entry point)
+    ├── index.ts            # Validated Node.js API entry point
+    ├── optimization.ts     # Shared API/CLI validation and publication pipeline
+    ├── pipeline.ts         # CLI entry point for the shared optimization pipeline
     ├── cli.ts              # yargs-based argument parser
     ├── types.ts            # TypeScript type definitions
     ├── types.d.ts          # Additional TypeScript declarations
-    ├── processors/         # Processing modules (called by index.ts)
+    ├── processors/         # Content-processing modules
+    │   ├── epub-processor.ts       # Extraction and content processing without publication
     │   ├── archive-processor.ts    # EPUB extraction/compression (zip-slip safe)
     │   ├── html-processor.ts       # HTML/CSS processing
     │   ├── js-processor.ts         # JavaScript minification

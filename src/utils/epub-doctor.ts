@@ -2,6 +2,9 @@ import fs from "fs-extra";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
+import unzipper from "unzipper";
+import { detectEpubFeatures } from "./epub-features.js";
+import { findInternalDtdSubsets } from "./xml-dtd.js";
 import * as cheerio from "cheerio";
 import { extractEPUB } from "../processors/archive-processor.js";
 import { collectEpubContentMetrics, type EpubContentMetrics } from "./epub-integrity.js";
@@ -19,14 +22,24 @@ export interface DoctorImage {
 }
 
 export interface DoctorRisk {
-  level: "info" | "warning";
+  level: "info" | "warning" | "error";
   code: string;
   message: string;
 }
 
-export interface EpubDoctorReport {
+interface DoctorReportBase {
   input: string;
   archiveBytes: number;
+  optimization: { blocked: boolean; blockers: DoctorRisk[] };
+  risks: DoctorRisk[];
+}
+
+export interface BlockedDoctorReport extends DoctorReportBase {
+  analysisComplete: false;
+}
+
+export interface EpubDoctorReport extends DoctorReportBase {
+  analysisComplete: true;
   opf: {
     path: string;
     version?: string;
@@ -47,7 +60,8 @@ export interface EpubDoctorReport {
   images: {
     count: number;
     totalBytes: number;
-    archivePercent: number;
+    compressedBytes: number | null;
+    archivePercent: number | null;
     byMediaType: Record<string, { count: number; bytes: number }>;
     largest: DoctorImage[];
     duplicateBasenames: Array<{ basename: string; hrefs: string[] }>;
@@ -57,6 +71,8 @@ export interface EpubDoctorReport {
   content: EpubContentMetrics;
   risks: DoctorRisk[];
 }
+
+export type DoctorReport = EpubDoctorReport | BlockedDoctorReport;
 
 interface ManifestImageItem {
   href: string;
@@ -130,8 +146,9 @@ async function readImageDetails(item: ManifestImageItem): Promise<DoctorImage> {
 async function collectManifestImages(
   epubDir: string,
   opfPath: string,
-  $opf: cheerio.CheerioAPI
-): Promise<DoctorImage[]> {
+  $opf: cheerio.CheerioAPI,
+  archiveEntries?: ReadonlyMap<string, number>
+): Promise<{ images: DoctorImage[]; compressedBytes?: number }> {
   const opfDir = path.dirname(opfPath);
   const items: ManifestImageItem[] = [];
 
@@ -152,10 +169,27 @@ async function collectManifestImages(
     }
   }
 
-  return Promise.all(items.map((item) => readImageDetails(item)));
+  const images = await Promise.all(items.map((item) => readImageDetails(item)));
+  const imagePaths = new Set(
+    items.flatMap((item, index) =>
+      item.filePath && images[index]?.exists
+        ? [toPosixPath(path.relative(epubDir, item.filePath))]
+        : []
+    )
+  );
+  const sizes = archiveEntries ? [...imagePaths].map((file) => archiveEntries.get(file)) : [];
+  const compressedBytes =
+    archiveEntries && sizes.every((size) => size !== undefined)
+      ? sizes.reduce<number>((sum, size) => sum + (size ?? 0), 0)
+      : undefined;
+  return { images, compressedBytes };
 }
 
-function summarizeImages(images: DoctorImage[], archiveBytes: number): EpubDoctorReport["images"] {
+function summarizeImages(
+  images: DoctorImage[],
+  archiveBytes: number,
+  compressedBytes?: number
+): EpubDoctorReport["images"] {
   const byMediaType: Record<string, { count: number; bytes: number }> = {};
   const basenameGroups = new Map<string, string[]>();
   const totalBytes = images.reduce((sum, image) => sum + image.bytes, 0);
@@ -173,7 +207,11 @@ function summarizeImages(images: DoctorImage[], archiveBytes: number): EpubDocto
   return {
     count: images.length,
     totalBytes,
-    archivePercent: archiveBytes > 0 ? (totalBytes / archiveBytes) * 100 : 0,
+    compressedBytes: compressedBytes ?? null,
+    archivePercent:
+      compressedBytes !== undefined && archiveBytes > 0 && compressedBytes <= archiveBytes
+        ? (compressedBytes / archiveBytes) * 100
+        : null,
     byMediaType,
     largest: [...images].sort((a, b) => b.bytes - a.bytes).slice(0, 5),
     duplicateBasenames: Array.from(basenameGroups.entries())
@@ -213,7 +251,7 @@ function buildRisks(report: Omit<EpubDoctorReport, "risks">): DoctorRisk[] {
       "No legacy NCX navigation file was found; this is acceptable for EPUB3-only books."
     );
   }
-  if (report.images.archivePercent >= 60) {
+  if (report.images.archivePercent !== null && report.images.archivePercent >= 60) {
     addRisk(
       risks,
       "info",
@@ -251,18 +289,60 @@ function buildRisks(report: Omit<EpubDoctorReport, "risks">): DoctorRisk[] {
 
 export async function inspectExtractedEpub(
   epubDir: string,
-  options: { input: string; archiveBytes: number }
-): Promise<EpubDoctorReport> {
+  options: {
+    input: string;
+    archiveBytes: number;
+    archiveEntries?: ReadonlyMap<string, number>;
+  }
+): Promise<DoctorReport> {
+  const internalDtdFiles = await findInternalDtdSubsets(epubDir);
+  const blockers: DoctorRisk[] = [];
+  if (internalDtdFiles.length > 0) {
+    blockers.push({
+      level: "error",
+      code: "internal-dtd",
+      message: `Internal DTD subsets prevent optimization: ${internalDtdFiles.map((file) => JSON.stringify(file)).join(", ")}. Replace internal declarations with literal text or numeric references before retrying.`,
+    });
+  } else {
+    // Never parse an OPF or other XML while its DTD semantics are unsupported.
+    const features = await detectEpubFeatures(epubDir);
+    if (features.encryptionKind === "drm") {
+      blockers.push({
+        level: "error",
+        code: "drm",
+        message:
+          "Encrypted/DRM-protected resources prevent optimization (META-INF/encryption.xml).",
+      });
+    }
+  }
+  if (blockers.length > 0) {
+    return {
+      input: options.input,
+      archiveBytes: options.archiveBytes,
+      analysisComplete: false,
+      optimization: { blocked: true, blockers },
+      risks: blockers,
+    };
+  }
   const opfPath = await getOPFPath(epubDir);
   const $opf = await parseOPF(opfPath);
   const contentPath = await getContentPath(epubDir);
   const tocFiles = await getTOCFiles(epubDir);
   const content = await collectEpubContentMetrics(epubDir);
+  const manifestImages = await collectManifestImages(
+    epubDir,
+    opfPath,
+    $opf,
+    options.archiveEntries
+  );
   const images = summarizeImages(
-    await collectManifestImages(epubDir, opfPath, $opf),
-    options.archiveBytes
+    manifestImages.images,
+    options.archiveBytes,
+    manifestImages.compressedBytes
   );
   const reportWithoutRisks = {
+    analysisComplete: true as const,
+    optimization: { blocked: false, blockers: [] },
     input: options.input,
     archiveBytes: options.archiveBytes,
     opf: {
@@ -292,10 +372,16 @@ export async function inspectExtractedEpub(
   };
 }
 
-export function printDoctorReport(report: EpubDoctorReport): void {
+export function printDoctorReport(report: DoctorReport): void {
   console.log("\n=== EPUB Doctor ===");
   console.log(`Input: ${report.input}`);
   console.log(`Archive: ${formatBytes(report.archiveBytes)}`);
+  if (!report.analysisComplete) {
+    console.log("Optimization is blocked:");
+    for (const blocker of report.optimization.blockers) console.log(`- ${blocker.message}`);
+    console.log("Detailed content metrics are unavailable for this unsupported EPUB.\n");
+    return;
+  }
   console.log(
     `OPF: ${report.opf.path} (${report.opf.version ? `EPUB ${report.opf.version}` : "version unknown"}), manifest ${report.opf.manifestItems}, spine ${report.opf.spineItems}`
   );
@@ -305,8 +391,12 @@ export function printDoctorReport(report: EpubDoctorReport): void {
   console.log(
     `Internal refs: ${report.references.internal} checked, ${report.references.missing} missing`
   );
+  const compressedShare =
+    report.images.archivePercent === null
+      ? "compressed archive share unavailable"
+      : `${report.images.archivePercent.toFixed(1)}% of compressed archive`;
   console.log(
-    `Images: ${report.images.count} manifest item(s), ${formatBytes(report.images.totalBytes)} (${report.images.archivePercent.toFixed(1)}% of archive)`
+    `Images: ${report.images.count} manifest item(s), ${formatBytes(report.images.totalBytes)} uncompressed (${compressedShare})`
   );
 
   if (report.images.largest.length > 0) {
@@ -341,7 +431,7 @@ export function printDoctorReport(report: EpubDoctorReport): void {
 export async function runDoctor(options: {
   input: string;
   reportJson?: string;
-}): Promise<EpubDoctorReport> {
+}): Promise<DoctorReport> {
   if (!(await fs.pathExists(options.input))) {
     throw new Error(`Input file not found: ${options.input}`);
   }
@@ -353,7 +443,19 @@ export async function runDoctor(options: {
   try {
     const extractedDir = path.join(tempDir, "content");
     await extractEPUB(options.input, extractedDir);
+    const archive = await unzipper.Open.file(options.input);
+    const archiveEntries = new Map(
+      archive.files
+        .filter((entry) => entry.type !== "Directory")
+        .map((entry) => [
+          toPosixPath(
+            path.relative(extractedDir, path.resolve(extractedDir, entry.path.replace(/\\/g, "/")))
+          ),
+          entry.compressedSize,
+        ])
+    );
     const report = await inspectExtractedEpub(extractedDir, {
+      archiveEntries,
       input: options.input,
       archiveBytes: (await fs.stat(options.input)).size,
     });
