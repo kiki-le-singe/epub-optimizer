@@ -6,7 +6,10 @@ import { optimizeEPUB } from "./index";
 import { parseArguments } from "./cli";
 import type { Args } from "./types";
 import { compressEPUB } from "./processors/archive-processor";
+import { run as validateEPUB } from "./scripts/validate-epub.js";
 import { getContentPath } from "./utils/epub-utils";
+
+vi.mock("./scripts/validate-epub.js", () => ({ run: vi.fn().mockResolvedValue(undefined) }));
 
 // Mock the CLI module to avoid parsing real argv
 vi.mock("./cli", () => ({
@@ -54,6 +57,8 @@ describe("EPUB Optimization Integration Tests", () => {
     // Create the test directory
     await fs.ensureDir(tempDir);
 
+    vi.mocked(validateEPUB).mockReset().mockResolvedValue(undefined);
+
     // Mock the parseArguments to return our test args
     vi.mocked(parseArguments).mockResolvedValue(mockArgs);
 
@@ -72,7 +77,12 @@ describe("EPUB Optimization Integration Tests", () => {
   });
 
   it("optimizes an EPUB file end-to-end", async () => {
-    // Run the optimization process
+    vi.mocked(validateEPUB).mockImplementationOnce(async (options) => {
+      expect(options?.output).not.toBe(mockOutputEpub);
+      expect(await fs.pathExists(options?.output as string)).toBe(true);
+      expect(await fs.pathExists(mockOutputEpub)).toBe(false);
+      expect(await fs.pathExists(extractDir)).toBe(true);
+    });
     const result = await optimizeEPUB();
 
     // Verify successful completion
@@ -122,6 +132,51 @@ describe("EPUB Optimization Integration Tests", () => {
         }
       }
     }
+  });
+
+  it.each(["invalid EPUB", "EPUBCheck exceeded its time limit"])(
+    "preserves an existing output and input when API validation fails: %s",
+    async (reason) => {
+      const existing = Buffer.from("previous output");
+      const inputBefore = await fs.readFile(mockInputEpub);
+      await fs.writeFile(mockOutputEpub, existing);
+      vi.mocked(validateEPUB).mockRejectedValueOnce(new Error(reason));
+      await expect(optimizeEPUB({ ...mockArgs, clean: true })).rejects.toThrow(reason);
+      expect(await fs.readFile(mockOutputEpub)).toEqual(existing);
+      expect(await fs.readFile(mockInputEpub)).toEqual(inputBefore);
+      expect(await fs.pathExists(extractDir)).toBe(true);
+      expect((await fs.readdir(tempDir)).filter((file) => file.includes(".candidate-"))).toEqual(
+        []
+      );
+    }
+  );
+
+  it("blocks API content changes before validation or output publication", async () => {
+    await fs.writeFile(mockOutputEpub, "previous output");
+    await expect(
+      optimizeEPUB(
+        { ...mockArgs },
+        {
+          afterExtract: async (dir) => {
+            const file = path.join(dir, "content.html");
+            await fs.writeFile(
+              file,
+              (await fs.readFile(file, "utf8")).replace("Hello World", "Changed text")
+            );
+          },
+        }
+      )
+    ).rejects.toThrow(/text/i);
+    expect(await fs.readFile(mockOutputEpub, "utf8")).toBe("previous output");
+    expect(validateEPUB).not.toHaveBeenCalled();
+  });
+
+  it("does not publish or validate when only preparing extracted content", async () => {
+    await fs.writeFile(mockOutputEpub, "previous output");
+    await optimizeEPUB({ ...mockArgs }, { skipPackaging: true });
+    expect(await fs.readFile(mockOutputEpub, "utf8")).toBe("previous output");
+    expect(await fs.pathExists(extractDir)).toBe(true);
+    expect(validateEPUB).not.toHaveBeenCalled();
   });
 
   it("optimizes an EPUB and preserves temporary files when clean=false", async () => {
