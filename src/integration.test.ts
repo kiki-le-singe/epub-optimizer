@@ -171,6 +171,42 @@ describe("EPUB Optimization Integration Tests", () => {
     expect(validateEPUB).not.toHaveBeenCalled();
   });
 
+  it("writes HTML and JSON after successful publication and cleanup", async () => {
+    const reportHtml = path.join(tempDir, "report.html");
+    const reportJson = path.join(tempDir, "report.json");
+    await optimizeEPUB({ ...mockArgs, reportHtml, reportJson });
+    const html = await fs.readFile(reportHtml, "utf8");
+    expect(html).toContain("Output publication: <strong>completed</strong>");
+    expect(html).toContain("Resources before and after");
+    expect((await fs.readJson(reportJson)).resources.length).toBeGreaterThan(0);
+    expect(await fs.pathExists(extractDir)).toBe(false);
+  });
+
+  it("writes a failed HTML report without replacing an existing output", async () => {
+    const reportHtml = path.join(tempDir, "report.html");
+    await fs.writeFile(mockOutputEpub, "previous output");
+    vi.mocked(validateEPUB).mockRejectedValueOnce(new Error("validation failed"));
+    await expect(optimizeEPUB({ ...mockArgs, reportHtml })).rejects.toThrow("validation failed");
+    expect(await fs.readFile(mockOutputEpub, "utf8")).toBe("previous output");
+    const html = await fs.readFile(reportHtml, "utf8");
+    expect(html).toContain("EPUBCheck: <strong>failed</strong>");
+    expect(html).toContain("Output publication: <strong>not completed</strong>");
+  });
+
+  it("refuses HTML reports aliasing EPUBs or JSON reports", async () => {
+    const reportHtml = path.join(tempDir, "report.html");
+    await fs.link(mockInputEpub, reportHtml);
+    await expect(optimizeEPUB({ ...mockArgs, reportHtml })).rejects.toThrow(/different/);
+    await fs.remove(reportHtml);
+    const reportJson = path.join(tempDir, "report.json");
+    await fs.writeFile(reportJson, "previous report");
+    await fs.link(reportJson, reportHtml);
+    await expect(optimizeEPUB({ ...mockArgs, reportJson, reportHtml })).rejects.toThrow(
+      /different/
+    );
+    expect(await fs.readFile(reportJson, "utf8")).toBe("previous report");
+    expect(validateEPUB).not.toHaveBeenCalled();
+  });
   it("does not publish or validate when only preparing extracted content", async () => {
     await fs.writeFile(mockOutputEpub, "previous output");
     await optimizeEPUB({ ...mockArgs }, { skipPackaging: true });
