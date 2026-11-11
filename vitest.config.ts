@@ -12,9 +12,11 @@ export default defineConfig({
       reporter: ["text", "json", "html"],
       include: ["src/**/*.ts"],
       exclude: ["**/*.test.ts", "src/types.ts", "src/types.d.ts"],
-      // Regression floor, a few points below current coverage. Modules
-      // exercised only by the E2E suites (cli, scripts/fix, scripts/ops)
-      // don't count toward these numbers.
+      // Regression floor only: measured unit coverage is well above these
+      // values, so they catch large drops rather than small ones. The CLI
+      // and scripts/fix have unit tests; most author-workflow modules in
+      // scripts/ops are exercised mainly by the EPUBCheck E2E suite, which
+      // does not count toward these numbers.
       thresholds: {
         statements: 58,
         branches: 48,
