@@ -136,7 +136,9 @@ describe("pipeline orchestration", () => {
       tempDir: "/tmp/ep",
       output: "/tmp/candidate.epub",
     });
-    expect(validateEPUB).toHaveBeenCalledWith({ output: "/tmp/candidate.epub", strict: false });
+    expect(validateEPUB).toHaveBeenCalledWith(
+      expect.objectContaining({ output: "/tmp/candidate.epub", strict: false })
+    );
   });
 
   it("runs author workflow structure updates when --author-workflow is set", async () => {

@@ -1,3 +1,9 @@
+import {
+  reportError,
+  reportInfo,
+  reportWarning,
+  reportWarningToStdout,
+} from "../../utils/diagnostics.js";
 import fs from "fs-extra";
 import * as cheerio from "cheerio";
 import { getCoverLabel } from "../../utils/i18n.js";
@@ -25,7 +31,7 @@ async function updateEPUB3Navigation(
   authorConfig: AuthorWorkflowConfig
 ): Promise<void> {
   try {
-    console.log(`Adding cover to EPUB3 navigation file: ${navFilePath}`);
+    reportInfo(`Adding cover to EPUB3 navigation file: ${navFilePath}`);
 
     const content = await fs.readFile(navFilePath, "utf8");
     const $ = cheerio.load(content, { xmlMode: true });
@@ -36,18 +42,26 @@ async function updateEPUB3Navigation(
     );
 
     if (coverLink.length === 0) {
-      // Try different TOC selectors in order of preference
-      const tocSelectors = [
-        'nav[epub\\:type="toc"] > ol',
-        'nav[*|type="toc"] > ol',
-        'nav[role="doc-toc"] > ol',
-        "nav > ol",
-        "ol",
+      // css-select cannot evaluate namespace-wildcard attributes. Inspect
+      // attribute names explicitly so alternate prefixes and fallbacks work.
+      const tocLists = [
+        $('nav[epub\\:type="toc"] > ol'),
+        $("nav")
+          .filter((_, element) =>
+            Object.entries(element.attribs).some(
+              ([name, value]) =>
+                (name === "type" || name.endsWith(":type")) && value.split(/\s+/).includes("toc")
+            )
+          )
+          .children("ol"),
+        $('nav[role="doc-toc"] > ol'),
+        $("nav > ol"),
+        $("ol"),
       ];
 
       let olElement = $();
-      for (const selector of tocSelectors) {
-        olElement = $(selector).first();
+      for (const list of tocLists) {
+        olElement = list.first();
         if (olElement.length) break;
       }
 
@@ -64,16 +78,16 @@ async function updateEPUB3Navigation(
 
         // Save the updated TOC
         await fs.writeFile(navFilePath, $.xml());
-        console.log("Successfully added cover to EPUB3 navigation file");
+        reportInfo("Successfully added cover to EPUB3 navigation file");
       } else {
-        console.log("Warning: Could not find TOC list in EPUB3 navigation file");
+        reportWarningToStdout("Warning: Could not find TOC list in EPUB3 navigation file");
       }
     } else {
-      console.log("Cover is already in EPUB3 navigation file");
+      reportInfo("Cover is already in EPUB3 navigation file");
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.warn(`Failed to update EPUB3 navigation file: ${errorMessage}`);
+    reportWarning(`Failed to update EPUB3 navigation file: ${errorMessage}`);
   }
 }
 
@@ -90,7 +104,7 @@ async function updateEPUB2NCX(
   authorConfig: AuthorWorkflowConfig
 ): Promise<void> {
   try {
-    console.log(`Adding cover to EPUB2 NCX file: ${ncxFilePath}`);
+    reportInfo(`Adding cover to EPUB2 NCX file: ${ncxFilePath}`);
 
     const content = await fs.readFile(ncxFilePath, "utf8");
     const $ = cheerio.load(content, { xmlMode: true });
@@ -128,16 +142,16 @@ async function updateEPUB2NCX(
 
         // Save the updated NCX
         await fs.writeFile(ncxFilePath, $.xml());
-        console.log("Successfully added cover to EPUB2 NCX file");
+        reportInfo("Successfully added cover to EPUB2 NCX file");
       } else {
-        console.log("Warning: Could not find navMap in EPUB2 NCX file");
+        reportWarningToStdout("Warning: Could not find navMap in EPUB2 NCX file");
       }
     } else {
-      console.log("Cover is already in EPUB2 NCX file");
+      reportInfo("Cover is already in EPUB2 NCX file");
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.warn(`Failed to update EPUB2 NCX file: ${errorMessage}`);
+    reportWarning(`Failed to update EPUB2 NCX file: ${errorMessage}`);
   }
 }
 
@@ -146,7 +160,7 @@ export async function run(opts: RunOpts = {}): Promise<void> {
   const coverLabel = getCoverLabel(opts.lang ?? getLang());
   const authorConfig = opts.authorConfig ?? DEFAULT_AUTHOR_WORKFLOW_CONFIG;
 
-  console.log("Discovering TOC files from OPF manifest...");
+  reportInfo("Discovering TOC files from OPF manifest...");
 
   const tocFiles = await getTOCFiles(extractedDir);
   const contentDir = await getContentPath(extractedDir);
@@ -157,7 +171,7 @@ export async function run(opts: RunOpts = {}): Promise<void> {
   );
 
   if (!tocFiles.epub3Nav && !tocFiles.epub2Ncx) {
-    console.log("No TOC files found in OPF manifest. Skipping TOC updates.");
+    reportInfo("No TOC files found in OPF manifest. Skipping TOC updates.");
     return;
   }
 
@@ -170,21 +184,21 @@ export async function run(opts: RunOpts = {}): Promise<void> {
       authorConfig
     );
   } else {
-    console.log("No EPUB3 navigation file found");
+    reportInfo("No EPUB3 navigation file found");
   }
 
   if (tocFiles.epub2Ncx) {
     await updateEPUB2NCX(extractedDir, tocFiles.epub2Ncx, coverFile, coverLabel, authorConfig);
   } else {
-    console.log("No EPUB2 NCX file found");
+    reportInfo("No EPUB2 NCX file found");
   }
 
-  console.log("TOC updates completed successfully");
+  reportInfo("TOC updates completed successfully");
 }
 
 if (isEntryPoint(import.meta.url)) {
   run().catch((err) => {
-    console.error(err);
+    reportError(err);
     process.exit(1);
   });
 }
