@@ -36,5 +36,18 @@ export default tseslint.config(
       // Catch unawaited promises in the async-heavy pipeline.
       "@typescript-eslint/no-floating-promises": "error",
     },
+  },
+  {
+    files: ["src/**/*.ts"],
+    ignores: ["**/*.test.ts", "**/*.spec.ts", "**/__tests__/**", "src/utils/diagnostics.ts"],
+    rules: {
+      "no-restricted-globals": [
+        "error",
+        {
+          name: "console",
+          message: "Use explicit diagnostic helpers so step reports retain warnings and errors.",
+        },
+      ],
+    },
   }
 );

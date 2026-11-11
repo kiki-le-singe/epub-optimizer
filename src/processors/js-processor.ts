@@ -1,3 +1,4 @@
+import { reportInfo, reportWarning } from "../utils/diagnostics.js";
 import fs from "fs-extra";
 import path from "node:path";
 import { minify as terserMinify } from "terser";
@@ -12,16 +13,16 @@ const JS_EXTENSIONS = new Set([".js"]);
  */
 async function minifyJavaScript(dir: string): Promise<void> {
   try {
-    console.log("Minifying JavaScript files...");
+    reportInfo("Minifying JavaScript files...");
 
     const jsFiles = await collectFiles(dir, (filePath) => hasExtension(filePath, JS_EXTENSIONS));
 
     if (jsFiles.length === 0) {
-      console.log("No JavaScript files found");
+      reportInfo("No JavaScript files found");
       return;
     }
 
-    console.log(`Found ${jsFiles.length} JavaScript files to minify`);
+    reportInfo(`Found ${jsFiles.length} JavaScript files to minify`);
 
     await forEachFileLimited(jsFiles, async (jsFile) => {
       try {
@@ -31,7 +32,7 @@ async function minifyJavaScript(dir: string): Promise<void> {
 
         // Skip empty files
         if (content.trim() === "") {
-          console.log(`Skipping empty file: ${path.basename(jsFile)}`);
+          reportInfo(`Skipping empty file: ${path.basename(jsFile)}`);
           return;
         }
 
@@ -50,14 +51,14 @@ async function minifyJavaScript(dir: string): Promise<void> {
           const newSize = Buffer.from(result.code).length;
           const reduction = Math.round(((originalSize - newSize) / originalSize) * 100);
 
-          console.log(
+          reportInfo(
             `Minified ${path.basename(jsFile)}: ${originalSize} bytes → ${newSize} bytes (${reduction}% smaller)`
           );
         } else {
-          console.log(`Skipping ${path.basename(jsFile)}: No output from minifier`);
+          reportInfo(`Skipping ${path.basename(jsFile)}: No output from minifier`);
         }
       } catch (error) {
-        console.warn(
+        reportWarning(
           `Skipping ${path.basename(jsFile)}: ${error instanceof Error ? error.message : String(error)}`
         );
       }

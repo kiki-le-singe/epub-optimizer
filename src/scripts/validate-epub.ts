@@ -1,3 +1,4 @@
+import { reportError, reportInfo, reportWarning } from "../utils/diagnostics.js";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -54,7 +55,7 @@ export function run(opts: ValidationOptions = {}): void {
   const report: EpubCheckReport = { source: "unavailable", exitCode: null, messages: [] };
   let failure: { error: unknown } | undefined;
   try {
-    console.log(`Validating EPUB: ${outputEpub}`);
+    reportInfo(`Validating EPUB: ${outputEpub}`);
     const args = [
       "-jar",
       path.resolve(config.epubcheckPath),
@@ -99,9 +100,9 @@ export function run(opts: ValidationOptions = {}): void {
       report.diagnosticsError = `Could not read EPUBCheck JSON diagnostics; detailed validation messages are unavailable. ${reason}`;
       report.totals = parseEpubCheckMessages(`${result.stdout ?? ""}\n${result.stderr ?? ""}`);
       report.source = report.totals ? "text" : "unavailable";
-      if (report.totals) console.log(report.diagnosticsError);
+      if (report.totals) reportInfo(report.diagnosticsError);
       else
-        console.warn(
+        reportWarning(
           "Could not read EPUBCheck message totals; validation diagnostics are incomplete."
         );
     }
@@ -118,7 +119,7 @@ export function run(opts: ValidationOptions = {}): void {
       );
     }
     if (report.totals?.warnings)
-      console.warn(`EPUBCheck reported ${report.totals.warnings} warning(s).`);
+      reportWarning(`EPUBCheck reported ${report.totals.warnings} warning(s).`);
     if (result.status !== 0)
       throw new Error(`EPUB validation failed (exit ${result.status ?? "unknown"}).`);
     if (
@@ -140,7 +141,7 @@ export function run(opts: ValidationOptions = {}): void {
       (report.totals?.warnings || report.messages.some((message) => message.severity === "WARNING"))
     )
       throw new Error("EPUBCheck warnings are not allowed in strict mode.");
-    console.log("EPUB validation passed.");
+    reportInfo("EPUB validation passed.");
   } catch (error) {
     if (report.source === "unavailable")
       report.diagnosticsError ??= error instanceof Error ? error.message : String(error);
@@ -151,7 +152,7 @@ export function run(opts: ValidationOptions = {}): void {
       fs.rmSync(directory, { recursive: true, force: true });
     } catch (error) {
       failure ??= { error };
-      console.warn(
+      reportWarning(
         `Failed to clean EPUBCheck diagnostics: ${error instanceof Error ? error.message : String(error)}`
       );
     }
@@ -168,7 +169,7 @@ if (isEntryPoint(import.meta.url)) {
   try {
     run();
   } catch (err) {
-    console.error(err);
+    reportError(err);
     process.exit(1);
   }
 }
