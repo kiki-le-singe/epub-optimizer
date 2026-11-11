@@ -1,3 +1,4 @@
+import { reportError, reportInfo, reportWarningToStdout } from "../../utils/diagnostics.js";
 import fs from "fs-extra";
 import * as cheerio from "cheerio";
 import { getCoverLabel } from "../../utils/i18n.js";
@@ -29,11 +30,11 @@ export async function run(opts: RunOpts = {}): Promise<void> {
   );
 
   if (!fs.existsSync(summaryFile)) {
-    console.log(`Summary file not found at ${summaryFile}, skipping summary update`);
+    reportInfo(`Summary file not found at ${summaryFile}, skipping summary update`);
     return;
   }
 
-  console.log(`Updating summary page: ${summaryFile}`);
+  reportInfo(`Updating summary page: ${summaryFile}`);
 
   const content = fs.readFileSync(summaryFile, "utf8");
   const $ = cheerio.load(content, { xmlMode: true });
@@ -61,21 +62,21 @@ export async function run(opts: RunOpts = {}): Promise<void> {
         $(`<a href="${createOwnerRelativeHref(summaryFile, coverFile)}">${coverLabel}</a>`)
       );
       firstLink.before(coverParagraph);
-      console.log("Successfully added cover to summary page");
+      reportInfo("Successfully added cover to summary page");
     } else {
-      console.log("Warning: Could not find link paragraphs in summary page");
+      reportWarningToStdout("Warning: Could not find link paragraphs in summary page");
     }
   } else {
-    console.log("Cover is already in the summary page");
+    reportInfo("Cover is already in the summary page");
   }
 
   fs.writeFileSync(summaryFile, $.xml());
-  console.log("Summary page updated successfully");
+  reportInfo("Summary page updated successfully");
 }
 
 if (isEntryPoint(import.meta.url)) {
   run().catch((err) => {
-    console.error(err);
+    reportError(err);
     process.exit(1);
   });
 }

@@ -22,7 +22,7 @@ A Node.js utility to optimize EPUB files by compressing HTML, CSS, images and re
 
 ### Results
 
-Measured on a 57 MB image-heavy EPUB (12 full-page PNGs), with EPUBCheck-clean output:
+Measured on an image-heavy EPUB with 12 full-page PNGs, with EPUBCheck-clean output. The input is 57 MB as printed by the CLI, which uses 1024-based units (60.0 MB on disk):
 
 | Preset               | Output     | Reduction                          | EPUBCheck             |
 | -------------------- | ---------- | ---------------------------------- | --------------------- |
@@ -31,7 +31,11 @@ Measured on a 57 MB image-heavy EPUB (12 full-page PNGs), with EPUBCheck-clean o
 | `repair`             | 8.3 MB     | **−85.5%**                         | 0 errors / 0 warnings |
 | `lossless`           | ~unchanged | by design (no lossy image changes) | 0 errors / 0 warnings |
 
-Most of the savings come from image optimization (PNG→JPEG + recompression), so results scale with how image-heavy your book is. Peak memory stays bounded (~0.5 GB on this 57 MB input).
+The `balanced` row was remeasured with v3.8.0. The `author` and `repair` rows are earlier measurements and were not rerun for v3.8.0; the `lossless` row describes the preset's behavior.
+
+Nearly all of the savings come from raster image optimization, so results scale with how image-heavy your book is. In this book, 11 of the 12 PNGs contain transparency: they stay PNG and shrink through palette quantization (`--png-quality`) and downscaling to the default 1600 px maximum dimension. Only the opaque cover is converted to JPEG, because PNG-to-JPEG conversion applies only to large PNGs without an alpha channel.
+
+Memory was observed, not bounded by design. In local v3.8.0 runs of the `balanced` preset on this book (macOS arm64, Node.js 25, Java 25, default image concurrency), the Node.js process peaked at about 548 MiB (0.53 GiB) of resident memory. EPUBCheck then runs in a separate Java process, about 0.3 GiB here, which that figure excludes. These are single-machine observations, not limits: memory depends mainly on image dimensions and [`--image-concurrency`](#image-concurrency).
 
 ## Table of Contents
 
@@ -256,7 +260,9 @@ EPUBCHECK_PATH=/opt/epubcheck/epubcheck.jar epub-optimizer -i book.epub -o book-
 An explicit relative `EPUBCHECK_PATH` is resolved from the current working
 directory. EPUBCheck messages use English regardless of the JVM's language.
 `--strict` enables EPUBCheck's native rejection of warnings and also rejects a
-missing or unreadable validation summary.
+missing or unreadable validation totals. Totals come from JSON, with the native
+text summary retained as a compatibility fallback when detailed JSON diagnostics
+are unavailable. A nonzero validator exit or timeout always fails validation.
 
 CI and Docker pin EPUBCheck 5.4.0 and its sha256 checksum centrally in `scripts/install-epubcheck.sh` (single source of truth); the download is verified against the checksum before installation.
 
@@ -571,6 +577,12 @@ The configuration is validated before structure updates. Unknown keys, unsafe pa
 - `--profile` prints each pipeline step's status and duration.
 - `--report-json reports/report.json` writes a structured report on success and on pipeline failures that occur after preflight path validation.
 - The report directory is created automatically. Local reports under `reports/` are ignored by Git.
+
+Processing diagnostics are emitted explicitly and collected within each asynchronous step; the optimizer does not replace global `console` methods or infer severity from message text. Step `messages` and strict warning/error handling retain their existing format. Custom API processing hooks should use the exported `reportWarning(...args)` and `reportError(...args)` helpers to participate in reports and strict checks. Ordinary `console` output remains display-only; thrown exceptions still fail the operation. Nested step diagnostics also reach the enclosing operation, while concurrent operations have separate collectors and completed steps stop collecting late callbacks. Batch processing remains sequential.
+
+Once EPUBCheck runs, optimization reports include an optional `validation` object with its native `exitCode`, diagnostic `source` (`json`, `text`, or `unavailable`), version when available, `totals` (`fatals`, `errors`, `warnings`, `infos`), and detailed `messages`. Each message contains a `code`, uppercase `severity`, `message`, `locations` (path and available line/column/context), `additionalLocations`, and an optional suggestion. The same details appear in HTML reports and per-book batch reports, including failed runs. These fields are additive; existing step statuses and messages are retained, and doctor mode is unchanged.
+
+EPUBCheck groups repeated messages and [defaults to at most 25 occurrences per code/message combination](https://www.w3.org/publishing/epubcheck/docs/cli/); totals may exceed the detailed entries returned. Unknown line/column values are omitted. Publication metadata and unrelated raw validator fields are not copied into the optimization report. JSON diagnostics are read from a unique private temporary file with a 16 MiB limit and removed after the invocation. If they are missing, malformed, unsupported or too large, `diagnosticsError` explains that details are unavailable and the native text totals are used when readable. Strict mode still rejects warnings and unavailable totals; non-strict mode retains its native-exit fallback with an explicit warning when totals cannot be read. Fatal/error diagnostics also block publication even if a validator incorrectly exits with code 0.
 
 HTML reports can be used alongside `--report-json`; all report paths must be distinct from the EPUBs and from each other, including symbolic/hard-link aliases. Reports are written on success and on processing/validation failures after preflight. A report write failure makes the command fail, while preserving any already-published validated EPUB. Resource hashing adds disk reads only when HTML reporting is requested. The report contains no external assets or scripts and escapes book-derived filenames and diagnostics. It contains local paths; review it before sharing. Added and removed resources can describe format conversion, and byte comparisons do not certify visual rendering.
 

@@ -1,3 +1,4 @@
+import { reportError, reportInfo } from "../../utils/diagnostics.js";
 import { isEntryPoint, type RunOpts } from "../utils.js";
 import { run as updateCoverLinear } from "./update-cover-linear.js";
 import { run as updateTocWithCover } from "./update-toc-with-cover.js";
@@ -12,12 +13,12 @@ export async function runStructureUpdates(opts: RunOpts = {}): Promise<void> {
   await updateTocWithCover(opts);
   await updateSummaryPage(opts);
   await addChapterSectionsToToc(opts);
-  console.log("All structure updates completed.");
+  reportInfo("All structure updates completed.");
 }
 
 if (isEntryPoint(import.meta.url)) {
   runStructureUpdates().catch((err) => {
-    console.error(err);
+    reportError(err);
     process.exit(1);
   });
 }

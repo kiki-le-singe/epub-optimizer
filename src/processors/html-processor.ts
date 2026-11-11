@@ -1,3 +1,4 @@
+import { reportInfo } from "../utils/diagnostics.js";
 import fs from "fs-extra";
 import path from "node:path";
 import { minify } from "html-minifier-terser";
@@ -171,7 +172,7 @@ async function minifyHTML(filePath: string, options: { xhtml?: boolean } = {}): 
       xhtmlStructure(cheerio.load(minified, { xml: { decodeEntities: false } })) !==
         originalStructure
     ) {
-      console.log(
+      reportInfo(
         `Keeping original ${path.basename(filePath)}: XHTML minification changed document structure.`
       );
       return;
@@ -200,7 +201,7 @@ async function minifyCSS(filePath: string): Promise<void> {
     // drops the rule when the file is not found there.
     const minified = minifyCssText(content, "external");
     if (minified === content) {
-      console.log(
+      reportInfo(
         `Keeping original ${path.basename(filePath)}: CSS minification offered no safe reduction`
       );
       return;

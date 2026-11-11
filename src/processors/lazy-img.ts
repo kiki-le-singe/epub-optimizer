@@ -1,3 +1,4 @@
+import { reportError, reportInfo, reportWarning } from "../utils/diagnostics.js";
 import fs from "fs-extra";
 import path from "node:path";
 import { getContentPath } from "../utils/epub-utils.js";
@@ -16,7 +17,7 @@ export async function addLazyLoadingToImages(epubDir: string): Promise<void> {
       hasExtension(filePath, XHTML_EXTENSIONS)
     );
     if (xhtmlFiles.length === 0) {
-      console.log("No XHTML files found for lazy loading");
+      reportInfo("No XHTML files found for lazy loading");
       return;
     }
     for (const file of xhtmlFiles) {
@@ -42,16 +43,16 @@ export async function addLazyLoadingToImages(epubDir: string): Promise<void> {
 
         if (changed) {
           await fs.writeFile(file, content);
-          console.log(`Added loading="lazy" to images in ${path.basename(file)}`);
+          reportInfo(`Added loading="lazy" to images in ${path.basename(file)}`);
         }
       } catch (error) {
-        console.warn(
+        reportWarning(
           `Failed to add lazy loading to ${path.basename(file)}: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
   } catch (error) {
-    console.error(
+    reportError(
       `Lazy loading image update failed: ${error instanceof Error ? error.message : String(error)}`
     );
   }
