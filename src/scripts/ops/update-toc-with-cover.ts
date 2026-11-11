@@ -36,18 +36,26 @@ async function updateEPUB3Navigation(
     );
 
     if (coverLink.length === 0) {
-      // Try different TOC selectors in order of preference
-      const tocSelectors = [
-        'nav[epub\\:type="toc"] > ol',
-        'nav[*|type="toc"] > ol',
-        'nav[role="doc-toc"] > ol',
-        "nav > ol",
-        "ol",
+      // css-select cannot evaluate namespace-wildcard attributes. Inspect
+      // attribute names explicitly so alternate prefixes and fallbacks work.
+      const tocLists = [
+        $('nav[epub\\:type="toc"] > ol'),
+        $("nav")
+          .filter((_, element) =>
+            Object.entries(element.attribs).some(
+              ([name, value]) =>
+                (name === "type" || name.endsWith(":type")) && value.split(/\s+/).includes("toc")
+            )
+          )
+          .children("ol"),
+        $('nav[role="doc-toc"] > ol'),
+        $("nav > ol"),
+        $("ol"),
       ];
 
       let olElement = $();
-      for (const selector of tocSelectors) {
-        olElement = $(selector).first();
+      for (const list of tocLists) {
+        olElement = list.first();
         if (olElement.length) break;
       }
 
