@@ -1,3 +1,4 @@
+import { reportInfo } from "./diagnostics.js";
 import fs from "fs-extra";
 import os from "node:os";
 import path from "node:path";
@@ -373,59 +374,59 @@ export async function inspectExtractedEpub(
 }
 
 export function printDoctorReport(report: DoctorReport): void {
-  console.log("\n=== EPUB Doctor ===");
-  console.log(`Input: ${report.input}`);
-  console.log(`Archive: ${formatBytes(report.archiveBytes)}`);
+  reportInfo("\n=== EPUB Doctor ===");
+  reportInfo(`Input: ${report.input}`);
+  reportInfo(`Archive: ${formatBytes(report.archiveBytes)}`);
   if (!report.analysisComplete) {
-    console.log("Optimization is blocked:");
-    for (const blocker of report.optimization.blockers) console.log(`- ${blocker.message}`);
-    console.log("Detailed content metrics are unavailable for this unsupported EPUB.\n");
+    reportInfo("Optimization is blocked:");
+    for (const blocker of report.optimization.blockers) reportInfo(`- ${blocker.message}`);
+    reportInfo("Detailed content metrics are unavailable for this unsupported EPUB.\n");
     return;
   }
-  console.log(
+  reportInfo(
     `OPF: ${report.opf.path} (${report.opf.version ? `EPUB ${report.opf.version}` : "version unknown"}), manifest ${report.opf.manifestItems}, spine ${report.opf.spineItems}`
   );
-  console.log(
+  reportInfo(
     `Navigation: EPUB3 nav ${report.navigation.hasEpub3Nav ? "yes" : "no"}, NCX ${report.navigation.hasNcx ? "yes" : "no"}, entries ${report.navigation.entries}`
   );
-  console.log(
+  reportInfo(
     `Internal refs: ${report.references.internal} checked, ${report.references.missing} missing`
   );
   const compressedShare =
     report.images.archivePercent === null
       ? "compressed archive share unavailable"
       : `${report.images.archivePercent.toFixed(1)}% of compressed archive`;
-  console.log(
+  reportInfo(
     `Images: ${report.images.count} manifest item(s), ${formatBytes(report.images.totalBytes)} uncompressed (${compressedShare})`
   );
 
   if (report.images.largest.length > 0) {
-    console.log("Largest images:");
+    reportInfo("Largest images:");
     for (const image of report.images.largest) {
       const dimensions = image.width && image.height ? `, ${image.width}x${image.height}` : "";
-      console.log(`- ${image.href}: ${formatBytes(image.bytes)}${dimensions}`);
+      reportInfo(`- ${image.href}: ${formatBytes(image.bytes)}${dimensions}`);
     }
   }
 
   if (report.references.missingTargets.length > 0) {
-    console.log("Missing references:");
+    reportInfo("Missing references:");
     for (const reference of report.references.missingTargets.slice(0, 10)) {
-      console.log(`- ${reference}`);
+      reportInfo(`- ${reference}`);
     }
     if (report.references.missingTargets.length > 10) {
-      console.log(`- ... ${report.references.missingTargets.length - 10} more`);
+      reportInfo(`- ... ${report.references.missingTargets.length - 10} more`);
     }
   }
 
-  console.log("Optimization risks:");
+  reportInfo("Optimization risks:");
   if (report.risks.length === 0) {
-    console.log("- No obvious optimization risks found.");
+    reportInfo("- No obvious optimization risks found.");
   } else {
     for (const risk of report.risks) {
-      console.log(`- [${risk.level}] ${risk.message}`);
+      reportInfo(`- [${risk.level}] ${risk.message}`);
     }
   }
-  console.log("");
+  reportInfo("");
 }
 
 export async function runDoctor(options: {
@@ -465,7 +466,7 @@ export async function runDoctor(options: {
       const absolutePath = path.resolve(options.reportJson);
       await fs.ensureDir(path.dirname(absolutePath));
       await fs.writeJson(absolutePath, report, { spaces: 2 });
-      console.log(`Wrote JSON report: ${absolutePath}`);
+      reportInfo(`Wrote JSON report: ${absolutePath}`);
     }
 
     return report;

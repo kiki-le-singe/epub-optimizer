@@ -1,3 +1,4 @@
+import { reportError, reportInfo } from "./utils/diagnostics.js";
 import fs from "fs-extra";
 import path from "node:path";
 import os from "node:os";
@@ -117,7 +118,7 @@ export async function runBatch(args: Args): Promise<BatchReport> {
   };
   await fs.ensureDir(plan.outputDirectory);
   for (const book of plan.books) {
-    console.log(
+    reportInfo(
       `\n=== Batch book ${report.books.length + 1}/${plan.books.length}: ${path.basename(book.input)} ===`
     );
     const item: BatchItem = { ...book, success: false, outputPublished: false };
@@ -143,7 +144,7 @@ export async function runBatch(args: Args): Promise<BatchReport> {
       item.success = true;
     } catch (error) {
       item.error = error instanceof Error ? error.message : String(error);
-      console.error(`Batch book failed: ${path.basename(book.input)}: ${item.error}`);
+      reportError(`Batch book failed: ${path.basename(book.input)}: ${item.error}`);
     }
     // Use the in-memory report from this invocation, never a stale file or old output.
     item.outputPublished =
@@ -163,7 +164,7 @@ export async function runBatch(args: Args): Promise<BatchReport> {
     await fs.ensureDir(path.dirname(plan.reportHtml));
     await fs.writeFile(plan.reportHtml, renderBatchReport(report), "utf8");
   }
-  console.log(
+  reportInfo(
     `Batch complete: ${report.succeeded}/${report.total} succeeded, ${report.failed} failed. Report: ${plan.reportJson}`
   );
   return report;

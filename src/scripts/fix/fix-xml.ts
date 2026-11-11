@@ -1,3 +1,4 @@
+import { reportError, reportInfo } from "../../utils/diagnostics.js";
 // This script fixes the XML/XHTML files.
 // It is used to fix the XML/XHTML files after the book is built.
 // There were some issues like <br> tags that were not self-closed or invalid tags.
@@ -52,20 +53,20 @@ export async function run(opts: RunOpts = {}): Promise<void> {
 
   for (const file of xhtmlFiles) {
     try {
-      console.log(`Processing ${file}`);
+      reportInfo(`Processing ${file}`);
       const content = fs.readFileSync(file, "utf8");
       fs.writeFileSync(file, fixXml(content));
     } catch (error) {
-      console.error(`Error processing ${file}:`, error);
+      reportError(`Error processing ${file}:`, error);
     }
   }
 
-  console.log("All files processed.");
+  reportInfo("All files processed.");
 }
 
 if (isEntryPoint(import.meta.url)) {
   run().catch((err) => {
-    console.error(err);
+    reportError(err);
     process.exit(1);
   });
 }

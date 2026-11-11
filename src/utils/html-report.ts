@@ -1,3 +1,4 @@
+import { reportInfo } from "./diagnostics.js";
 import fs from "fs-extra";
 import path from "node:path";
 import { createReadStream } from "node:fs";
@@ -125,5 +126,5 @@ export function renderHtmlReport(report: PipelineReport): string {
 export async function writeHtmlReport(report: PipelineReport, target: string): Promise<void> {
   await fs.ensureDir(path.dirname(path.resolve(target)));
   await fs.writeFile(target, renderHtmlReport(report), "utf8");
-  console.log(`Wrote HTML report: ${path.resolve(target)}`);
+  reportInfo(`Wrote HTML report: ${path.resolve(target)}`);
 }

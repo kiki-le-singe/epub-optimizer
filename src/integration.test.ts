@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "fs-extra";
 import path from "node:path";
 import os from "node:os";
-import { optimizeEPUB } from "./index";
+import { optimizeEPUB, reportWarning } from "./index";
 import { parseArguments } from "./cli";
 import type { Args } from "./types";
 import { compressEPUB } from "./processors/archive-processor";
@@ -134,6 +134,100 @@ describe("EPUB Optimization Integration Tests", () => {
     }
   });
 
+  it.each([false, true])(
+    "collects explicit API-hook warnings with strict=%s and protects output when rejected",
+    async (strict) => {
+      const reportJson = path.join(tempDir, "hook-report.json");
+      await fs.writeFile(mockOutputEpub, "previous output");
+      const result = optimizeEPUB(
+        { ...mockArgs, strict, reportJson },
+        {
+          afterExtract: () => reportWarning("custom hook warning"),
+        }
+      );
+      if (strict) {
+        await expect(result).rejects.toThrow("Strict mode rejected");
+        expect(await fs.readFile(mockOutputEpub, "utf8")).toBe("previous output");
+        expect(validateEPUB).not.toHaveBeenCalled();
+      } else {
+        await expect(result).resolves.toMatchObject({ success: true });
+        expect(validateEPUB).toHaveBeenCalled();
+      }
+      const report = await fs.readJson(reportJson);
+      expect(
+        report.steps.find((step: { name: string }) => step.name === "Analyze input content")
+      ).toMatchObject({
+        status: strict ? "failed" : "success",
+        messages: ["custom hook warning"],
+      });
+    }
+  );
+
+  it("keeps overlapping API runs isolated when one book emits a warning", async () => {
+    let readyA!: () => void;
+    let readyB!: () => void;
+    let releaseA!: () => void;
+    let releaseB!: () => void;
+    const startedA = new Promise<void>((resolve) => {
+      readyA = resolve;
+    });
+    const startedB = new Promise<void>((resolve) => {
+      readyB = resolve;
+    });
+    const waitA = new Promise<void>((resolve) => {
+      releaseA = resolve;
+    });
+    const waitB = new Promise<void>((resolve) => {
+      releaseB = resolve;
+    });
+    const reportA = path.join(tempDir, "a.json");
+    const reportB = path.join(tempDir, "b.json");
+    const first = optimizeEPUB(
+      {
+        ...mockArgs,
+        strict: true,
+        temp: path.join(tempDir, "extract-a"),
+        output: path.join(tempDir, "a.epub"),
+        reportJson: reportA,
+      },
+      {
+        afterExtract: async () => {
+          readyA();
+          await waitA;
+        },
+      }
+    );
+    await startedA;
+    const second = optimizeEPUB(
+      {
+        ...mockArgs,
+        temp: path.join(tempDir, "extract-b"),
+        output: path.join(tempDir, "b.epub"),
+        reportJson: reportB,
+      },
+      {
+        afterExtract: async () => {
+          reportWarning("only book B");
+          readyB();
+          await waitB;
+        },
+      }
+    );
+    await startedB;
+    releaseA();
+    await expect(first).resolves.toMatchObject({ success: true });
+    releaseB();
+    await expect(second).resolves.toMatchObject({ success: true });
+    const a = await fs.readJson(reportA);
+    const b = await fs.readJson(reportB);
+    expect(a.steps.flatMap((step: { messages: string[] }) => step.messages)).not.toContain(
+      "only book B"
+    );
+    expect(
+      b.steps.find((step: { name: string }) => step.name === "Analyze input content").messages
+    ).toContain("only book B");
+  });
+
   it.each(["invalid EPUB", "EPUBCheck exceeded its time limit"])(
     "preserves an existing output and input when API validation fails: %s",
     async (reason) => {
@@ -180,6 +274,25 @@ describe("EPUB Optimization Integration Tests", () => {
     expect(html).toContain("Resources before and after");
     expect((await fs.readJson(reportJson)).resources.length).toBeGreaterThan(0);
     expect(await fs.pathExists(extractDir)).toBe(false);
+  });
+
+  it("preserves the validated output when writing the final JSON report fails", async () => {
+    const reportJson = path.join(tempDir, "failed-report.json");
+    await fs.writeFile(mockOutputEpub, "previous output");
+    await expect(
+      optimizeEPUB(
+        { ...mockArgs, reportJson },
+        {
+          afterExtract: () => fs.ensureDir(reportJson),
+        }
+      )
+    ).rejects.toMatchObject({ code: "EISDIR" });
+    expect(validateEPUB).toHaveBeenCalled();
+    expect((await fs.readFile(mockOutputEpub)).subarray(0, 2).toString()).toBe("PK");
+    expect(await fs.pathExists(extractDir)).toBe(false);
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to write JSON report:")
+    );
   });
 
   it("writes a failed HTML report without replacing an existing output", async () => {

@@ -1,3 +1,9 @@
+import {
+  reportError,
+  reportInfo,
+  reportWarning,
+  reportWarningToStdout,
+} from "../../utils/diagnostics.js";
 import fs from "fs-extra";
 import * as cheerio from "cheerio";
 import { getTOCFiles, getContentPath } from "../../utils/epub-utils.js";
@@ -37,7 +43,7 @@ async function extractChapterStructure(
   authorConfig: AuthorWorkflowConfig
 ): Promise<Chapter[]> {
   try {
-    console.log(`Reading manual sommaire from: ${sommaireFilePath}`);
+    reportInfo(`Reading manual sommaire from: ${sommaireFilePath}`);
 
     const content = await fs.readFile(sommaireFilePath, "utf8");
     const $ = cheerio.load(content, { xmlMode: true });
@@ -80,18 +86,18 @@ async function extractChapterStructure(
       chapters.push(currentChapter);
     }
 
-    console.log(`Found ${chapters.length} chapters with subsections`);
+    reportInfo(`Found ${chapters.length} chapters with subsections`);
 
     // Log chapters with sections for debugging
     const chaptersWithSections = chapters.filter((ch) => ch.sections.length > 0);
-    console.log(
+    reportInfo(
       `Chapters with subsections: ${chaptersWithSections.map((ch) => `${ch.text} (${ch.sections.length} sections)`).join(", ")}`
     );
 
     return chapters;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to extract chapter structure: ${errorMessage}`);
+    reportError(`Failed to extract chapter structure: ${errorMessage}`);
     return [];
   }
 }
@@ -116,7 +122,7 @@ async function updateEPUB3NavigationWithSections(
   sectionNavClass: string
 ): Promise<void> {
   try {
-    console.log(`Adding chapter subsections to EPUB3 navigation file: ${navFilePath}`);
+    reportInfo(`Adding chapter subsections to EPUB3 navigation file: ${navFilePath}`);
 
     const content = await fs.readFile(navFilePath, "utf8");
     const $ = cheerio.load(content, { xmlMode: true });
@@ -154,21 +160,21 @@ async function updateEPUB3NavigationWithSections(
           }
 
           $chapterLi.append($nestedOl);
-          console.log(`Added ${chapter.sections.length} subsections to: ${chapter.text}`);
+          reportInfo(`Added ${chapter.sections.length} subsections to: ${chapter.text}`);
         } else {
-          console.log(`Subsections already exist for: ${chapter.text}`);
+          reportInfo(`Subsections already exist for: ${chapter.text}`);
         }
       } else {
-        console.log(`Warning: Could not find chapter in TOC: ${chapter.text}`);
+        reportWarningToStdout(`Warning: Could not find chapter in TOC: ${chapter.text}`);
       }
     }
 
     // Save the updated TOC
     await fs.writeFile(navFilePath, $.xml());
-    console.log("Successfully updated EPUB3 navigation file with chapter subsections");
+    reportInfo("Successfully updated EPUB3 navigation file with chapter subsections");
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.warn(`Failed to update EPUB3 navigation file: ${errorMessage}`);
+    reportWarning(`Failed to update EPUB3 navigation file: ${errorMessage}`);
   }
 }
 
@@ -179,7 +185,7 @@ async function updateEPUB3NavigationWithSections(
  */
 async function updateEPUB2NCXWithSections(ncxFilePath: string, chapters: Chapter[]): Promise<void> {
   try {
-    console.log(`Adding chapter subsections to EPUB2 NCX file: ${ncxFilePath}`);
+    reportInfo(`Adding chapter subsections to EPUB2 NCX file: ${ncxFilePath}`);
 
     const content = await fs.readFile(ncxFilePath, "utf8");
     const $ = cheerio.load(content, { xmlMode: true });
@@ -232,12 +238,12 @@ async function updateEPUB2NCXWithSections(ncxFilePath: string, chapters: Chapter
             $chapterNavPoint.append(sectionNavPoint);
           }
 
-          console.log(`Added ${chapter.sections.length} subsections to NCX: ${chapter.text}`);
+          reportInfo(`Added ${chapter.sections.length} subsections to NCX: ${chapter.text}`);
         } else {
-          console.log(`Subsections already exist in NCX for: ${chapter.text}`);
+          reportInfo(`Subsections already exist in NCX for: ${chapter.text}`);
         }
       } else {
-        console.log(`Warning: Could not find chapter in NCX: ${chapter.text}`);
+        reportWarningToStdout(`Warning: Could not find chapter in NCX: ${chapter.text}`);
       }
     }
 
@@ -245,10 +251,10 @@ async function updateEPUB2NCXWithSections(ncxFilePath: string, chapters: Chapter
 
     // Save the updated NCX
     await fs.writeFile(ncxFilePath, $.xml());
-    console.log("Successfully updated EPUB2 NCX file with chapter subsections");
+    reportInfo("Successfully updated EPUB2 NCX file with chapter subsections");
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.warn(`Failed to update EPUB2 NCX file: ${errorMessage}`);
+    reportWarning(`Failed to update EPUB2 NCX file: ${errorMessage}`);
   }
 }
 
@@ -259,13 +265,13 @@ export async function run(opts: RunOpts = {}): Promise<void> {
   const extractedDir = opts.tempDir ?? getTempDir();
   const authorConfig = opts.authorConfig ?? DEFAULT_AUTHOR_WORKFLOW_CONFIG;
 
-  console.log("Discovering TOC files and content directory...");
+  reportInfo("Discovering TOC files and content directory...");
 
   const contentPath = await getContentPath(extractedDir);
   const tocFiles = await getTOCFiles(extractedDir);
 
   if (!tocFiles.epub3Nav && !tocFiles.epub2Ncx) {
-    console.log("No TOC files found. Skipping chapter section updates.");
+    reportInfo("No TOC files found. Skipping chapter section updates.");
     return;
   }
 
@@ -276,20 +282,20 @@ export async function run(opts: RunOpts = {}): Promise<void> {
   );
 
   if (!(await fs.pathExists(sommaireFilePath))) {
-    console.log(`Manual sommaire file not found at: ${sommaireFilePath}`);
-    console.log("Skipping chapter section updates.");
+    reportInfo(`Manual sommaire file not found at: ${sommaireFilePath}`);
+    reportInfo("Skipping chapter section updates.");
     return;
   }
 
   const chapters = await extractChapterStructure(sommaireFilePath, authorConfig);
   if (chapters.length === 0) {
-    console.log("No chapters found in manual sommaire. Skipping updates.");
+    reportInfo("No chapters found in manual sommaire. Skipping updates.");
     return;
   }
 
   const chaptersWithSections = chapters.filter((ch) => ch.sections.length > 0);
   if (chaptersWithSections.length === 0) {
-    console.log("No chapters with subsections found. Skipping updates.");
+    reportInfo("No chapters with subsections found. Skipping updates.");
     return;
   }
 
@@ -300,21 +306,21 @@ export async function run(opts: RunOpts = {}): Promise<void> {
       authorConfig.sectionNavClass
     );
   } else {
-    console.log("No EPUB3 navigation file found");
+    reportInfo("No EPUB3 navigation file found");
   }
 
   if (tocFiles.epub2Ncx) {
     await updateEPUB2NCXWithSections(tocFiles.epub2Ncx, chaptersWithSections);
   } else {
-    console.log("No EPUB2 NCX file found");
+    reportInfo("No EPUB2 NCX file found");
   }
 
-  console.log("Chapter section updates completed successfully");
+  reportInfo("Chapter section updates completed successfully");
 }
 
 if (isEntryPoint(import.meta.url)) {
   run().catch((err) => {
-    console.error(err);
+    reportError(err);
     process.exit(1);
   });
 }

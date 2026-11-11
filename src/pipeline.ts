@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { reportError } from "./utils/diagnostics.js";
 import { runBatch } from "./batch.js";
 import { parseArguments } from "./cli.js";
 import { runOptimization } from "./optimization.js";
@@ -14,7 +15,7 @@ export async function main(): Promise<void> {
 
 if (isEntryPoint(import.meta.url)) {
   main().catch((err) => {
-    console.error(err instanceof Error ? err.message : err);
+    reportError(err instanceof Error ? err.message : err);
     process.exit(1);
   });
 }

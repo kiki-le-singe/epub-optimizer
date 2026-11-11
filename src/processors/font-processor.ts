@@ -1,3 +1,4 @@
+import { reportInfo, reportWarning } from "../utils/diagnostics.js";
 import fs from "fs-extra";
 import path from "node:path";
 import * as cheerio from "cheerio";
@@ -44,16 +45,16 @@ interface FontminModule {
 async function subsetFonts(epubDir: string, options: FontSubsetOptions = {}): Promise<void> {
   try {
     if (!options.enabled) {
-      console.log("Font subsetting disabled by default; pass --fonts to enable it.");
+      reportInfo("Font subsetting disabled by default; pass --fonts to enable it.");
       return;
     }
 
-    console.log("Subsetting fonts to reduce file size...");
+    reportInfo("Subsetting fonts to reduce file size...");
 
     // Get content directory (OPS, OEBPS, or root)
     const contentDir = await getContentPath(epubDir);
     if (!(await fs.pathExists(contentDir))) {
-      console.log("Content directory not found, skipping font subsetting");
+      reportInfo("Content directory not found, skipping font subsetting");
       return;
     }
 
@@ -62,7 +63,7 @@ async function subsetFonts(epubDir: string, options: FontSubsetOptions = {}): Pr
       hasExtension(filePath, XHTML_EXTENSIONS)
     );
     if (xhtmlFiles.length === 0) {
-      console.log("No XHTML files found, skipping font subsetting");
+      reportInfo("No XHTML files found, skipping font subsetting");
       return;
     }
 
@@ -77,7 +78,7 @@ async function subsetFonts(epubDir: string, options: FontSubsetOptions = {}): Pr
     // Create a set of unique characters
     const uniqueChars = new Set(allText);
     const uniqueCharsString = Array.from(uniqueChars).join("");
-    console.log(`Found ${uniqueChars.size} unique characters in EPUB content`);
+    reportInfo(`Found ${uniqueChars.size} unique characters in EPUB content`);
 
     // Discover fonts via the OPF manifest (any folder/case), not a hardcoded
     // `fonts/` folder.
@@ -86,17 +87,17 @@ async function subsetFonts(epubDir: string, options: FontSubsetOptions = {}): Pr
       extensions: FONT_EXTENSIONS,
     });
     if (fontFiles.length === 0) {
-      console.log("No font files found");
+      reportInfo("No font files found");
       return;
     }
 
-    console.log(`Found ${fontFiles.length} font files to process`);
+    reportInfo(`Found ${fontFiles.length} font files to process`);
 
     let Fontmin: FontminModule;
     try {
       Fontmin = require("fontmin") as FontminModule;
     } catch {
-      console.warn(
+      reportWarning(
         "Font subsetting requested, but fontmin is not installed. Install fontmin locally only for trusted workflows."
       );
       return;
@@ -112,7 +113,7 @@ async function subsetFonts(epubDir: string, options: FontSubsetOptions = {}): Pr
 
         // Skip OTF files - fontmin's OTF support is unreliable
         if (fileExt === ".otf") {
-          console.log(`Skipping OTF file (conversion not reliable): ${fileName}`);
+          reportInfo(`Skipping OTF file (conversion not reliable): ${fileName}`);
           continue;
         }
 
@@ -158,7 +159,7 @@ async function subsetFonts(epubDir: string, options: FontSubsetOptions = {}): Pr
             await fs.rename(subsetPath, fontFile);
 
             const reduction = Math.round((1 - newSize / originalSize) * 100);
-            console.log(
+            reportInfo(
               `Subset font ${fileName}: ${formatBytes(originalSize)} → ${formatBytes(
                 newSize
               )} (${reduction}% smaller)`
@@ -166,13 +167,13 @@ async function subsetFonts(epubDir: string, options: FontSubsetOptions = {}): Pr
           } else {
             // Subset is larger, keep original
             await fs.remove(subsetPath);
-            console.log(`Kept original ${fileName} (subset was larger)`);
+            reportInfo(`Kept original ${fileName} (subset was larger)`);
           }
         } else {
-          console.log(`No subset created for ${fileName} (likely encrypted or unsupported format)`);
+          reportInfo(`No subset created for ${fileName} (likely encrypted or unsupported format)`);
         }
       } catch (error) {
-        console.warn(
+        reportWarning(
           `Skipping font ${path.basename(fontFile)}: ${
             error instanceof Error ? error.message : String(error)
           }`
@@ -181,10 +182,10 @@ async function subsetFonts(epubDir: string, options: FontSubsetOptions = {}): Pr
     }
   } catch (error) {
     // Don't throw error, just warn - font subsetting is optional
-    console.warn(
+    reportWarning(
       `Font subsetting failed: ${error instanceof Error ? error.message : String(error)}`
     );
-    console.warn("Continuing without font optimization...");
+    reportWarning("Continuing without font optimization...");
   }
 }
 

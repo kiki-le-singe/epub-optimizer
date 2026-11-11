@@ -1,3 +1,4 @@
+import { reportInfo, reportWarning } from "../utils/diagnostics.js";
 import fs from "fs-extra";
 import path from "node:path";
 import sharp from "sharp";
@@ -46,24 +47,24 @@ async function maybeConvertOne(
   try {
     const originalSize = (await fs.stat(pngFile)).size;
     if (originalSize < 200 * 1024) {
-      console.log(`Skipping small PNG: ${path.basename(pngFile)} (${formatBytes(originalSize)})`);
+      reportInfo(`Skipping small PNG: ${path.basename(pngFile)} (${formatBytes(originalSize)})`);
       return null;
     }
 
     if (await isAnimatedPng(pngFile)) {
-      console.log(`Keeping animated PNG unchanged: ${path.basename(pngFile)}`);
+      reportInfo(`Keeping animated PNG unchanged: ${path.basename(pngFile)}`);
       return null;
     }
 
     const metadata = await sharp(pngFile).metadata();
     if (metadata.hasAlpha) {
-      console.log(`Skipping PNG with transparency: ${path.basename(pngFile)}`);
+      reportInfo(`Skipping PNG with transparency: ${path.basename(pngFile)}`);
       return null;
     }
 
     const jpegFile = pngFile.replace(/\.png$/i, ".jpg");
     if (await fs.pathExists(jpegFile)) {
-      console.warn(`Skipping ${path.basename(pngFile)}: target JPEG already exists`);
+      reportWarning(`Skipping ${path.basename(pngFile)}: target JPEG already exists`);
       return null;
     }
 
@@ -83,12 +84,12 @@ async function maybeConvertOne(
     const newSize = (await fs.stat(jpegFile)).size;
 
     if (newSize >= originalSize) {
-      console.log(`Keeping PNG ${path.basename(pngFile)}: JPEG conversion would increase size`);
+      reportInfo(`Keeping PNG ${path.basename(pngFile)}: JPEG conversion would increase size`);
       await fs.remove(jpegFile);
       return null;
     }
 
-    console.log(
+    reportInfo(
       `Converted ${path.basename(pngFile)}: ${formatBytes(originalSize)} → ${formatBytes(
         newSize
       )} (${Math.round(((originalSize - newSize) / originalSize) * 100)}% smaller)`
@@ -102,7 +103,7 @@ async function maybeConvertOne(
       newSize,
     };
   } catch (error) {
-    console.warn(
+    reportWarning(
       `Skipping conversion for ${path.basename(pngFile)}: ${
         error instanceof Error ? error.message : String(error)
       }`
@@ -577,7 +578,7 @@ async function buildOpfUpdatePlan(
 
     return { opfFile, contentDir, updates };
   } catch (opfError) {
-    console.warn(
+    reportWarning(
       `Failed to inspect OPF file: ${opfError instanceof Error ? opfError.message : String(opfError)}`
     );
     return null;
@@ -601,7 +602,7 @@ async function applyCommittedEdits(
         content = content.slice(0, edit.start) + edit.replacement + content.slice(edit.end);
       }
       await fs.writeFile(filePath, content);
-      console.log(`Updated references in ${path.basename(filePath)}`);
+      reportInfo(`Updated references in ${path.basename(filePath)}`);
     })
   );
 }
@@ -634,7 +635,7 @@ async function applyOpfUpdates(
 
   if (changed > 0) {
     await fs.writeFile(opfPlan.opfFile, $opf.xml());
-    console.log(`Updated OPF file with ${changed} new JPEG reference(s)`);
+    reportInfo(`Updated OPF file with ${changed} new JPEG reference(s)`);
   }
 }
 
@@ -657,21 +658,21 @@ async function convertPngToJpeg(
   maxDim?: number
 ): Promise<Set<string>> {
   try {
-    console.log("Converting large PNG files to JPEG for better compression...");
+    reportInfo("Converting large PNG files to JPEG for better compression...");
 
     const contentDir = await getContentPath(epubDir);
     if (!(await fs.pathExists(contentDir))) {
-      console.log("Content directory not found, skipping PNG to JPEG conversion");
+      reportInfo("Content directory not found, skipping PNG to JPEG conversion");
       return new Set();
     }
 
     const pngFiles = await collectFiles(contentDir, (filePath) => PNG_EXT_RE.test(filePath));
     if (pngFiles.length === 0) {
-      console.log("No PNG files found");
+      reportInfo("No PNG files found");
       return new Set();
     }
 
-    console.log(`Found ${pngFiles.length} PNG files to analyze`);
+    reportInfo(`Found ${pngFiles.length} PNG files to analyze`);
 
     // Phase 1: convert in parallel — each task writes its own .jpg side-by-side.
     const limit = pLimit(concurrency);
@@ -681,7 +682,7 @@ async function convertPngToJpeg(
     const conversions = results.filter((r): r is Conversion => r !== null);
 
     if (conversions.length === 0) {
-      console.log("No PNG files were converted to JPEG");
+      reportInfo("No PNG files were converted to JPEG");
       return new Set();
     }
 
@@ -699,11 +700,11 @@ async function convertPngToJpeg(
       const hasOpfUpdate = opfPlan?.updates.has(conversion.pngRel) ?? false;
 
       if (!hasOpfUpdate) {
-        console.warn(`Keeping PNG ${conversion.pngRel}: no matching OPF manifest item found`);
+        reportWarning(`Keeping PNG ${conversion.pngRel}: no matching OPF manifest item found`);
       } else if (stats.found === 0) {
-        console.warn(`Keeping PNG ${conversion.pngRel}: no supported content references found`);
+        reportWarning(`Keeping PNG ${conversion.pngRel}: no supported content references found`);
       } else if (stats.found !== stats.planned) {
-        console.warn(
+        reportWarning(
           `Keeping PNG ${conversion.pngRel}: planned ${stats.planned} rewrite(s) for ${stats.found} reference(s)`
         );
       } else {
@@ -728,7 +729,7 @@ async function convertPngToJpeg(
       committedPngs.has(conversion.pngRel)
     );
     if (committedConversions.length === 0) {
-      console.log("No PNG files were committed to JPEG conversion");
+      reportInfo("No PNG files were committed to JPEG conversion");
       return new Set();
     }
 
@@ -736,7 +737,7 @@ async function convertPngToJpeg(
       (sum, c) => sum + (c.originalSize - c.newSize),
       0
     );
-    console.log(
+    reportInfo(
       `Converted ${committedConversions.length} PNG files to JPEG, saving ${formatBytes(totalSaved)}`
     );
     return new Set(committedConversions.map((c) => c.jpegFile));
