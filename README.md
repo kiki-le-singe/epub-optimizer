@@ -31,9 +31,11 @@ Measured on an image-heavy EPUB with 12 full-page PNGs, with EPUBCheck-clean out
 | `repair`             | 8.3 MB     | **−85.5%**                         | 0 errors / 0 warnings |
 | `lossless`           | ~unchanged | by design (no lossy image changes) | 0 errors / 0 warnings |
 
+The `balanced` row was remeasured with v3.8.0. The `author` and `repair` rows are earlier measurements and were not rerun for v3.8.0; the `lossless` row describes the preset's behavior.
+
 Nearly all of the savings come from raster image optimization, so results scale with how image-heavy your book is. In this book, 11 of the 12 PNGs contain transparency: they stay PNG and shrink through palette quantization (`--png-quality`) and downscaling to the default 1600 px maximum dimension. Only the opaque cover is converted to JPEG, because PNG-to-JPEG conversion applies only to large PNGs without an alpha channel.
 
-Memory was observed, not bounded by design. In local v3.8.0 runs of the `balanced` preset on this book (macOS arm64, Node.js 25, default image concurrency), the Node.js process peaked at about 0.55 GiB of resident memory. EPUBCheck then runs in a separate Java process, about 0.3 GiB here, which that figure excludes. These are single-machine observations, not limits: memory depends mainly on image dimensions and [`--image-concurrency`](#image-concurrency).
+Memory was observed, not bounded by design. In local v3.8.0 runs of the `balanced` preset on this book (macOS arm64, Node.js 25, Java 25, default image concurrency), the Node.js process peaked at about 548 MiB (0.53 GiB) of resident memory. EPUBCheck then runs in a separate Java process, about 0.3 GiB here, which that figure excludes. These are single-machine observations, not limits: memory depends mainly on image dimensions and [`--image-concurrency`](#image-concurrency).
 
 ## Table of Contents
 
