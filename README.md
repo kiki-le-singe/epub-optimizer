@@ -260,7 +260,9 @@ EPUBCHECK_PATH=/opt/epubcheck/epubcheck.jar epub-optimizer -i book.epub -o book-
 An explicit relative `EPUBCHECK_PATH` is resolved from the current working
 directory. EPUBCheck messages use English regardless of the JVM's language.
 `--strict` enables EPUBCheck's native rejection of warnings and also rejects a
-missing or unreadable validation summary.
+missing or unreadable validation totals. Totals come from JSON, with the native
+text summary retained as a compatibility fallback when detailed JSON diagnostics
+are unavailable. A nonzero validator exit or timeout always fails validation.
 
 CI and Docker pin EPUBCheck 5.4.0 and its sha256 checksum centrally in `scripts/install-epubcheck.sh` (single source of truth); the download is verified against the checksum before installation.
 
@@ -575,6 +577,10 @@ The configuration is validated before structure updates. Unknown keys, unsafe pa
 - `--profile` prints each pipeline step's status and duration.
 - `--report-json reports/report.json` writes a structured report on success and on pipeline failures that occur after preflight path validation.
 - The report directory is created automatically. Local reports under `reports/` are ignored by Git.
+
+Once EPUBCheck runs, optimization reports include an optional `validation` object with its native `exitCode`, diagnostic `source` (`json`, `text`, or `unavailable`), version when available, `totals` (`fatals`, `errors`, `warnings`, `infos`), and detailed `messages`. Each message contains a `code`, uppercase `severity`, `message`, `locations` (path and available line/column/context), `additionalLocations`, and an optional suggestion. The same details appear in HTML reports and per-book batch reports, including failed runs. These fields are additive; existing step statuses and messages are retained, and doctor mode is unchanged.
+
+EPUBCheck groups repeated messages and [defaults to at most 25 occurrences per code/message combination](https://www.w3.org/publishing/epubcheck/docs/cli/); totals may exceed the detailed entries returned. Unknown line/column values are omitted. Publication metadata and unrelated raw validator fields are not copied into the optimization report. JSON diagnostics are read from a unique private temporary file with a 16 MiB limit and removed after the invocation. If they are missing, malformed, unsupported or too large, `diagnosticsError` explains that details are unavailable and the native text totals are used when readable. Strict mode still rejects warnings and unavailable totals; non-strict mode retains its native-exit fallback with an explicit warning when totals cannot be read. Fatal/error diagnostics also block publication even if a validator incorrectly exits with code 0.
 
 HTML reports can be used alongside `--report-json`; all report paths must be distinct from the EPUBs and from each other, including symbolic/hard-link aliases. Reports are written on success and on processing/validation failures after preflight. A report write failure makes the command fail, while preserving any already-published validated EPUB. Resource hashing adds disk reads only when HTML reporting is requested. The report contains no external assets or scripts and escapes book-derived filenames and diagnostics. It contains local paths; review it before sharing. Added and removed resources can describe format conversion, and byte comparisons do not certify visual rendering.
 

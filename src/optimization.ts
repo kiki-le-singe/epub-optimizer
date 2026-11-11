@@ -172,6 +172,9 @@ export async function runOptimization(
         output: candidateOutput,
         strict: args.strict,
         timeoutMs: args.validationTimeout,
+        onReport: (validation) => {
+          report.validation = validation;
+        },
       })
     );
 

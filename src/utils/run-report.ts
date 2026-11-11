@@ -1,6 +1,7 @@
 import fs from "fs-extra";
 import path from "node:path";
 import type { ResourceChange } from "./html-report.js";
+import type { EpubCheckReport } from "./epubcheck-report.js";
 import type { Preset } from "../types.js";
 import type { EpubContentMetrics, EpubIntegrityComparison } from "./epub-integrity.js";
 
@@ -37,6 +38,7 @@ export interface PipelineReport {
     integrity?: EpubIntegrityComparison;
   };
   resources?: ResourceChange[];
+  validation?: EpubCheckReport;
   steps: StepReport[];
 }
 
