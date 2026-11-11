@@ -193,6 +193,37 @@ describe("EPUB Optimization Integration Tests", () => {
     expect(html).toContain("Output publication: <strong>not completed</strong>");
   });
 
+  it("retains structured validation errors in both reports without publishing a failed candidate", async () => {
+    const reportHtml = path.join(tempDir, "failed.html");
+    const reportJson = path.join(tempDir, "failed.json");
+    const validation = {
+      source: "json" as const,
+      checkerVersion: "5.4.0",
+      exitCode: 1,
+      totals: { fatals: 0, errors: 1, warnings: 0, infos: 0 },
+      messages: [
+        {
+          code: "RSC-005",
+          severity: "ERROR" as const,
+          message: "Invalid content",
+          additionalLocations: 0,
+          locations: [{ path: "content.html", line: 3, column: 8 }],
+        },
+      ],
+    };
+    await fs.writeFile(mockOutputEpub, "previous output");
+    vi.mocked(validateEPUB).mockImplementationOnce((options) => {
+      options?.onReport?.(validation);
+      throw new Error("validation failed");
+    });
+    await expect(optimizeEPUB({ ...mockArgs, reportHtml, reportJson })).rejects.toThrow(
+      "validation failed"
+    );
+    expect((await fs.readJson(reportJson)).validation).toEqual(validation);
+    expect(await fs.readFile(reportHtml, "utf8")).toContain("RSC-005");
+    expect(await fs.readFile(mockOutputEpub, "utf8")).toBe("previous output");
+  });
+
   it("refuses HTML reports aliasing EPUBs or JSON reports", async () => {
     const reportHtml = path.join(tempDir, "report.html");
     await fs.link(mockInputEpub, reportHtml);

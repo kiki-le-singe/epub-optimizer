@@ -998,6 +998,7 @@ async function assertLocalizedWarnings(runDir: string, fixtureDir: string): Prom
       const name = `locale-${language}-${strict ? "strict" : "normal"}`;
       const output = path.join(runDir, `${name}.epub`);
       const reportPath = path.join(runDir, `${name}.json`);
+      const htmlPath = path.join(runDir, `${name}.html`);
       if (strict) await fs.writeFile(output, "previous-output");
       const result = spawnSync(
         process.execPath,
@@ -1011,6 +1012,8 @@ async function assertLocalizedWarnings(runDir: string, fixtureDir: string): Prom
           "lossless",
           "--report-json",
           reportPath,
+          "--report-html",
+          htmlPath,
           ...(strict ? ["--strict"] : []),
         ],
         {
@@ -1032,6 +1035,22 @@ async function assertLocalizedWarnings(runDir: string, fixtureDir: string): Prom
         );
       }
       const report = await fs.readJson(reportPath);
+      const diagnostics = report.validation;
+      const warning = diagnostics?.messages?.find(
+        (message: { severity: string }) => message.severity === "WARNING"
+      );
+      if (
+        diagnostics?.source !== "json" ||
+        typeof diagnostics.checkerVersion !== "string" ||
+        diagnostics.totals?.warnings !== 1 ||
+        !warning?.code ||
+        !warning.locations?.some((location: { path: string }) => location.path)
+      ) {
+        throw new Error("Structured EPUBCheck warning diagnostics are missing from the report.");
+      }
+      const html = await fs.readFile(htmlPath, "utf8");
+      if (!html.includes("EPUBCheck diagnostics") || !html.includes(warning.code))
+        throw new Error("Detailed EPUBCheck warning is missing from the HTML report.");
       const validation = report.steps.find(
         (step: { name: string }) => step.name === "Validate candidate EPUB"
       );
@@ -1258,6 +1277,12 @@ async function assertPublicApiValidation(runDir: string, input: string): Promise
       if (result.status !== 0 || !report.success || validation?.status !== "success") {
         throw new Error(`Public API did not validate and publish its candidate.\n${log}`);
       }
+      if (
+        report.validation?.source !== "json" ||
+        report.validation.exitCode !== 0 ||
+        report.validation.totals?.errors !== 0
+      )
+        throw new Error("Successful API report is missing structured EPUBCheck results.");
       if (await fs.pathExists(temp))
         throw new Error("Successful API run did not clean its temporary directory.");
       await assertLosslessOutput(output, path.join(runDir, "api-inspection"));
@@ -1276,6 +1301,13 @@ async function assertPublicApiValidation(runDir: string, input: string): Promise
       if (mode === "timeout" && !String(report.error).includes("time limit")) {
         throw new Error(`Expected an API EPUBCheck timeout.\n${log}`);
       }
+      if (
+        mode === "timeout" &&
+        (report.validation?.exitCode !== null ||
+          report.validation.source !== "unavailable" ||
+          !report.validation.diagnosticsError?.includes("time limit"))
+      )
+        throw new Error("API timeout diagnostics are missing or misleading.");
     }
     if (
       !(await fs.readFile(input)).equals(inputBefore) ||
