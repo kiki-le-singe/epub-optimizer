@@ -1,3 +1,4 @@
+import { reportError, reportInfo, reportWarning } from "../utils/diagnostics.js";
 import fs from "fs-extra";
 import { extractEPUB } from "./archive-processor.js";
 import { processHTML } from "./html-processor.js";
@@ -58,7 +59,7 @@ export async function processEpubContent(
 
     // 1. Extract EPUB file
     await runStep("Extract EPUB", () => extractEPUB(resolvedArgs.input, resolvedArgs.temp));
-    console.log(`📦 Extracted ${resolvedArgs.input} to ${resolvedArgs.temp}`);
+    reportInfo(`📦 Extracted ${resolvedArgs.input} to ${resolvedArgs.temp}`);
 
     // 1b. Detect special EPUB shapes early so we degrade gracefully instead of
     //     silently corrupting them: refuse DRM-encrypted books, leave obfuscated
@@ -73,14 +74,14 @@ export async function processEpubContent(
         );
       }
       if (features.encryptionKind === "obfuscation") {
-        console.warn(
+        reportWarning(
           "⚠️  Obfuscated embedded fonts detected (META-INF/encryption.xml); optimizing " +
             "everything else and leaving the fonts untouched."
         );
         resolvedArgs.fonts = false;
       }
       if (features.fixedLayout && resolvedArgs.maxImageDim > 0) {
-        console.warn(
+        reportWarning(
           "⚠️  Fixed-layout (pre-paginated) EPUB detected; disabling image downscaling " +
             "to keep page images aligned with the declared viewport."
         );
@@ -94,11 +95,11 @@ export async function processEpubContent(
 
     // 2. Process HTML and CSS files
     await runStep("Optimize HTML/CSS", () => processHTML(resolvedArgs.temp));
-    console.log("🔄 Optimized HTML/CSS files");
+    reportInfo("🔄 Optimized HTML/CSS files");
 
     // 3. Minify JavaScript
     await runStep("Minify JavaScript", () => minifyJavaScript(resolvedArgs.temp));
-    console.log("🔄 Minified JavaScript files");
+    reportInfo("🔄 Minified JavaScript files");
 
     // 4. Convert large opaque PNGs to JPEG. Resize is chained into the same
     //    sharp pass so converted JPEGs don't need a follow-up downscale — step
@@ -114,7 +115,7 @@ export async function processEpubContent(
           maxImageDim
         )
       );
-      console.log("🖼️  Converted PNG to JPEG");
+      reportInfo("🖼️  Converted PNG to JPEG");
     } else {
       skipStep(
         "Convert PNG to JPEG",
@@ -134,19 +135,19 @@ export async function processEpubContent(
           concurrency: resolvedArgs.imageConcurrency,
         })
       );
-      console.log("🖼️  Optimized image files");
+      reportInfo("🖼️  Optimized image files");
     } else {
       skipStep("Optimize images", "Disabled by lossless preset.");
     }
 
     // 6. Optimize SVGs
     await runStep("Optimize SVG", () => optimizeSVGs(resolvedArgs.temp));
-    console.log("🖼️  Optimized SVG files");
+    reportInfo("🖼️  Optimized SVG files");
 
     // 7. Add lazy loading to images
     if (resolvedArgs.lazyLoading) {
       await runStep("Add lazy loading", () => addLazyLoadingToImages(resolvedArgs.temp));
-      console.log("🖼️  Added lazy loading to images");
+      reportInfo("🖼️  Added lazy loading to images");
     } else {
       skipStep("Add lazy loading", "Disabled by preset/CLI option.");
     }
@@ -156,14 +157,14 @@ export async function processEpubContent(
     await runStep("Process fonts", () =>
       subsetFonts(resolvedArgs.temp, { enabled: resolvedArgs.fonts })
     );
-    console.log("🔤 Font processing complete");
+    reportInfo("🔤 Font processing complete");
 
     return { success: true, input: resolvedArgs.input, output: resolvedArgs.output };
   } catch (error) {
     if (error instanceof Error) {
-      console.error(`❌ Error: ${error.message}`);
+      reportError(`❌ Error: ${error.message}`);
     } else {
-      console.error("❌ Unknown error", error);
+      reportError("❌ Unknown error", error);
     }
 
     throw error;

@@ -1,3 +1,4 @@
+import { reportError, reportInfo, reportWarningToStdout } from "../../utils/diagnostics.js";
 // Sets the cover image as linear in the OPF file
 // When linear="yes", the cover will be displayed in the reading order (on the first page)
 
@@ -30,7 +31,7 @@ export function setCoverLinear(
 export async function run(opts: RunOpts = {}): Promise<void> {
   const extractedDir = opts.tempDir ?? getTempDir();
   const opfFile = await getOPFPath(extractedDir);
-  console.log(`Updating cover in OPF file: ${opfFile}`);
+  reportInfo(`Updating cover in OPF file: ${opfFile}`);
 
   const content = fs.readFileSync(opfFile, "utf8");
   const coverSpineId =
@@ -39,15 +40,15 @@ export async function run(opts: RunOpts = {}): Promise<void> {
 
   if (updated) {
     fs.writeFileSync(opfFile, xml);
-    console.log(`Successfully set cover spine item "${coverSpineId}" to linear="yes"`);
+    reportInfo(`Successfully set cover spine item "${coverSpineId}" to linear="yes"`);
   } else {
-    console.log("Warning: No cover reference found in spine section of OPF file");
+    reportWarningToStdout("Warning: No cover reference found in spine section of OPF file");
   }
 }
 
 if (isEntryPoint(import.meta.url)) {
   run().catch((err) => {
-    console.error(err);
+    reportError(err);
     process.exit(1);
   });
 }

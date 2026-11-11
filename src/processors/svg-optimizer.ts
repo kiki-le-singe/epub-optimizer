@@ -1,3 +1,4 @@
+import { reportError, reportInfo, reportWarning } from "../utils/diagnostics.js";
 import fs from "fs-extra";
 import path from "node:path";
 import { optimize as svgoOptimize } from "svgo";
@@ -20,10 +21,10 @@ export async function optimizeSVGs(epubDir: string): Promise<void> {
       extensions: SVG_EXTENSIONS,
     });
     if (svgFiles.length === 0) {
-      console.log("No SVG files found");
+      reportInfo("No SVG files found");
       return;
     }
-    console.log(`Optimizing ${svgFiles.length} SVG files...`);
+    reportInfo(`Optimizing ${svgFiles.length} SVG files...`);
     await forEachFileLimited(svgFiles, async (svgFile) => {
       try {
         const original = await fs.readFile(svgFile, "utf8");
@@ -33,20 +34,20 @@ export async function optimizeSVGs(epubDir: string): Promise<void> {
         });
         if (result.data && result.data.length < original.length) {
           await fs.writeFile(svgFile, result.data);
-          console.log(
+          reportInfo(
             `Optimized ${path.basename(svgFile)}: ${original.length} → ${result.data.length} bytes`
           );
         } else {
-          console.log(`No optimization for ${path.basename(svgFile)}`);
+          reportInfo(`No optimization for ${path.basename(svgFile)}`);
         }
       } catch (error) {
-        console.warn(
+        reportWarning(
           `Failed to optimize ${path.basename(svgFile)}: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     });
   } catch (error) {
-    console.error(
+    reportError(
       `SVG optimization failed: ${error instanceof Error ? error.message : String(error)}`
     );
   }

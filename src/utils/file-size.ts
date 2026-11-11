@@ -1,3 +1,4 @@
+import { reportError, reportInfo } from "./diagnostics.js";
 import fs from "fs-extra";
 
 /**
@@ -15,14 +16,14 @@ async function reportFileSizeComparison(
     const reduction = ((originalSize - optimizedSize) / originalSize) * 100;
     const bytesSaved = originalSize - optimizedSize;
 
-    console.log(`
+    reportInfo(`
 📊 File Size Comparison:
    Original: ${formatFileSize(originalSize)}
    Optimized: ${formatFileSize(optimizedSize)}
    Reduction: ${reduction.toFixed(2)}% (${formatFileSize(bytesSaved)} saved)
     `);
   } catch {
-    console.error("⚠️ Could not generate file size comparison");
+    reportError("⚠️ Could not generate file size comparison");
   }
 }
 

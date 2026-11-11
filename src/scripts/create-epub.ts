@@ -1,3 +1,4 @@
+import { reportError, reportInfo } from "../utils/diagnostics.js";
 import fs from "node:fs";
 import path from "node:path";
 import config from "../utils/config.js";
@@ -19,14 +20,14 @@ export async function run(opts: RunOpts = {}): Promise<void> {
     throw new Error(`Directory ${extractedDir} does not exist.`);
   }
 
-  console.log("Creating new EPUB...");
+  reportInfo("Creating new EPUB...");
   await compressEPUB(outputEpubPath, extractedDir);
-  console.log(`Created optimized EPUB: ${outputEpub}`);
+  reportInfo(`Created optimized EPUB: ${outputEpub}`);
 }
 
 if (isEntryPoint(import.meta.url)) {
   run().catch((err) => {
-    console.error(err);
+    reportError(err);
     process.exit(1);
   });
 }

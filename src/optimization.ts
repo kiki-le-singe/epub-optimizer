@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { reportError, reportInfo } from "./utils/diagnostics.js";
 import fs from "fs-extra";
 import { snapshotResources, compareResources, writeHtmlReport } from "./utils/html-report.js";
 import type { ResourceSnapshot } from "./utils/html-report.js";
@@ -80,7 +81,7 @@ export async function runOptimization(
     // Step 1: Extract + run every content processor. Skip packaging —
     // repair/author steps still need the temp dir, and the candidate archive
     // is created only once after every transformation is complete.
-    console.log("\n=== Optimize EPUB ===");
+    reportInfo("\n=== Optimize EPUB ===");
     await processEpubContent(args, {
       runStep: (name, operation) =>
         runReportedStep(report, name, args.strict, () =>
@@ -103,7 +104,7 @@ export async function runOptimization(
     // Step 2: Explicit XHTML repair passes. The author workflow implies repair,
     // while the generic optimizer remains conservative by default.
     if (args.repair) {
-      console.log("\n=== XHTML Repair Passes ===");
+      reportInfo("\n=== XHTML Repair Passes ===");
       await runReportedStep(report, "Repair XHTML", args.strict, () =>
         runFixes({ tempDir: args.temp, strict: args.strict })
       );
@@ -113,19 +114,19 @@ export async function runOptimization(
 
     // The optimizing and repair passes must not change what the reader sees.
     // Checked before the author workflow, which edits navigation text on purpose.
-    console.log("\n=== Validate Text Preservation ===");
+    reportInfo("\n=== Validate Text Preservation ===");
     await runReportedStep(report, "Validate text preservation", args.strict, async () => {
       if (!textBefore) {
         throw new Error("Input text was not collected after extraction.");
       }
       assertEpubTextPreserved(textBefore, await collectEpubTextSnapshot(args.temp));
-      console.log("Document text is unchanged after optimization.");
+      reportInfo("Document text is unchanged after optimization.");
     });
 
     // Step 3: Optional author workflow structure updates. These are tailored to
     // this project's Pages/manual-summary publishing flow.
     if (args.authorWorkflow) {
-      console.log("\n=== Author Workflow Structure Updates ===");
+      reportInfo("\n=== Author Workflow Structure Updates ===");
       await runReportedStep(report, "Author workflow", args.strict, async () => {
         const authorConfig = await loadAuthorWorkflowConfig(args.authorConfig);
         await runStructureUpdates({
@@ -143,7 +144,7 @@ export async function runOptimization(
       );
     }
 
-    console.log("\n=== Validate Content Integrity ===");
+    reportInfo("\n=== Validate Content Integrity ===");
     await runReportedStep(report, "Validate content integrity", args.strict, async () => {
       const before = report.content?.before;
       if (!before) {
@@ -153,7 +154,7 @@ export async function runOptimization(
       const integrity = compareEpubContentMetrics(before, after);
       report.content = { before, after, integrity };
       assertEpubContentIntegrity(integrity);
-      console.log("Content counts and internal references passed before/after validation.");
+      reportInfo("Content counts and internal references passed before/after validation.");
     });
 
     if (resourcesBefore)
@@ -161,21 +162,24 @@ export async function runOptimization(
 
     // Step 4: Build and validate a candidate. The requested output is not
     // touched until EPUBCheck has accepted the candidate.
-    console.log("\n=== Create Candidate EPUB ===");
+    reportInfo("\n=== Create Candidate EPUB ===");
     await runReportedStep(report, "Create candidate EPUB", args.strict, () =>
       createEPUBFile({ tempDir: args.temp, output: candidateOutput })
     );
 
-    console.log("\n=== Validate Candidate EPUB ===");
+    reportInfo("\n=== Validate Candidate EPUB ===");
     await runReportedStep(report, "Validate candidate EPUB", args.strict, () =>
       validateEPUB({
         output: candidateOutput,
         strict: args.strict,
         timeoutMs: args.validationTimeout,
+        onReport: (validation) => {
+          report.validation = validation;
+        },
       })
     );
 
-    console.log("\n=== Publish Validated EPUB ===");
+    reportInfo("\n=== Publish Validated EPUB ===");
     await runReportedStep(report, "Publish validated EPUB", args.strict, () =>
       commitCandidateOutput(candidateOutput as string, args.output)
     );
@@ -183,14 +187,14 @@ export async function runOptimization(
 
     // Step 5: Cleanup only after the validated output is safely published.
     if (args.clean) {
-      console.log("\n=== Cleanup ===");
+      reportInfo("\n=== Cleanup ===");
       const removedTempDir = await runReportedStep(report, "Cleanup", args.strict, () =>
         removeTempDir(args.temp, {
           inputPath: args.input,
           outputPath: args.output,
         })
       );
-      console.log(`Removed temporary directory: ${removedTempDir}`);
+      reportInfo(`Removed temporary directory: ${removedTempDir}`);
     } else {
       recordSkippedStep(report, "Cleanup", "Temporary files kept for inspection.");
     }
@@ -212,35 +216,35 @@ export async function runOptimization(
 
     completePipelineReport(report);
     if (args.clean) {
-      console.log("All done!\n");
+      reportInfo("All done!\n");
     } else {
-      console.log(
+      reportInfo(
         `\nBuild completed successfully!\nNote: Temporary files have been kept in '${args.temp}'. Use --clean to remove them.\n`
       );
     }
   } catch (error) {
     await discardCandidateOutput(candidateOutput);
     completePipelineReport(report, error);
-    console.error(error instanceof Error ? error.message : error);
-    console.error(`Temporary files were kept in '${args.temp}' for inspection.`);
+    reportError(error instanceof Error ? error.message : error);
+    reportError(`Temporary files were kept in '${args.temp}' for inspection.`);
     throw error;
   } finally {
     report.tempDir = args.temp;
     if (args.reportJson) {
       try {
         await writePipelineReport(report, args.reportJson);
-      } catch (reportError) {
-        console.error(
-          `Failed to write JSON report: ${reportError instanceof Error ? reportError.message : String(reportError)}`
+      } catch (error) {
+        reportError(
+          `Failed to write JSON report: ${error instanceof Error ? error.message : String(error)}`
         );
-        reportWriteError = reportError;
+        reportWriteError = error;
       }
     }
     if (args.reportHtml) {
       try {
         await writeHtmlReport(report, args.reportHtml);
       } catch (error) {
-        console.error(
+        reportError(
           `Failed to write HTML report: ${error instanceof Error ? error.message : String(error)}`
         );
         reportWriteError ??= error;

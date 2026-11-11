@@ -4,6 +4,7 @@ import { processEpubContent, type ContentProcessingOptions } from "./processors/
 import type { Args } from "./types.js";
 
 export { runBatch, type BatchReport } from "./batch.js";
+export { reportWarning, reportError } from "./utils/diagnostics.js";
 
 export { formatFileSize, reportFileSizeComparison } from "./utils/file-size.js";
 

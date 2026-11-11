@@ -49,6 +49,49 @@ describe("HTML optimization reports", () => {
     expect(html).toContain("Output publication: <strong>completed</strong>");
     expect(html).toContain("EPUBCheck: <strong>success</strong>");
   });
+  it("escapes detailed EPUBCheck messages, contexts, suggestions and locations", () => {
+    const payload = '<script>alert("diagnostic")</script>';
+    const report = createPipelineReport({
+      input: "book.epub",
+      output: "out.epub",
+      preset: "balanced",
+      strict: false,
+    });
+    report.validation = {
+      source: "json",
+      checkerVersion: "5.4.0",
+      exitCode: 1,
+      totals: { fatals: 0, errors: 1, warnings: 0, infos: 0 },
+      messages: [
+        {
+          code: "RSC-005",
+          severity: "ERROR",
+          message: payload,
+          locations: [{ path: payload, line: 12, column: 3, context: payload }],
+          additionalLocations: 7,
+          suggestion: payload,
+        },
+      ],
+    };
+    const html = renderHtmlReport(report);
+    expect(html).toContain("EPUBCheck diagnostics");
+    expect(html).toContain("RSC-005");
+    expect(html).toContain("Errors: 1");
+    expect(html).toContain(":12:3");
+    expect(html).toContain("7 additional locations");
+    expect(html).not.toContain("<script>");
+    expect(html.match(/&lt;script&gt;/g)).toHaveLength(4);
+    report.validation = {
+      source: "unavailable",
+      exitCode: null,
+      messages: [],
+      diagnosticsError: payload,
+    };
+    const unavailable = renderHtmlReport(report);
+    expect(unavailable).toContain("Message totals unavailable");
+    expect(unavailable).toContain("No detailed messages returned");
+    expect(unavailable).not.toContain("<script>");
+  });
   it("compares resource bytes and content while excluding ownership markers and symlinks", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "epub-html-"));
     dirs.push(dir);

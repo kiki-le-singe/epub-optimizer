@@ -1,3 +1,4 @@
+import { reportError, reportInfo } from "../utils/diagnostics.js";
 import fs from "fs-extra";
 import path from "node:path";
 import sharp from "sharp";
@@ -58,7 +59,7 @@ async function optimizeImages(dir: string, opts: ImageOpts = {}): Promise<void> 
     const limit = pLimit(opts.concurrency ?? DEFAULT_FILE_CONCURRENCY);
     await Promise.all(targets.map((file) => limit(() => compressImage(file, opts))));
   } catch (error) {
-    console.error(
+    reportError(
       `Error processing directory ${dir}: ${error instanceof Error ? error.message : String(error)}`
     );
   }
@@ -85,14 +86,14 @@ async function compressImage(imagePath: string, opts: ImageOpts = {}): Promise<v
     // Read the size cheaply first and skip tiny images without loading them.
     const originalSize = (await fs.stat(imagePath)).size;
     if (originalSize < 10 * 1024) {
-      console.log(`⏩ Skipping small image: ${filename}`);
+      reportInfo(`⏩ Skipping small image: ${filename}`);
       return;
     }
 
     // Sharp's PNG decoder exposes only the default image of an APNG. Keep its
     // original bytes, including animation control, timing and disposal modes.
     if (extension === ".png" && (await isAnimatedPng(imagePath))) {
-      console.log(`Keeping animated PNG unchanged: ${filename}`);
+      reportInfo(`Keeping animated PNG unchanged: ${filename}`);
       return;
     }
 
@@ -179,7 +180,7 @@ async function compressImage(imagePath: string, opts: ImageOpts = {}): Promise<v
       wasResized = dimensions.width > outputInfo.width || dimensions.height > outputHeight;
     }
     if (newSize >= originalSize && !wasResized) {
-      console.log(`Keeping original ${filename}: recompression would not reduce size`);
+      reportInfo(`Keeping original ${filename}: recompression would not reduce size`);
       return;
     }
     await fs.rename(tempPath, imagePath);
@@ -188,10 +189,10 @@ async function compressImage(imagePath: string, opts: ImageOpts = {}): Promise<v
     const savings = (((originalSize - newSize) / originalSize) * 100).toFixed(1);
 
     if (newSize < originalSize) {
-      console.log(`💾 Optimized ${filename}: ${savings}% smaller`);
+      reportInfo(`💾 Optimized ${filename}: ${savings}% smaller`);
     }
   } catch (error) {
-    console.error(
+    reportError(
       `⚠️ Error processing ${filename}: ${error instanceof Error ? error.message : String(error)}`
     );
   } finally {
