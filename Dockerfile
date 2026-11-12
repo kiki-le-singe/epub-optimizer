@@ -15,7 +15,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 
 # ============================================================
-# Stage 3: build — compile TypeScript + minify
+# Stage 3: build — compile readable JavaScript and API declarations
 # ============================================================
 FROM deps AS build
 COPY . .
