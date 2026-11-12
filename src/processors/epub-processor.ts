@@ -14,6 +14,7 @@ import path from "node:path";
 import { assertDistinctInputOutput, assertSafeOutputTarget } from "../utils/output-transaction.js";
 import { detectEpubFeatures } from "../utils/epub-features.js";
 import { assertNoInternalDtdSubsets } from "../utils/xml-dtd.js";
+import { resolvePngBackground } from "../utils/pipeline-options.js";
 
 export interface ContentProcessingOptions {
   runStep?: <T>(name: string, operation: () => Promise<T> | T) => Promise<T>;
@@ -32,6 +33,7 @@ export async function processEpubContent(
   options: ContentProcessingOptions = {}
 ): Promise<{ success: boolean; input: string; output: string }> {
   const resolvedArgs = args;
+  const pngBackground = resolvePngBackground(resolvedArgs);
   const runStep =
     options.runStep ?? (async <T>(_name: string, operation: () => Promise<T> | T) => operation());
   const skipStep = options.skipStep ?? (() => {});
@@ -101,7 +103,8 @@ export async function processEpubContent(
     await runStep("Minify JavaScript", () => minifyJavaScript(resolvedArgs.temp));
     reportInfo("🔄 Minified JavaScript files");
 
-    // 4. Convert large opaque PNGs to JPEG. Resize is chained into the same
+    // 4. Convert eligible PNGs to JPEG; alpha needs an explicit background.
+    // Resize is chained into the same
     //    sharp pass so converted JPEGs don't need a follow-up downscale — step
     //    5 skips them to avoid a double recompression.
     const maxImageDim = resolvedArgs.maxImageDim > 0 ? resolvedArgs.maxImageDim : undefined;
@@ -112,7 +115,8 @@ export async function processEpubContent(
           resolvedArgs.temp,
           resolvedArgs.jpgQuality,
           resolvedArgs.imageConcurrency,
-          maxImageDim
+          maxImageDim,
+          pngBackground
         )
       );
       reportInfo("🖼️  Converted PNG to JPEG");
