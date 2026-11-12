@@ -3,6 +3,7 @@ node_modules/
 
 # Compiled output
 dist/
+*.tgz
 
 # Temporary files
 temp_epub/
