@@ -1,7 +1,7 @@
 // @ts-expect-error Native Node TypeScript requires the source extension.
 import { saveDiagnostics } from "./ci-diagnostics.ts";
 // @ts-expect-error Native Node TypeScript requires the source extension.
-import { createAnimatedPng } from "./image-fixtures.ts";
+import { createAnimatedPng, createTransparentPng } from "./image-fixtures.ts";
 import { spawn, spawnSync } from "node:child_process";
 import { createReadStream } from "node:fs";
 import fs from "fs-extra";
@@ -1443,6 +1443,130 @@ async function assertInternalDtdRejected(runDir: string, fixtureDir: string): Pr
   );
 }
 
+async function assertPngBackground(runDir: string, fixtureDir: string): Promise<void> {
+  const source = path.join(runDir, "transparent-fixture");
+  await fs.copy(fixtureDir, source);
+  const png = await createTransparentPng();
+  await fs.writeFile(path.join(source, "OEBPS/images/photo.png"), png);
+  const input = path.join(runDir, "transparent-input.epub");
+  await createEpub(input, source);
+  const read = async (epub: string, file: string) => {
+    const zip = await unzipper.Open.file(epub);
+    const entry = zip.files.find((entry) => entry.path === file);
+    if (!entry) throw new Error(`Missing ${file} in ${epub}`);
+    return entry.buffer();
+  };
+  const baseline = await runPnpmWorkflowCase(
+    runDir,
+    input,
+    "transparent-default",
+    "optimize",
+    true,
+    ["--strict", "--clean"]
+  );
+  const baselinePng = await read(baseline.outputEpub, "OEBPS/images/photo.png");
+  if (!(await sharp(baselinePng).metadata()).hasAlpha)
+    throw new Error("Default balanced optimization must retain PNG transparency.");
+  const clearPixel = await sharp(baselinePng)
+    .extract({ left: 10, top: 10, width: 1, height: 1 })
+    .toColourspace("srgb")
+    .ensureAlpha()
+    .raw()
+    .toBuffer();
+  if (clearPixel[3] !== 0)
+    throw new Error("Default balanced optimization changed a transparent pixel to an opaque one.");
+
+  const assertFlattened = async (output: string) => {
+    const jpeg = await read(output, "OEBPS/images/photo.jpg");
+    if ((await sharp(jpeg).metadata()).hasAlpha) throw new Error("Flattened JPEG still has alpha.");
+    const pixel = await sharp(jpeg)
+      .extract({ left: 10, top: 10, width: 1, height: 1 })
+      .raw()
+      .toBuffer();
+    if ([32, 64, 96].some((value, channel) => Math.abs((pixel[channel] ?? Infinity) - value) > 5))
+      throw new Error("Explicit PNG background did not reach the encoded pixels.");
+    const opf = (await read(output, "OEBPS/content.opf")).toString();
+    if (!/href="images\/photo.jpg"[^>]*media-type="image\/jpeg"/.test(opf))
+      throw new Error("Flattened PNG manifest reference was not updated.");
+    const cover = (await read(output, "OEBPS/cover.xhtml")).toString();
+    if (!cover.includes('src="images/photo.jpg"'))
+      throw new Error("Flattened cover reference was not updated.");
+    if (
+      !(await read(output, "OEBPS/images/animation.png")).equals(
+        await fs.readFile(path.join(source, "OEBPS/images/animation.png"))
+      )
+    )
+      throw new Error("PNG background changed animated PNG bytes.");
+  };
+  const flattened = await runPnpmWorkflowCase(
+    runDir,
+    input,
+    "transparent-flattened",
+    "optimize",
+    true,
+    ["--strict", "--clean", "--png-background", "#204060"]
+  );
+  await assertFlattened(flattened.outputEpub);
+  const lossless = await runPnpmWorkflowCase(
+    runDir,
+    input,
+    "transparent-lossless",
+    "optimize:lossless",
+    true,
+    ["--strict", "--clean"]
+  );
+  if (!(await read(lossless.outputEpub, "OEBPS/images/photo.png")).equals(png))
+    throw new Error("Lossless processing changed transparent PNG bytes.");
+
+  const batchInput = path.join(runDir, "transparent-batch-input");
+  const batchOutput = path.join(runDir, "transparent-batch-output");
+  await fs.ensureDir(batchInput);
+  await fs.copyFile(input, path.join(batchInput, "alpha.epub"));
+  const batch = runPnpmScript(
+    "optimize",
+    [
+      "--batch",
+      batchInput,
+      "--output-dir",
+      batchOutput,
+      "--strict",
+      "--clean",
+      "--png-background",
+      "#204060",
+    ],
+    withJavaFallback(process.env)
+  );
+  if (batch.status !== 0) throw new Error("Batch PNG background E2E failed.");
+  await assertFlattened(path.join(batchOutput, "alpha-optimized.epub"));
+
+  for (const flags of [
+    ["--png-background", "#ffffff00"],
+    ["--png-background", "#ffffff", "--preset", "lossless"],
+    ["--png-background", "#ffffff", "--no-convert-png"],
+  ]) {
+    const output = path.join(runDir, "invalid-background.epub");
+    const temp = path.join(runDir, "invalid-background-temp");
+    await fs.writeFile(output, "previous output");
+    const invalid = spawnSync(
+      process.execPath,
+      [pipelinePath, "-i", input, "-o", output, "--temp", temp, ...flags],
+      { env: withJavaFallback(process.env), encoding: "utf8" }
+    );
+    if (
+      invalid.status !== 1 ||
+      !invalid.stderr.includes("--png-background") ||
+      (await fs.readFile(output, "utf8")) !== "previous output" ||
+      (await fs.pathExists(temp))
+    )
+      throw new Error(
+        "Invalid PNG background options changed an output or created extraction state."
+      );
+  }
+  console.log(
+    "PNG background E2E passed: opt-in pixels/references, default alpha, lossless bytes, APNG preservation, batch propagation and preflight refusal."
+  );
+}
+
 async function main(): Promise<void> {
   const env = withJavaFallback(process.env);
   assertPrerequisites(env);
@@ -1483,6 +1607,7 @@ async function main(): Promise<void> {
     await assertInternalDtdRejected(runDir, fixtureDir);
     await assertPublicApiValidation(runDir, inputEpub);
     await assertBatchWorkflow(runDir, inputEpub);
+    await assertPngBackground(runDir, fixtureDir);
 
     const balanced = await runPnpmWorkflowCase(runDir, inputEpub, "balanced", "optimize", false, [
       "--strict",

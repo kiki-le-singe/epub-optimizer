@@ -7,6 +7,7 @@ import pLimit from "p-limit";
 import { getOPFPath, getContentPath } from "../utils/epub-utils.js";
 import { DEFAULT_FILE_CONCURRENCY } from "../utils/files.js";
 import { isAnimatedPng } from "../utils/png-animation.js";
+import { resolvePngBackground } from "../utils/pipeline-options.js";
 
 interface Conversion {
   pngFile: string;
@@ -42,7 +43,8 @@ async function maybeConvertOne(
   pngFile: string,
   contentDir: string,
   quality: number,
-  maxDim?: number
+  maxDim?: number,
+  background?: string
 ): Promise<Conversion | null> {
   try {
     const originalSize = (await fs.stat(pngFile)).size;
@@ -57,7 +59,7 @@ async function maybeConvertOne(
     }
 
     const metadata = await sharp(pngFile).metadata();
-    if (metadata.hasAlpha) {
+    if (metadata.hasAlpha && background === undefined) {
       reportInfo(`Skipping PNG with transparency: ${path.basename(pngFile)}`);
       return null;
     }
@@ -72,6 +74,12 @@ async function maybeConvertOne(
     // downscale step on the freshly-written JPEG (which would otherwise be
     // skipped by optimizeImages and stay at its original dimensions).
     let pipeline = sharp(pngFile);
+    if (metadata.hasAlpha && background !== undefined) {
+      reportInfo(
+        `Flattening PNG onto ${background} before JPEG conversion: ${path.basename(pngFile)}`
+      );
+      pipeline = pipeline.flatten({ background });
+    }
     if (maxDim) {
       pipeline = pipeline.resize({
         width: maxDim,
@@ -640,7 +648,7 @@ async function applyOpfUpdates(
 }
 
 /**
- * Convert large opaque PNG files to JPEG for better compression.
+ * Convert large opaque PNGs, or explicitly flattened transparent PNGs, to JPEG.
  * Runs conversions in parallel, then updates XHTML and OPF references
  * in a single batched pass.
  * @param maxDim Optional max width/height in px — resize is chained into
@@ -655,8 +663,10 @@ async function convertPngToJpeg(
   epubDir: string,
   quality = 85,
   concurrency = DEFAULT_FILE_CONCURRENCY,
-  maxDim?: number
+  maxDim?: number,
+  background?: string
 ): Promise<Set<string>> {
+  const pngBackground = resolvePngBackground({ pngBackground: background });
   try {
     reportInfo("Converting large PNG files to JPEG for better compression...");
 
@@ -677,7 +687,9 @@ async function convertPngToJpeg(
     // Phase 1: convert in parallel — each task writes its own .jpg side-by-side.
     const limit = pLimit(concurrency);
     const results = await Promise.all(
-      pngFiles.map((png) => limit(() => maybeConvertOne(png, contentDir, quality, maxDim)))
+      pngFiles.map((png) =>
+        limit(() => maybeConvertOne(png, contentDir, quality, maxDim, pngBackground))
+      )
     );
     const conversions = results.filter((r): r is Conversion => r !== null);
 

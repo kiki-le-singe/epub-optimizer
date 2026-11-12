@@ -33,7 +33,7 @@ Measured on an image-heavy EPUB with 12 full-page PNGs, with EPUBCheck-clean out
 
 The `balanced` row was remeasured with v3.8.0. The `author` and `repair` rows are earlier measurements and were not rerun for v3.8.0; the `lossless` row describes the preset's behavior.
 
-Nearly all of the savings come from raster image optimization, so results scale with how image-heavy your book is. In this book, 11 of the 12 PNGs contain transparency: they stay PNG and shrink through palette quantization (`--png-quality`) and downscaling to the default 1600 px maximum dimension. Only the opaque cover is converted to JPEG, because PNG-to-JPEG conversion applies only to large PNGs without an alpha channel.
+Nearly all of the savings come from raster image optimization, so results scale with how image-heavy your book is. In this book, 11 of the 12 PNGs contain transparency: they stay PNG and shrink through palette quantization (`--png-quality`) and downscaling to the default 1600 px maximum dimension. Only the opaque cover is converted to JPEG, because PNG-to-JPEG conversion applies by default only to large PNGs without an alpha channel.
 
 Memory was observed, not bounded by design. In local v3.8.0 runs of the `balanced` preset on this book (macOS arm64, Node.js 25, Java 25, default image concurrency), the Node.js process peaked at about 548 MiB (0.53 GiB) of resident memory. EPUBCheck then runs in a separate Java process, about 0.3 GiB here, which that figure excludes. These are single-machine observations, not limits: memory depends mainly on image dimensions and [`--image-concurrency`](#image-concurrency).
 
@@ -405,6 +405,7 @@ Options:
   --author-workflow Enable the complete author workflow, including repairs
   --author-config   JSON overrides for the author workflow's summary, cover, and CSS class mapping
   --convert-png     Convert large opaque PNG files to JPEG when safe
+  --png-background  Opt in to flattening eligible transparent PNGs onto #RRGGBB before JPEG conversion
   --no-convert-png  Disable PNG-to-JPEG conversion
   --lazy-loading    Add loading="lazy" to XHTML images
   --no-lazy-loading Disable lazy loading
@@ -469,6 +470,20 @@ Examples:
 - Font subsetting is opt-in through `--fonts` and is not enabled by any preset.
 
 Applicable CLI options override preset defaults. For example, `--preset balanced --no-convert-png` disables PNG-to-JPEG conversion. The `lossless` preset always skips lossy raster processing, and the author workflow always includes repairs and author structure updates.
+
+#### Optional background for transparent PNGs
+
+By default, PNGs with an alpha channel are kept as PNG. To allow eligible transparent PNGs to be converted to JPEG, explicitly choose an opaque background:
+
+```bash
+pnpm optimize -i book.epub -o book-white.epub --png-background '#ffffff'
+```
+
+`--png-background` accepts only a six-digit hex color (`#RRGGBB`), including the `#`; quote it in the shell. There is no default background. This option also applies to each book in batch mode and is available to Node API callers as `args.pngBackground`.
+
+Flattening permanently replaces transparency, including around captions, with the chosen color. White backgrounds can create visible white rectangles in dark reading modes. JPEG encoding is lossy; inspect text inside images, diagrams and edges in the target readers. EPUBCheck and content/text checks do not certify visual quality.
+
+The existing conversion safeguards still apply: PNGs smaller than 200 KiB and animated PNGs are skipped; the JPEG must be smaller than the original PNG, have a manifest entry and have supported, safely rewritable references. Conversion and resizing share one encoding pass; an unsuccessful conversion retains the PNG. This is not a command to recolor every PNG. Opaque PNGs retain their existing conversion behavior. `--png-background` is rejected with `--preset lossless`, `--no-convert-png`, or doctor mode, rather than silently ignored. Existing commands and presets are unchanged when the option is omitted.
 
 ### Safe temporary directories and validation deadlines
 
