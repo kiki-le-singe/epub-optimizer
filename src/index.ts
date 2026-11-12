@@ -4,11 +4,16 @@ import { processEpubContent, type ContentProcessingOptions } from "./processors/
 import type { Args } from "./types.js";
 
 export { runBatch, type BatchReport } from "./batch.js";
+export type { BatchItem } from "./batch.js";
+export type { Args, Preset } from "./types.js";
+export type { ContentProcessingOptions } from "./processors/epub-processor.js";
+export type { PipelineReport, StepReport, StepStatus } from "./utils/run-report.js";
+export type { EpubCheckReport } from "./utils/epubcheck-report.js";
 export { reportWarning, reportError } from "./utils/diagnostics.js";
 
 export { formatFileSize, reportFileSizeComparison } from "./utils/file-size.js";
 
-interface OptimizeOptions extends ContentProcessingOptions {
+export interface OptimizeOptions extends ContentProcessingOptions {
   /** Prepare extracted content only; never create or replace the output EPUB. */
   skipPackaging?: boolean;
 }
