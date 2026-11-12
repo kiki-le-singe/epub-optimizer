@@ -64,6 +64,10 @@ jobs:
           distribution: temurin
           java-version: "17"
       - run: bash scripts/install-epubcheck.sh epubcheck
+      - name: Packed CLI, API and TypeScript consumer
+        run: |
+          mkdir -p reports
+          pnpm test:package 2>&1 | tee reports/package-e2e.log
       - name: EPUBCheck E2E
         env:
           EPUB_E2E_ARTIFACT_DIR: reports/e2e

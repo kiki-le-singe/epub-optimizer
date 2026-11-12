@@ -46,6 +46,7 @@ Memory was observed, not bounded by design. In local v3.8.0 runs of the `balance
   - [Important Note for Apple Pages Users](#️-important-note-for-apple-pages-users)
 - [Requirements](#requirements)
 - [Installation](#installation)
+- [Local Package and Typed Node API](#local-package-and-typed-node-api)
 - [EPUBCheck Setup](#epubcheck-setup)
 - [Docker Alternative](#docker-alternative)
 - [Usage](#usage)
@@ -222,7 +223,7 @@ Version 3 makes the default command safer and less specific to this project's or
 
 - Node.js 22.12 or higher (CI validates Node.js 22 and 24; use Node.js 24 for development)
 - Java Runtime Environment (JRE) 17 or higher for EPUBCheck (CI and Docker use OpenJDK 17)
-- pnpm 10.30.3, pinned by the repository's `packageManager` field
+- pnpm 10.30.3 for repository development and packing, pinned by `packageManager`; the installed CLI/API runs directly on Node.js
 
 ## Installation
 
@@ -237,6 +238,37 @@ pnpm install --frozen-lockfile
 # Build the project (required before running optimize commands)
 pnpm build
 ```
+
+### Local package and typed Node API
+
+Build and inspect a local package without publishing it to a registry:
+
+```bash
+# From this repository; prepack rebuilds JavaScript and declarations first.
+pnpm pack --out /tmp/epub-optimizer.tgz
+
+# From a separate Node.js project:
+pnpm add /tmp/epub-optimizer.tgz
+bash node_modules/epub-optimizer/scripts/install-epubcheck.sh ./epubcheck
+EPUBCHECK_PATH="$PWD/epubcheck/epubcheck.jar" pnpm exec epub-optimizer \
+  -i book.epub -o book-optimized.epub --strict
+```
+
+The tarball contains compiled JavaScript, TypeScript declarations, README, license and the pinned EPUBCheck installer. It excludes TypeScript implementation sources, tests, development tools, local reports and books. Java and the EPUBCheck JAR are not bundled or downloaded during package installation; configure the JAR explicitly with `EPUBCHECK_PATH` as above. Docker remains the distribution that includes Java and EPUBCheck. Creating a tarball does not publish an npm release.
+
+ESM consumers import the API and its types from the package root:
+
+```typescript
+import { optimizeEPUB, type Args, type OptimizeOptions } from "epub-optimizer";
+
+export async function optimizeBook(args: Args, hooks: OptimizeOptions = {}) {
+  return optimizeEPUB(args, hooks);
+}
+```
+
+`Args` still describes fully resolved processing options; this does not introduce a partial-options API or change defaults. Exported types also include `Preset`, `ContentProcessingOptions`, `BatchReport`, `BatchItem`, `PipelineReport`, `StepReport`, `StepStatus` and `EpubCheckReport`. Existing root and deep ESM imports remain available. The same Java/EPUBCheck validation and output protection apply to installed API calls.
+
+`pnpm test:package` packs the project and installs the tarball with production dependencies into a new temporary consumer outside the repository, without dependency lifecycle scripts. It audits that consumer's production dependencies and verifies strict TypeScript usage (including rejected invalid types), CLI/API execution from another working directory, readable JavaScript stack locations, external EPUBCheck configuration and preservation of an existing output when the validator is missing. It requires Java, the pinned validator and registry access for consumer dependencies; it only uses generated EPUB fixtures. CI runs it on Node 22 and 24.
 
 ### EPUBCheck Setup
 
@@ -319,29 +351,30 @@ docker compose run --build --rm optimizer \
 
 ### Available Scripts
 
-| Script              | Description                                                                                       |
-| ------------------- | ------------------------------------------------------------------------------------------------- |
-| `build`             | Build TypeScript for production (with minification)                                               |
-| `build:dev`         | Build TypeScript for development (no minification)                                                |
-| `build:prod`        | Build TypeScript with minification for production                                                 |
-| `minify:safe`       | Safely minify JavaScript in dist/ directory (runs the TS source via Node's native type-stripping) |
-| `optimize`          | Run optimizer, keeping temp files                                                                 |
-| `optimize:author`   | Run the complete project-author workflow, including repairs and structure updates                 |
-| `optimize:repair`   | Run generic optimization plus modifying XHTML repair passes                                       |
-| `optimize:lossless` | Avoid lossy image conversion, recompression, and resizing                                         |
-| `optimize:clean`    | Run optimizer, removing temp files afterward                                                      |
-| `cleanup`           | Remove temporary files                                                                            |
-| `test`              | Run tests in watch mode                                                                           |
-| `test:run`          | Run tests once and exit                                                                           |
-| `test:coverage`     | Run tests with coverage report                                                                    |
-| `test:e2e`          | Validate every public pnpm optimization workflow with fixtures and EPUBCheck                      |
-| `test:docker`       | Validate raw Docker and the complete Docker Compose workflow matrix with EPUBCheck                |
-| `release:check`     | Validate a requested release version against `package.json` and optional tag/ref guards           |
-| `release:prepare`   | Prepare a version PR, wait for Required CI, then merge into `main` (`--dry-run` to preview)       |
-| `lint`              | Lint TypeScript files in src and scripts directories                                              |
-| `lint:fix`          | Lint and auto-fix TypeScript files in src and scripts                                             |
-| `format`            | Auto-format all .ts, .json, and .md files with Prettier                                           |
-| `format:check`      | Check formatting of all .ts, .json, and .md files with Prettier                                   |
+| Script              | Description                                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------- |
+| `build`             | Build TypeScript for production (with minification)                                           |
+| `build:dev`         | Build TypeScript for development (no minification)                                            |
+| `build:prod`        | Build TypeScript with minification for production                                             |
+| `minify:safe`       | Optional legacy minification of compiled JavaScript; not part of the production/package build |
+| `optimize`          | Run optimizer, keeping temp files                                                             |
+| `optimize:author`   | Run the complete project-author workflow, including repairs and structure updates             |
+| `optimize:repair`   | Run generic optimization plus modifying XHTML repair passes                                   |
+| `optimize:lossless` | Avoid lossy image conversion, recompression, and resizing                                     |
+| `optimize:clean`    | Run optimizer, removing temp files afterward                                                  |
+| `cleanup`           | Remove temporary files                                                                        |
+| `test`              | Run tests in watch mode                                                                       |
+| `test:run`          | Run tests once and exit                                                                       |
+| `test:coverage`     | Run tests with coverage report                                                                |
+| `test:package`      | Install and verify a local tarball, its CLI/API and TypeScript declarations                   |
+| `test:e2e`          | Validate every public pnpm optimization workflow with fixtures and EPUBCheck                  |
+| `test:docker`       | Validate raw Docker and the complete Docker Compose workflow matrix with EPUBCheck            |
+| `release:check`     | Validate a requested release version against `package.json` and optional tag/ref guards       |
+| `release:prepare`   | Prepare a version PR, wait for Required CI, then merge into `main` (`--dry-run` to preview)   |
+| `lint`              | Lint TypeScript files in src and scripts directories                                          |
+| `lint:fix`          | Lint and auto-fix TypeScript files in src and scripts                                         |
+| `format`            | Auto-format all .ts, .json, and .md files with Prettier                                       |
+| `format:check`      | Check formatting of all .ts, .json, and .md files with Prettier                               |
 
 ### Modern Workflow
 
@@ -834,7 +867,8 @@ epub-optimizer/
 │   ├── docker-e2e.ts          # Docker fixture test runner
 │   ├── e2e-epubcheck.ts       # Local fixture test runner with EPUBCheck
 │   ├── install-epubcheck.sh   # Single source of the EPUBCheck version (CI + Docker)
-│   ├── minify-dist.ts         # Smart minification script for JavaScript files
+│   ├── minify-dist.ts         # Optional legacy minification, outside the default build
+│   ├── package-e2e.ts         # Installed tarball, CLI/API and TypeScript checks
 │   ├── prepare-release.ts     # Prepare and validate a release PR (pnpm release:prepare)
 │   └── validate-release.ts    # Release version/tag/ref guards (pnpm release:check)
 └── src/                    # Source code directory
@@ -896,12 +930,11 @@ This project is built with TypeScript and uses modern ESM modules. Here's how th
 
 - TypeScript source files are in the `src/` and `scripts/` directories
 - The compiled JavaScript output goes to the `dist/` directory
-- The production build is highly optimized:
+- The production build contains:
   - Test files (`*.test.ts`) are completely excluded
-  - No TypeScript declaration files (\*.d.ts) are generated
+  - TypeScript declaration files (`*.d.ts`) for the API and its referenced types
   - No source maps are included
-  - JavaScript files are minified using Terser
-  - Comments are removed from the final code
+  - Readable JavaScript with comments and function names, so stack locations point to inspectable code
 - You must run `pnpm build` before running any `optimize` commands
 
 ### Import Structure
@@ -976,7 +1009,7 @@ A successful release candidate exits with code 0, passes EPUBCheck without error
 ### Development and Production
 
 - For development: Make changes to TypeScript files and run `pnpm build:dev`
-- For production: Run `pnpm build` to create a minified, optimized `dist/` directory
+- For production: Run `pnpm build` to create readable JavaScript and API declarations in `dist/`
 - The `optimize` commands run against the compiled code in `dist/`
 
 ## Linting and Formatting
@@ -990,16 +1023,9 @@ A successful release candidate exits with code 0, passes EPUBCheck without error
 
 ## Minification
 
-The production build process includes:
+JavaScript embedded inside EPUBs is still minified with Terser. The optimizer's own Node.js code is compiled without application minification so stack traces retain useful file/line/column locations. Source maps are not needed to read those JavaScript locations and are not shipped by the production build.
 
-- TypeScript compilation
-- Smart JavaScript minification with Terser:
-  - Minifies all files in both `src/` and `scripts/` directories
-  - Maintains class names and function names for better error reporting
-  - Compresses and mangles variables for reduced file size
-- Comment removal
-
-> **Note:** The minification script (`minify:safe`) runs `scripts/minify-dist.ts` directly via Node's native TypeScript stripping (`node --experimental-strip-types`), not on compiled JavaScript. This keeps the build toolchain dependency-free (no `ts-node`/`tsx`) while always using the latest TypeScript logic for minification.
+The legacy `pnpm minify:safe` command remains available as an explicit development-tool opt-in; it reduces readability and is not called by `pnpm build`. `pnpm pack` runs a clean build through `prepack`, regenerating readable JavaScript and declarations before creating the tarball.
 
 ## Modular Fix Scripts
 
