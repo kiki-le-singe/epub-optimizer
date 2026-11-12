@@ -12,6 +12,7 @@ import {
 } from "./utils/output-transaction.js";
 import { escapeHtml, htmlDocument } from "./utils/html-report.js";
 import type { PipelineReport } from "./utils/run-report.js";
+import { resolvePngBackground } from "./utils/pipeline-options.js";
 
 export interface BatchItem {
   input: string;
@@ -43,6 +44,7 @@ interface BatchPlan {
 }
 
 export async function planBatch(args: Args): Promise<BatchPlan> {
+  resolvePngBackground(args);
   if (!args.batch || !args.outputDir)
     throw new Error("Batch processing requires --batch and --output-dir.");
   if (args.doctor || args.inspect) throw new Error("Batch processing supports optimization only.");
