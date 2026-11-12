@@ -4,7 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import sharp from "sharp";
 import { convertPngToJpeg } from "./image-converter.js";
-import { createAnimatedPng } from "../../scripts/image-fixtures.js";
+import { createAnimatedPng, createTransparentPng } from "../../scripts/image-fixtures.js";
 
 const tempDir = path.join(os.tmpdir(), "epub-optimizer-image-converter-test");
 
@@ -141,25 +141,126 @@ describe("PNG to JPEG converter", () => {
     vi.restoreAllMocks();
   });
 
-  it("preserves opaque APNG bytes and references instead of converting the first frame", async () => {
-    const epubDir = path.join(tempDir, "animation");
+  it.each([undefined, "#ffffff"])(
+    "preserves APNG bytes and references with background %s",
+    async (background) => {
+      const epubDir = path.join(tempDir, "animation");
+      await createEpubTree(epubDir);
+      const contentDir = path.join(epubDir, "OPS");
+      const file = path.join(contentDir, "images", "cat.png");
+      const original = createAnimatedPng();
+      expect(original.length).toBeGreaterThan(200 * 1024);
+      expect((await sharp(original).metadata()).hasAlpha).toBe(false);
+      await fs.writeFile(file, original);
+      const opf = await fs.readFile(path.join(contentDir, "content.opf"), "utf8");
+      const chapterPath = path.join(contentDir, "chapters", "chapter-1.xhtml");
+      const chapter = await fs.readFile(chapterPath, "utf8");
+
+      expect((await convertPngToJpeg(epubDir, 70, 1, 100, background)).size).toBe(0);
+
+      expect((await fs.readFile(file)).equals(original)).toBe(true);
+      expect(await fs.pathExists(file.replace(/\.png$/, ".jpg"))).toBe(false);
+      expect(await fs.readFile(path.join(contentDir, "content.opf"), "utf8")).toBe(opf);
+      expect(await fs.readFile(chapterPath, "utf8")).toBe(chapter);
+    }
+  );
+
+  it("keeps transparent PNG bytes and references unchanged by default", async () => {
+    const epubDir = path.join(tempDir, "transparent-default");
     await createEpubTree(epubDir);
-    const contentDir = path.join(epubDir, "OPS");
-    const file = path.join(contentDir, "images", "cat.png");
-    const original = createAnimatedPng();
+    const png = path.join(epubDir, "OPS/images/cat.png");
+    const original = await createTransparentPng();
+    await fs.writeFile(png, original);
+    const chapter = await fs.readFile(path.join(epubDir, "OPS/chapters/chapter-1.xhtml"));
+    const opf = await fs.readFile(path.join(epubDir, "OPS/content.opf"));
+    expect((await convertPngToJpeg(epubDir, 90, 1, 256)).size).toBe(0);
+    expect(await fs.readFile(png)).toEqual(original);
+    expect(await fs.readFile(path.join(epubDir, "OPS/chapters/chapter-1.xhtml"))).toEqual(chapter);
+    expect(await fs.readFile(path.join(epubDir, "OPS/content.opf"))).toEqual(opf);
+  });
+
+  it.each([
+    ["#ffffff", [255, 255, 255], [255, 127, 127]],
+    ["#204060", [32, 64, 96], [144, 32, 48]],
+  ] as const)(
+    "flattens full and partial alpha onto %s, resizes and safely rewrites references",
+    async (background, clear, halfRed) => {
+      const epubDir = path.join(tempDir, "flattened");
+      await createEpubTree(epubDir);
+      const png = path.join(epubDir, "OPS/images/cat.png");
+      const small = await fs.readFile(path.join(epubDir, "OPS/images/scat.png"));
+      const original = await createTransparentPng();
+      expect(original.length).toBeGreaterThan(200 * 1024);
+      await fs.writeFile(png, original);
+      const jpeg = png.replace(/\.png$/, ".jpg");
+      expect([...(await convertPngToJpeg(epubDir, 90, 1, 256, background))]).toEqual([jpeg]);
+      expect(await fs.pathExists(png)).toBe(false);
+      expect((await fs.stat(jpeg)).size).toBeLessThan(original.length);
+      expect(await sharp(jpeg).metadata()).toMatchObject({
+        width: 256,
+        height: 256,
+        hasAlpha: false,
+      });
+      const { data, info } = await sharp(jpeg).raw().toBuffer({ resolveWithObject: true });
+      for (const [x, expected] of [
+        [5, clear],
+        [45, halfRed],
+      ] as const) {
+        const offset = (5 * info.width + x) * info.channels;
+        expected.forEach((value, c) => expect(Math.abs(data[offset + c] - value)).toBeLessThan(6));
+      }
+      expect(await fs.readFile(path.join(epubDir, "OPS/images/scat.png"))).toEqual(small);
+      const chapter = await fs.readFile(path.join(epubDir, "OPS/chapters/chapter-1.xhtml"), "utf8");
+      expect(chapter).toContain("../images/cat.jpg?density=2 2x");
+      expect(chapter).toContain("../images/cat.jpg#inline");
+      expect(await fs.readFile(path.join(epubDir, "OPS/styles/book.css"), "utf8")).toContain(
+        "../images/cat.jpg#css"
+      );
+      expect(await fs.readFile(path.join(epubDir, "OPS/vector/graphic.svg"), "utf8")).toContain(
+        "../images/cat.jpg?svg=1"
+      );
+      expect(await fs.readFile(path.join(epubDir, "OPS/content.opf"), "utf8")).toContain(
+        'href="images/cat.jpg" media-type="image/jpeg"'
+      );
+    }
+  );
+
+  it("keeps transparent source bytes when a flattened candidate has no manifest entry", async () => {
+    const epubDir = path.join(tempDir, "flattened-rollback");
+    await createEpubTree(epubDir, { includeCatManifest: false });
+    const png = path.join(epubDir, "OPS/images/cat.png");
+    const original = await createTransparentPng();
+    await fs.writeFile(png, original);
+    expect((await convertPngToJpeg(epubDir, 70, 1, undefined, "#ffffff")).size).toBe(0);
+    expect(await fs.readFile(png)).toEqual(original);
+    expect(await fs.pathExists(png.replace(/\.png$/, ".jpg"))).toBe(false);
+    expect(await fs.readFile(path.join(epubDir, "OPS/chapters/chapter-1.xhtml"), "utf8")).toContain(
+      'src="../images/cat.png"'
+    );
+  });
+
+  it("keeps transparency and references when flattening would increase file size", async () => {
+    const epubDir = path.join(tempDir, "flattened-no-benefit");
+    await createEpubTree(epubDir);
+    const png = path.join(epubDir, "OPS/images/cat.png");
+    const original = await sharp(await createTransparentPng())
+      .png({ palette: true, colours: 32 })
+      .toBuffer();
     expect(original.length).toBeGreaterThan(200 * 1024);
-    expect((await sharp(original).metadata()).hasAlpha).toBe(false);
-    await fs.writeFile(file, original);
-    const opf = await fs.readFile(path.join(contentDir, "content.opf"), "utf8");
-    const chapterPath = path.join(contentDir, "chapters", "chapter-1.xhtml");
-    const chapter = await fs.readFile(chapterPath, "utf8");
-
-    expect((await convertPngToJpeg(epubDir, 70, 1, 100)).size).toBe(0);
-
-    expect((await fs.readFile(file)).equals(original)).toBe(true);
-    expect(await fs.pathExists(file.replace(/\.png$/, ".jpg"))).toBe(false);
-    expect(await fs.readFile(path.join(contentDir, "content.opf"), "utf8")).toBe(opf);
-    expect(await fs.readFile(chapterPath, "utf8")).toBe(chapter);
+    const candidate = await sharp(original)
+      .flatten({ background: "#ffffff" })
+      .jpeg({ quality: 100, mozjpeg: true })
+      .toBuffer();
+    expect(candidate.length).toBeGreaterThan(original.length);
+    await fs.writeFile(png, original);
+    const opf = await fs.readFile(path.join(epubDir, "OPS/content.opf"));
+    expect((await convertPngToJpeg(epubDir, 100, 1, undefined, "#ffffff")).size).toBe(0);
+    expect(await fs.readFile(png)).toEqual(original);
+    expect(await fs.pathExists(png.replace(/\.png$/, ".jpg"))).toBe(false);
+    expect(await fs.readFile(path.join(epubDir, "OPS/content.opf"))).toEqual(opf);
+    expect(await fs.readFile(path.join(epubDir, "OPS/chapters/chapter-1.xhtml"), "utf8")).toContain(
+      'src="../images/cat.png"'
+    );
   });
 
   it("commits only exact resolved PNG references across nested XHTML, CSS, srcset, and SVG", async () => {

@@ -1,6 +1,32 @@
 import { deflateSync } from "node:zlib";
 import sharp from "sharp";
 
+/** Large static RGBA fixture, with transparent, half-red and noisy opaque regions. */
+export async function createTransparentPng(): Promise<Buffer> {
+  const width = 512;
+  const height = 512;
+  const pixels = Buffer.alloc(width * height * 4);
+  let seed = 42;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const offset = (y * width + x) * 4;
+      for (let channel = 0; channel < 3; channel++) {
+        seed = (1664525 * seed + 1013904223) >>> 0;
+        pixels[offset + channel] = seed >>> 24;
+      }
+      pixels[offset + 3] = 255;
+      if (y < 64 && x < 128) {
+        pixels[offset] = 255;
+        pixels[offset + 1] = pixels[offset + 2] = 0;
+        pixels[offset + 3] = x < 64 ? 0 : 128;
+      }
+    }
+  }
+  return sharp(pixels, { raw: { width, height, channels: 4 } })
+    .png()
+    .toBuffer();
+}
+
 export function pngChunk(type: string, data: Buffer): Buffer {
   const chunk = Buffer.alloc(data.length + 12);
   chunk.writeUInt32BE(data.length);

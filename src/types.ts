@@ -11,6 +11,9 @@ export interface Args {
   jpgQuality: number;
   "png-quality": number;
   pngQuality: number;
+  /** Optional opaque #RRGGBB background for eligible PNG-to-JPEG conversion. */
+  pngBackground?: string;
+  "png-background"?: string;
   fonts: boolean;
   "author-workflow": boolean;
   authorWorkflow: boolean;

@@ -359,6 +359,24 @@ describe("EPUB Optimization Integration Tests", () => {
     expect(validateEPUB).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { pngBackground: "#ffffff00" },
+    { pngBackground: "#ffffff", preset: "lossless" as const },
+    { pngBackground: "#ffffff", convertPng: false },
+  ])("rejects invalid API background options before touching outputs: %j", async (options) => {
+    await fs.writeFile(mockOutputEpub, "previous output");
+    const input = await fs.readFile(mockInputEpub);
+    for (const skipPackaging of [false, true]) {
+      await expect(optimizeEPUB({ ...mockArgs, ...options }, { skipPackaging })).rejects.toThrow(
+        "--png-background"
+      );
+    }
+    expect(await fs.readFile(mockOutputEpub, "utf8")).toBe("previous output");
+    expect(await fs.readFile(mockInputEpub)).toEqual(input);
+    expect(await fs.pathExists(extractDir)).toBe(false);
+    expect(validateEPUB).not.toHaveBeenCalled();
+  });
+
   it("optimizes an EPUB and preserves temporary files when clean=false", async () => {
     // Override the clean flag
     vi.mocked(parseArguments).mockResolvedValue({

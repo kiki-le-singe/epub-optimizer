@@ -57,6 +57,12 @@ async function parseArguments(): Promise<Args> {
       type: "number",
       default: config.pngOptions.quality,
     })
+    .option("png-background", {
+      describe:
+        "Flatten eligible transparent PNGs onto an opaque #RRGGBB color before JPEG conversion",
+      type: "string",
+      requiresArg: true,
+    })
     .option("lang", {
       describe: "UI language for labels (e.g. fr, en)",
       type: "string",

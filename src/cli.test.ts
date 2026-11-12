@@ -13,7 +13,38 @@ describe("CLI options", () => {
     const second = await parseArguments();
     expect(first.temp).toMatch(/^temp_epub-/);
     expect(second.temp).not.toBe(first.temp);
+    expect(first.pngBackground).toBeUndefined();
   });
+  it("normalizes an explicit PNG background and carries it into batch options", async () => {
+    process.argv = [
+      "node",
+      "epub-optimizer",
+      "--png-background",
+      "#AaBBcC",
+      "--batch",
+      "books",
+      "--output-dir",
+      "optimized",
+    ];
+    const args = await parseArguments();
+    expect(args.pngBackground).toBe("#aabbcc");
+    expect(args["png-background"]).toBe("#aabbcc");
+    expect(args.convertPng).toBe(true);
+  });
+  it.each(["red", "#fff", "#ffffff00", "#12345g", ""])(
+    "rejects invalid or non-opaque PNG background %j",
+    async (color) => {
+      process.argv = ["node", "epub-optimizer", "--png-background", color];
+      await expect(parseArguments()).rejects.toThrow("#RRGGBB");
+    }
+  );
+  it.each([["--preset", "lossless"], ["--no-convert-png"], ["--doctor"]])(
+    "rejects conflicting background options %j",
+    async (...flags) => {
+      process.argv = ["node", "epub-optimizer", "--png-background", "#ffffff", ...flags];
+      await expect(parseArguments()).rejects.toThrow(/lossless|conversion|doctor/);
+    }
+  );
 
   it("preserves an explicit destination and resolves the validation deadline", async () => {
     process.argv = [
