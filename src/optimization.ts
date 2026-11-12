@@ -40,11 +40,13 @@ import {
 import type { PipelineReport } from "./utils/run-report.js";
 import { loadAuthorWorkflowConfig } from "./utils/author-workflow-config.js";
 import { runDoctor } from "./utils/epub-doctor.js";
+import { resolvePngBackground } from "./utils/pipeline-options.js";
 
 export async function runOptimization(
   args: Args,
   processingOptions: ContentProcessingOptions & { onReport?: (report: PipelineReport) => void } = {}
 ): Promise<void> {
+  resolvePngBackground(args);
   if (args.reportHtml) {
     assertSafeReportPath(args.reportHtml, args.input, args.output);
     if (args.reportJson) assertDistinctInputOutput(args.reportJson, args.reportHtml);

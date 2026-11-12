@@ -5,6 +5,7 @@ import path from "node:path";
 import { planBatch, renderBatchReport, runBatch } from "./batch.js";
 import { runOptimization } from "./optimization.js";
 import type { Args } from "./types.js";
+
 vi.mock("./optimization.js", () => ({ runOptimization: vi.fn() }));
 let root: string;
 let args: Args;
@@ -29,6 +30,13 @@ afterEach(async () => {
   await fs.remove(root);
 });
 describe("batch optimization", () => {
+  it("rejects a conflicting background before batch output creation", async () => {
+    await expect(
+      runBatch({ ...args, pngBackground: "#ffffff", preset: "lossless" })
+    ).rejects.toThrow("lossless");
+    expect(await fs.pathExists(args.outputDir!)).toBe(false);
+    expect(runOptimization).not.toHaveBeenCalled();
+  });
   it("plans only top-level regular EPUBs in stable order without writes", async () => {
     await fs.writeFile(path.join(args.batch!, "b.EPUB"), "book");
     await fs.writeFile(path.join(args.batch!, "a.epub"), "book");
