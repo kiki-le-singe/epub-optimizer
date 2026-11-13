@@ -1,207 +1,126 @@
-import { reportInfo, reportWarning } from "../utils/diagnostics.js";
-import fs from "fs-extra";
+import fs from "node:fs/promises";
 import path from "node:path";
-import * as cheerio from "cheerio";
-import { createRequire } from "node:module";
-import { collectManifestResources, getContentPath } from "../utils/epub-utils.js";
-import { collectFiles, hasExtension } from "../utils/files.js";
+import { randomUUID } from "node:crypto";
+import { reportInfo, reportWarning } from "../utils/diagnostics.js";
+import { collectManifestResources } from "../utils/epub-utils.js";
+import { collectFontCharacters } from "./font-characters.js";
+import { runFontWorker } from "./font-runner.js";
+import { MAX_FONT_BYTES } from "./font-limits.js";
 
-const require = createRequire(import.meta.url);
-const XHTML_EXTENSIONS = new Set([".xhtml"]);
-const FONT_EXTENSIONS = new Set([".ttf", ".otf"]);
+const FONT_EXTENSIONS = new Set([".ttf", ".otf", ".woff", ".woff2"]);
 const FONT_MEDIA_TYPES = new Set([
   "application/vnd.ms-opentype",
   "application/font-sfnt",
+  "application/font-woff",
   "application/x-font-ttf",
   "application/x-font-opentype",
   "application/x-font-otf",
+  "application/x-font-woff",
   "font/ttf",
   "font/otf",
   "font/sfnt",
+  "font/woff",
+  "font/woff2",
 ]);
 
-interface FontSubsetOptions {
-  enabled?: boolean;
-}
+class FontCandidateCleanupError extends Error {}
 
-interface FontminInstance {
-  src(filePath: string): FontminInstance;
-  use(plugin: unknown): FontminInstance;
-  dest(outputDir: string): FontminInstance;
-  run(callback: (err: Error | null, files: unknown) => void): void;
-}
-
-interface FontminModule {
-  new (): FontminInstance;
-  glyph(options: { text: string; hinting: boolean }): unknown;
-}
-
-/**
- * Optionally subset font files to include only characters used in the EPUB content.
- * Disabled by default because the legacy fontmin dependency is not installed in production.
- * @param epubDir Directory containing the extracted EPUB
- * @throws Error if font subsetting fails
- */
-async function subsetFonts(epubDir: string, options: FontSubsetOptions = {}): Promise<void> {
+async function removeOwnedCandidate(
+  candidate: string,
+  owned?: { dev: number; ino: number }
+): Promise<void> {
   try {
-    if (!options.enabled) {
-      reportInfo("Font subsetting disabled by default; pass --fonts to enable it.");
-      return;
-    }
-
-    reportInfo("Subsetting fonts to reduce file size...");
-
-    // Get content directory (OPS, OEBPS, or root)
-    const contentDir = await getContentPath(epubDir);
-    if (!(await fs.pathExists(contentDir))) {
-      reportInfo("Content directory not found, skipping font subsetting");
-      return;
-    }
-
-    // Get all XHTML files
-    const xhtmlFiles = await collectFiles(contentDir, (filePath) =>
-      hasExtension(filePath, XHTML_EXTENSIONS)
-    );
-    if (xhtmlFiles.length === 0) {
-      reportInfo("No XHTML files found, skipping font subsetting");
-      return;
-    }
-
-    // Extract all text from XHTML files
-    let allText = "";
-    for (const file of xhtmlFiles) {
-      const content = await fs.readFile(file, "utf8");
-      const $ = cheerio.load(content, { xmlMode: true });
-      allText += $("body").text();
-    }
-
-    // Create a set of unique characters
-    const uniqueChars = new Set(allText);
-    const uniqueCharsString = Array.from(uniqueChars).join("");
-    reportInfo(`Found ${uniqueChars.size} unique characters in EPUB content`);
-
-    // Discover fonts via the OPF manifest (any folder/case), not a hardcoded
-    // `fonts/` folder.
-    const fontFiles = await collectManifestResources(epubDir, {
-      mediaTypes: FONT_MEDIA_TYPES,
-      extensions: FONT_EXTENSIONS,
-    });
-    if (fontFiles.length === 0) {
-      reportInfo("No font files found");
-      return;
-    }
-
-    reportInfo(`Found ${fontFiles.length} font files to process`);
-
-    let Fontmin: FontminModule;
-    try {
-      Fontmin = require("fontmin") as FontminModule;
-    } catch {
-      reportWarning(
-        "Font subsetting requested, but fontmin is not installed. Install fontmin locally only for trusted workflows."
-      );
-      return;
-    }
-
-    // Process each font file with fontmin
-    for (const fontFile of fontFiles) {
-      try {
-        const originalSize = (await fs.stat(fontFile)).size;
-        const fileName = path.basename(fontFile);
-        const fileExt = path.extname(fontFile).toLowerCase();
-        const fontDir = path.dirname(fontFile);
-
-        // Skip OTF files - fontmin's OTF support is unreliable
-        if (fileExt === ".otf") {
-          reportInfo(`Skipping OTF file (conversion not reliable): ${fileName}`);
-          continue;
-        }
-
-        // Try to subset the font
-        await new Promise<void>((resolve, reject) => {
-          const fontmin = new Fontmin()
-            .src(fontFile)
-            .use(
-              Fontmin.glyph({
-                text: uniqueCharsString,
-                hinting: false, // Remove hinting to reduce size further
-              })
-            )
-            .dest(fontDir);
-
-          fontmin.run((err: Error | null, files: unknown) => {
-            if (err) {
-              reject(err);
-            } else {
-              // Check if files were generated
-              if (Array.isArray(files) && files.length > 0) {
-                resolve();
-              } else {
-                reject(new Error("No output files generated"));
-              }
-            }
-          });
-        });
-
-        // Check if output exists and replace original
-        const outputFiles = await fs.readdir(fontDir);
-        const subsetFile = outputFiles.find(
-          (f) => f.includes(path.basename(fontFile, fileExt)) && f !== fileName
-        );
-
-        if (subsetFile) {
-          const subsetPath = path.join(fontDir, subsetFile);
-          const newSize = (await fs.stat(subsetPath)).size;
-
-          // Only replace if the subset is actually smaller
-          if (newSize < originalSize) {
-            await fs.remove(fontFile);
-            await fs.rename(subsetPath, fontFile);
-
-            const reduction = Math.round((1 - newSize / originalSize) * 100);
-            reportInfo(
-              `Subset font ${fileName}: ${formatBytes(originalSize)} → ${formatBytes(
-                newSize
-              )} (${reduction}% smaller)`
-            );
-          } else {
-            // Subset is larger, keep original
-            await fs.remove(subsetPath);
-            reportInfo(`Kept original ${fileName} (subset was larger)`);
-          }
-        } else {
-          reportInfo(`No subset created for ${fileName} (likely encrypted or unsupported format)`);
-        }
-      } catch (error) {
-        reportWarning(
-          `Skipping font ${path.basename(fontFile)}: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-      }
-    }
+    if (!owned) throw new Error("Candidate ownership unavailable");
+    const stat = await fs.lstat(candidate);
+    if (!stat.isFile() || stat.dev !== owned.dev || stat.ino !== owned.ino)
+      throw new Error("Candidate ownership changed");
+    await fs.unlink(candidate);
   } catch (error) {
-    // Don't throw error, just warn - font subsetting is optional
-    reportWarning(
-      `Font subsetting failed: ${error instanceof Error ? error.message : String(error)}`
-    );
-    reportWarning("Continuing without font optimization...");
+    // An unremoved candidate must never leak into the packaged EPUB, even in non-strict mode.
+    throw new FontCandidateCleanupError("Cannot safely clean up font candidate", { cause: error });
   }
 }
 
-/**
- * Format bytes as human-readable file size
- */
-function formatBytes(bytes: number, decimals = 2): string {
-  if (bytes === 0) return "0 Bytes";
-
-  const k = 1024;
-  const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ["Bytes", "KB", "MB", "GB"];
-
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
+/** Opt-in only. Any uncertainty preserves the original font rather than guessing its glyphs. */
+export async function subsetFonts(
+  epubDir: string,
+  options: { enabled?: boolean } = {}
+): Promise<void> {
+  if (!options.enabled) {
+    reportInfo("Font subsetting disabled; pass --fonts to enable it.");
+    return;
+  }
+  try {
+    // Standalone callers receive the same conservative protection as the main pipeline.
+    try {
+      await fs.lstat(path.join(epubDir, "META-INF", "encryption.xml"));
+      reportInfo("Keeping fonts unchanged: encryption metadata is present.");
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const files = await collectManifestResources(epubDir, {
+      extensions: FONT_EXTENSIONS,
+      mediaTypes: FONT_MEDIA_TYPES,
+    });
+    if (files.length > 16) throw new Error("Font count exceeds the 16-font budget");
+    if (!files.length) {
+      reportInfo("No embedded fonts to subset.");
+      return;
+    }
+    const characters = await collectFontCharacters(epubDir);
+    for (const file of files) {
+      let candidate: string | undefined;
+      let created = false;
+      let owned: { dev: number; ino: number } | undefined;
+      try {
+        const originalStat = await fs.lstat(file);
+        if (!originalStat.isFile() || originalStat.nlink !== 1) throw new Error("Unsafe font file");
+        if (!originalStat.size || originalStat.size > MAX_FONT_BYTES) {
+          reportInfo(`Keeping font ${path.basename(file)}: empty or exceeds 8 MiB.`);
+          continue;
+        }
+        const original = await fs.readFile(file);
+        const result = await runFontWorker(original, characters);
+        if (!result.data || result.data.length >= original.length) {
+          reportInfo(`Keeping font ${path.basename(file)}: ${result.reason ?? "no size benefit"}.`);
+          continue;
+        }
+        candidate = path.join(path.dirname(file), `.font-${randomUUID()}.tmp`);
+        const handle = await fs.open(candidate, "wx", 0o600);
+        created = true;
+        try {
+          const stat = await handle.stat();
+          owned = { dev: stat.dev, ino: stat.ino };
+          await handle.writeFile(result.data);
+        } finally {
+          await handle.close();
+        }
+        const current = await fs.lstat(file);
+        if (
+          !current.isFile() ||
+          current.dev !== originalStat.dev ||
+          current.ino !== originalStat.ino ||
+          !(await fs.readFile(file)).equals(original)
+        )
+          throw new Error("Font changed during subsetting");
+        await fs.rename(candidate, file);
+        candidate = undefined;
+        reportInfo(
+          `Subset font ${path.basename(file)}: ${original.length} → ${result.data.length} bytes.`
+        );
+      } catch (error) {
+        reportWarning(
+          `Keeping font ${path.basename(file)}: ${error instanceof Error ? error.message : String(error)}`
+        );
+      } finally {
+        if (candidate && created) await removeOwnedCandidate(candidate, owned);
+      }
+    }
+  } catch (error) {
+    if (error instanceof FontCandidateCleanupError) throw error;
+    reportWarning(
+      `Font subsetting skipped: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }
-
-export { subsetFonts };

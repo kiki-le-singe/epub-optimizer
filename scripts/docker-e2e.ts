@@ -1,4 +1,6 @@
 // @ts-expect-error Native Node TypeScript requires the source extension.
+import { createFontFixture } from "./font-fixtures.ts";
+// @ts-expect-error Native Node TypeScript requires the source extension.
 import { saveDiagnostics } from "./ci-diagnostics.ts";
 import { spawnSync } from "node:child_process";
 import fs from "fs-extra";
@@ -10,6 +12,7 @@ import * as e2eFixture from "./e2e-epubcheck.ts";
 
 const {
   assertAuthorOutput,
+  assertFontOutput,
   assertConfiguredAuthorOutput,
   assertLosslessOutput,
   assertOptimizedOutput,
@@ -222,6 +225,16 @@ async function main(): Promise<void> {
       sectionNavClass: "toc-section",
     });
 
+    const fontFixture = path.join(runDir, "font-fixture");
+    await createFontFixture(fontFixture);
+    await createEpub(path.join(runDir, "font-input.epub"), fontFixture);
+    const fonts = await runDockerWorkflowCase(runDir, "raw-fonts", "font-input.epub", "run", true, [
+      "--fonts",
+      "--strict",
+      "--clean",
+    ]);
+    await assertFontOutput(fonts.outputEpub, runDir);
+
     const rawBalanced = await runDockerWorkflowCase(
       runDir,
       "raw-balanced",
@@ -346,7 +359,7 @@ async function main(): Promise<void> {
     );
 
     console.log(
-      "Docker workflows passed E2E validation: raw balanced, raw author, Compose balanced, lossless, repair, author, and configured author."
+      "Docker workflows passed E2E validation: raw balanced, raw author, raw fonts, Compose balanced, lossless, repair, author, and configured author."
     );
   } finally {
     try {
