@@ -427,7 +427,9 @@ Options:
   -i, --input       Input EPUB file path                    [string] [default: "mybook.epub"]
   -o, --output      Output EPUB file path                   [string] [default: "mybook_opt.epub"]
   --batch           Directory of EPUB files to optimize (non-recursive)
-  --output-dir      Destination directory required with --batch
+  --watch           Continuously optimize EPUB files dropped in this directory
+  --watch-settle-ms  Quiet interval before processing a watched file [default: 3000, minimum: 1000]
+  --output-dir      Destination directory required with --batch or --watch
   -t, --temp        Temporary directory for processing      [string] [default: unique temp_epub-<id>]
   --jpg-quality     JPEG compression quality (0-100)        [number] [default: 70]
   --png-quality     PNG compression quality (0-1 scale)     [number] [default: 0.6]
@@ -736,6 +738,65 @@ The entire path plan is checked before processing: input/output/report aliases, 
 
 The exported `runBatch(args)` API returns the structured summary without setting a process exit code. Pass resolved options, including `batch` and `outputDir`; use `optimizeEPUB(args)` for single-book calls.
 
+### Watched folder
+
+```bash
+mkdir -p inbox optimized
+pnpm optimize --watch inbox --output-dir optimized --strict --clean
+```
+
+The process keeps running, scans the top level every second (including existing books),
+and optimizes one book at a time. Drop an EPUB into `inbox`; each successful job gets
+its own directory under `optimized`, containing `optimized.epub`, `report.json`,
+`report.html`, and `completed.json`. Original files remain in the inbox untouched.
+The directory name includes the book name and hashes of its name, contents, tool
+version and settings. Changed books or different optimization settings get new
+outputs; previous successful outputs remain available. Author configuration is
+snapshotted at startup; restart the watcher after editing that configuration. Books with the same contents
+and settings are skipped on restart using the completion record and output checksum.
+Do not edit the completion records. Reports refer to the private input snapshot;
+`completed.json` records the original inbox path.
+
+Files must remain unchanged in size, timestamps and identity for at least three
+seconds before processing. Adjust with `--watch-settle-ms 10000` (minimum 1000).
+**A quiet interval cannot prove that a copy has finished.** Prefer copying with a
+name such as `book.epub.part`, then renaming it to `book.epub` once the transfer
+finishes. The watcher ignores other extensions, nested directories, empty files,
+and symbolic links. A private snapshot is used during optimization; changes during
+snapshot copying defer processing until the file settles again.
+
+Failed books are logged and do not stop later books. An unchanged failure is tried
+once per session; change the file or restart the watcher to retry it. Existing
+successful output is protected by the same EPUBCheck-before-publication pipeline.
+`--strict`, presets, `--fonts` and image options apply normally. JSON and HTML reports
+are automatic; do not pass `--report-json` or `--report-html`. Input and output
+directories must be separate, non-nested real directories. Watch mode cannot be
+combined with batch, doctor, or explicit input/output/temp paths.
+
+For Docker, mount the parent containing both directories (build the current sources first):
+
+```bash
+docker build --target runtime -t epub-optimizer .
+docker run -d --name epub-watch --read-only --network none --tmpfs /tmp \
+  -v "$PWD:/epub-files" epub-optimizer \
+  --watch inbox --output-dir optimized --strict --clean
+docker logs -f epub-watch
+# In another terminal, allow the current book time to finish:
+docker stop --time 300 epub-watch
+docker rm epub-watch
+```
+
+The mounted output directory must be writable by the container user. Files and
+reports stay on the host; Java and EPUBCheck are included in the image.
+
+Ctrl+C or SIGTERM stops accepting new books and lets the current book finish. Exit
+status is 1 if any book failed during that session, otherwise 0. Polling works on
+mounted folders as well as local disks. Only one watcher may use an output directory;
+an exclusive `.epub-watch.lock` enforces this. If the process was forcibly killed or
+the machine crashed, first confirm no watcher is running, then remove that stale lock
+before restarting. An output or completion record altered externally is refused;
+choose a fresh output directory to rerun it safely.
+
 ### Safety Model
 
 The exported `optimizeEPUB(args)` Node.js entry point uses the same pipeline as the CLI: content/text preservation checks, optional repair and author passes, candidate EPUBCheck validation, and transactional publication. Java and EPUBCheck must be available for API calls too; `validationTimeout`, `strict`, `reportJson`, and `clean` apply as they do in the CLI. Validation failure or timeout preserves an existing output. The supplied options object is copied before feature detection adjusts processing settings.
@@ -907,6 +968,7 @@ epub-optimizer/
 │   └── validate-release.ts    # Release version/tag/ref guards (pnpm release:check)
 └── src/                    # Source code directory
     ├── index.ts            # Validated Node.js API entry point
+    ├── watch.ts            # Stable-file polling, snapshots and durable completion records
     ├── batch.ts            # Sequential batch planning, reports and execution
     ├── optimization.ts     # Shared API/CLI validation and publication pipeline
     ├── pipeline.ts         # CLI entry point for the shared optimization pipeline
