@@ -18,9 +18,15 @@ import {
 } from "./utils/author-workflow-config.js";
 import { findPackageRoot } from "./utils/package-root.js";
 
+/** Structurally compatible with AbortSignal, without requiring DOM or Node typings. */
+export interface WatchSignal {
+  readonly aborted: boolean;
+  addEventListener(type: "abort", listener: () => void, options?: { once?: boolean }): void;
+  removeEventListener(type: "abort", listener: () => void): void;
+}
 export interface WatchOptions {
   /** Stop accepting books; finish the current optimization before returning. */
-  signal: AbortSignal;
+  signal: WatchSignal;
   pollIntervalMs?: number;
 }
 export interface WatchReport {
@@ -286,7 +292,7 @@ export async function runWatch(args: Args, options: WatchOptions): Promise<Watch
       for (const name of observations.keys()) if (!present.has(name)) observations.delete(name);
       if (!options.signal.aborted) {
         try {
-          await delay(interval, undefined, { signal: options.signal });
+          await delay(interval, undefined, { signal: options.signal as AbortSignal });
         } catch (error) {
           if (!options.signal.aborted) throw error;
         }

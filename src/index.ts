@@ -3,7 +3,7 @@ import { runOptimization } from "./optimization.js";
 import { processEpubContent, type ContentProcessingOptions } from "./processors/epub-processor.js";
 import type { Args } from "./types.js";
 
-export { runWatch, type WatchOptions, type WatchReport } from "./watch.js";
+export { runWatch, type WatchOptions, type WatchReport, type WatchSignal } from "./watch.js";
 export { runBatch, type BatchReport } from "./batch.js";
 export type { BatchItem } from "./batch.js";
 export type { Args, Preset } from "./types.js";
