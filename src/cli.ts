@@ -69,7 +69,7 @@ async function parseArguments(): Promise<Args> {
       default: config.lang,
     })
     .option("fonts", {
-      describe: "Enable experimental font subsetting (requires installing fontmin separately)",
+      describe: "Enable conservative HarfBuzz font subsetting (optional)",
       type: "boolean",
       default: false,
     })

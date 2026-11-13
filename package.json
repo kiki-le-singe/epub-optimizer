@@ -1,6 +1,6 @@
 {
   "name": "epub-optimizer",
-  "version": "3.11.0",
+  "version": "3.12.0",
   "description": "Optimize EPUB files by compressing HTML, CSS, images and recompressing the archive",
   "repository": {
     "type": "git",
@@ -56,10 +56,12 @@
     "cheerio": "^1.2.0",
     "clean-css": "^5.3.3",
     "entities": "^7.0.1",
+    "fontverter": "2.0.0",
     "fs-extra": "^11.4.1",
     "html-minifier-terser": "^7.2.0",
     "p-limit": "^7.3.3",
     "sharp": "^0.35.5",
+    "subset-font": "2.9.0",
     "svgo": "^4.1.0",
     "terser": "^5.51.2",
     "unzipper": "^0.12.5",
@@ -73,7 +75,7 @@
     "overrides": {
       "brace-expansion@5.0.5": "5.0.6",
       "cheerio>undici": "^7.30.1",
-      "vite": "^8.3.5"
+      "vite": "^8.3.7"
     }
   },
   "keywords": [
@@ -92,16 +94,17 @@
     "@types/unzipper": "^0.10.11",
     "@types/yargs": "^17.0.35",
     "@types/yazl": "^3.3.1",
-    "@typescript-eslint/eslint-plugin": "^8.72.1",
-    "@typescript-eslint/parser": "^8.72.1",
+    "@typescript-eslint/eslint-plugin": "^8.72.2",
+    "@typescript-eslint/parser": "^8.72.2",
     "@vitest/coverage-v8": "^5.1.0",
     "@vitest/ui": "^5.1.0",
     "eslint": "^10.14.0",
     "eslint-config-prettier": "^10.1.8",
+    "harfbuzzjs": "1.6.4",
     "prettier": "^3.9.10",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.72.1",
-    "vite": "^8.3.5",
+    "typescript-eslint": "^8.72.2",
+    "vite": "^8.3.7",
     "vitest": "^5.1.0"
   }
 }
