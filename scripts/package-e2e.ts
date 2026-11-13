@@ -7,6 +7,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import yazl from "yazl";
+import unzipper from "unzipper";
 import { createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 
@@ -53,7 +54,7 @@ function options(input: string, output: string, temp: string, reportJson: string
     profile: false,
     preset: "lossless",
     lossless: true,
-    fonts: false,
+    fonts: true,
     repair: false,
     jpgQuality: 70,
     "jpg-quality": 70,
@@ -86,13 +87,13 @@ async function fixture(file: string): Promise<void> {
   );
   zip.addBuffer(
     Buffer.from(
-      `<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="book-id">urn:uuid:123e4567-e89b-12d3-a456-426614174000</dc:identifier><dc:title>Installed package fixture</dc:title><dc:language>en</dc:language><meta property="dcterms:modified">2026-01-01T00:00:00Z</meta></metadata><manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/></manifest><spine><itemref idref="chapter"/></spine></package>`
+      `<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="book-id">urn:uuid:123e4567-e89b-12d3-a456-426614174000</dc:identifier><dc:title>Installed package fixture</dc:title><dc:language>en</dc:language><meta property="dcterms:modified">2026-01-01T00:00:00Z</meta></metadata><manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="font" href="fixture.ttf" media-type="font/ttf"/></manifest><spine><itemref idref="chapter"/></spine></package>`
     ),
     "OPS/book.opf"
   );
   zip.addBuffer(
     Buffer.from(
-      `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter</title></head><body><h1 id="chapter">Chapter</h1><pre>Keep  these spaces &amp; entities.</pre></body></html>`
+      `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter</title><style>@font-face{font-family:fixture;src:url(fixture.ttf)}body{font-family:fixture}</style></head><body><h1 id="chapter">Chapter</h1><pre>Keep  these spaces &amp; entities.</pre></body></html>`
     ),
     "OPS/chapter.xhtml"
   );
@@ -101,6 +102,10 @@ async function fixture(file: string): Promise<void> {
       `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav epub:type="toc"><ol><li><a href="chapter.xhtml#chapter">Chapter</a></li></ol></nav></body></html>`
     ),
     "OPS/nav.xhtml"
+  );
+  zip.addBuffer(
+    await fs.readFile(path.join(repo, "scripts/fixtures/fonts/fixture.ttf")),
+    "OPS/fixture.ttf"
   );
   const written = pipeline(zip.outputStream, createWriteStream(file, { flags: "wx" }));
   zip.end();
@@ -255,6 +260,7 @@ void invalidBackground; void invalidPreset;
         "--preset",
         "lossless",
         "--strict",
+        "--fonts",
         "--clean",
         "--report-json",
         "cli.json",
@@ -263,6 +269,14 @@ void invalidBackground; void invalidPreset;
       env
     );
     await assertReport(path.join(cwd, "cli.json"));
+    const optimizedArchive = await unzipper.Open.file(path.join(cwd, "cli.epub"));
+    const font = optimizedArchive.files.find((entry) => entry.path === "OPS/fixture.ttf");
+    assert.ok(font);
+    assert.ok(
+      (await font.buffer()).length <
+        (await fs.stat(path.join(repo, "scripts/fixtures/fonts/fixture.ttf"))).size
+    );
+
     const apiArgs = options(
       input,
       path.join(cwd, "api.epub"),
@@ -274,10 +288,16 @@ void invalidBackground; void invalidPreset;
       `import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import { optimizeEPUB, runBatch, formatFileSize } from "epub-optimizer";
+import { createRequire } from "node:module";
 import { formatFileSize as deepImport } from "epub-optimizer/dist/src/utils/file-size.js";
 assert.equal(typeof runBatch, "function"); assert.equal(formatFileSize(1024), deepImport(1024));
 const args = ${JSON.stringify(apiArgs)};
 const result = await optimizeEPUB(args); assert.equal(result.success, true);
+const installedRequire = createRequire(import.meta.resolve("epub-optimizer"));
+const apiZip = await installedRequire("unzipper").Open.file(args.output);
+const apiFont = apiZip.files.find(entry => entry.path === "OPS/fixture.ttf");
+assert.ok(apiFont); assert.ok((await apiFont.buffer()).length < ${String((await fs.stat(path.join(repo, "scripts/fixtures/fonts/fixture.ttf"))).size)});
+
 await fs.writeFile(args.output, "previous output");
 try { await optimizeEPUB({ ...args, input: args.input + ".missing" }, { skipPackaging: true }); assert.fail("Missing input succeeded"); }
 catch (error) {

@@ -156,8 +156,7 @@ export async function processEpubContent(
       skipStep("Add lazy loading", "Disabled by preset/CLI option.");
     }
 
-    // 8. Optional font subsetting. Disabled by default because the legacy
-    // fontmin dependency tree is not suitable for the production install path.
+    // 8. Optional font subsetting in resource-monitored child processes.
     await runStep("Process fonts", () =>
       subsetFonts(resolvedArgs.temp, { enabled: resolvedArgs.fonts })
     );

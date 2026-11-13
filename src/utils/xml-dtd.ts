@@ -68,6 +68,11 @@ function prologScanner(): (text: string) => boolean | undefined {
   };
 }
 
+/** Reuse the prolog scanner for already bounded, decoded XML text. */
+export function hasInternalDtdInText(text: string): boolean {
+  return prologScanner()(text) === true;
+}
+
 function xmlDecoder(prefix: Buffer): TextDecoder {
   if ((prefix[0] === 0xfe && prefix[1] === 0xff) || (prefix[0] === 0 && prefix[1] === 0x3c))
     return new TextDecoder("utf-16be");
