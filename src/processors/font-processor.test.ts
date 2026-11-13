@@ -110,23 +110,31 @@ describe("optional font pipeline", () => {
     expect(warnings.some((d) => d.message.includes("Dynamic"))).toBe(true);
     expect(await fs.readFile(file)).toEqual(original);
   });
-  it("keeps invalid, oversized, linked and already reduced fonts", async () => {
+  it("preserves invalid font bytes", async () => {
     const { root, file } = await makeBook();
     const invalid = Buffer.from("invalid font");
     await fs.writeFile(file, invalid);
     await subsetFonts(root, { enabled: true });
-    expect(await fs.readFile(file)).toEqual(invalid);
+    expect((await fs.readFile(file)).equals(invalid)).toBe(true);
+  });
+  it("preserves oversized fonts without decoding or rewriting them", async () => {
+    const { root, file } = await makeBook();
     const huge = Buffer.alloc(8 * 1024 * 1024 + 1);
     await fs.writeFile(file, huge);
     await subsetFonts(root, { enabled: true });
-    expect(await fs.readFile(file)).toEqual(huge);
+    expect((await fs.readFile(file)).equals(huge)).toBe(true);
+  });
+  it("preserves linked fonts", async () => {
     const other = await makeBook();
     await fs.link(other.file, path.join(other.root, "same.ttf"));
     await subsetFonts(other.root, { enabled: true });
     expect(await fs.readFile(other.file)).toEqual(other.original);
+  });
+  it("preserves an already reduced font without a further size benefit", async () => {
     const small = await makeBook();
     await subsetFonts(small.root, { enabled: true });
     const first = await fs.readFile(small.file);
+    expect(first.length).toBeLessThan(small.original.length);
     await subsetFonts(small.root, { enabled: true });
     expect(await fs.readFile(small.file)).toEqual(first);
   });
