@@ -1,4 +1,6 @@
 // @ts-expect-error Native Node TypeScript requires the source extension.
+import { createFontFixture } from "./font-fixtures.ts";
+// @ts-expect-error Native Node TypeScript requires the source extension.
 import { saveDiagnostics } from "./ci-diagnostics.ts";
 // @ts-expect-error Native Node TypeScript requires the source extension.
 import { createAnimatedPng, createTransparentPng } from "./image-fixtures.ts";
@@ -1567,6 +1569,65 @@ async function assertPngBackground(runDir: string, fixtureDir: string): Promise<
   );
 }
 
+async function assertFontOutput(output: string, runDir: string, changed = true): Promise<void> {
+  const archive = await unzipper.Open.file(output);
+  const font = archive.files.find((entry) => entry.path === "OPS/Fonts/fixture.ttf");
+  if (!font) throw new Error("Font missing from optimized EPUB");
+  const actual = await font.buffer();
+  const original = await fs.readFile(path.join(repoRoot, "scripts/fixtures/fonts/fixture.ttf"));
+  if (changed ? actual.length >= original.length : !actual.equals(original))
+    throw new Error("Unexpected optimized font bytes");
+  await fs.writeJson(path.join(runDir, "font-e2e-check.json"), {
+    changed,
+    beforeBytes: original.length,
+    afterBytes: actual.length,
+  });
+}
+
+async function assertFontSubsetting(runDir: string): Promise<void> {
+  const root = path.join(runDir, "font-fixture");
+  const input = path.join(runDir, "font-input.epub");
+  await createFontFixture(root);
+  await createEpub(input, root);
+  const enabled = await runPnpmWorkflowCase(runDir, input, "fonts-enabled", "optimize", true, [
+    "--strict",
+    "--clean",
+    "--fonts",
+  ]);
+  await assertFontOutput(enabled.outputEpub, runDir);
+  const defaults = await runPnpmWorkflowCase(runDir, input, "fonts-default", "optimize", true, [
+    "--strict",
+    "--clean",
+  ]);
+  await assertFontOutput(defaults.outputEpub, runDir, false);
+  const badInput = path.join(runDir, "font-invalid.epub");
+  await fs.writeFile(path.join(root, "OPS/Fonts/fixture.ttf"), "invalid font bytes");
+  await createEpub(badInput, root);
+  const previous = path.join(runDir, "font-previous.epub");
+  await fs.writeFile(previous, "previous output");
+  const failure = spawnSync(
+    process.execPath,
+    [
+      pipelinePath,
+      "-i",
+      badInput,
+      "-o",
+      previous,
+      "--fonts",
+      "--strict",
+      "--clean",
+      "--temp",
+      path.join(runDir, "font-failure-temp"),
+    ],
+    { cwd: repoRoot, env: withJavaFallback(process.env), encoding: "utf8", timeout: 60_000 }
+  );
+  if (failure.status === 0 || (await fs.readFile(previous, "utf8")) !== "previous output")
+    throw new Error("Invalid font did not fail safely in strict mode");
+  console.log(
+    "Font E2E passed: opt-in subsetting, default preservation, strict EPUBCheck and content integrity."
+  );
+}
+
 async function main(): Promise<void> {
   const env = withJavaFallback(process.env);
   assertPrerequisites(env);
@@ -1608,6 +1669,7 @@ async function main(): Promise<void> {
     await assertPublicApiValidation(runDir, inputEpub);
     await assertBatchWorkflow(runDir, inputEpub);
     await assertPngBackground(runDir, fixtureDir);
+    await assertFontSubsetting(runDir);
 
     const balanced = await runPnpmWorkflowCase(runDir, inputEpub, "balanced", "optimize", false, [
       "--strict",
@@ -1739,6 +1801,7 @@ if (isEntryPoint(import.meta.url)) {
 
 export {
   assertAuthorOutput,
+  assertFontOutput,
   assertConfiguredAuthorOutput,
   assertLosslessOutput,
   assertOptimizedOutput,
