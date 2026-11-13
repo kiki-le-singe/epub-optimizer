@@ -98,7 +98,7 @@ This project started with this workflow (I don't use any other tools), but anyon
 
 **Apple Pages applies DRM encryption to embedded fonts** for copyright protection. This means:
 
-- ✅ **Optional font optimization can work** on unencrypted TTF fonts when `--fonts` is enabled and `fontmin` is installed locally
+- ✅ **Optional font optimization can work** on eligible unencrypted TTF, OTF, WOFF and WOFF2 fonts when `--fonts` is enabled
 - ❌ **Font optimization WILL NOT work** on Pages EPUBs if you check "Embed fonts"
 - 🔒 **Why?** Apple encrypts fonts to protect font vendors from piracy (this is intentional and legal)
 
@@ -190,7 +190,7 @@ Version 3 makes the default command safer and less specific to this project's or
 - JPEG recompression applies EXIF orientation to the pixels before encoding, preserving the displayed rotation and mirroring.
 - PNG to JPEG conversion for non-transparent images (significantly reduces file size)
 - JavaScript minification (reduces script size)
-- **Optional font subsetting** via `--fonts` for trusted local workflows only; requires installing `fontmin` separately
+- **Optional font subsetting** via `--fonts`, using the included HarfBuzz WebAssembly engine with conservative content and font checks
 - **SVG optimization** (minifies SVG files using SVGO)
 - **Image downscaling** (optionally resizes large images to a max dimension for e-reader compatibility)
 - **Lazy loading for images** (adds `loading="lazy"` to all `<img>` tags in XHTML for EPUB3 readers)
@@ -214,7 +214,7 @@ Version 3 makes the default command safer and less specific to this project's or
 
 > **Note:**
 >
-> - **Font subsetting limitation:** Apple Pages EPUBs with embedded fonts are encrypted by Apple for DRM protection, preventing font optimization. Font subsetting is disabled by default and `fontmin` is not installed as a runtime dependency because its legacy dependency tree currently produces production audit findings. Use `--fonts` only for trusted local workflows after installing `fontmin` yourself. The optimizer detects these encrypted fonts automatically: it optimizes everything else and leaves the encrypted fonts untouched, so books exported with "Embed fonts" are still optimized safely (only books that encrypt actual content are refused).
+> - **Font subsetting limitation:** fonts listed in encryption metadata remain byte-for-byte intact. `--fonts` is opt-in and uses the included HarfBuzz engine; no separate font package installation is needed. Dynamic CSS/JavaScript text and unsupported font features are conservatively skipped. See [Font subsetting](#font-subsetting) for limits.
 > - Lazy loading is enabled by the author preset or explicitly with `--lazy-loading`.
 
 ## Requirements
@@ -552,6 +552,40 @@ an error or warning, or offers no smaller result. XHTML styles also retain their
 original CSS if minification would introduce XML delimiters. Raster recompressions
 are committed only when smaller, unless they actually change the dimensions
 requested by the user.
+
+### Font subsetting
+
+`--fonts` enables HarfBuzz/WASM subsetting of eligible TTF, OTF, WOFF and WOFF2
+fonts, preserving their container format, hinting, layout features, embedding
+permissions and copyright/license text. It is disabled by default for every
+preset. Original bytes are retained when there is no size benefit or processing
+fails. The feature does not remove fonts or change the book's text or CSS.
+
+The character pool includes nested XHTML, navigation, SVG, attributes and literal
+stylesheets across the archive, including Unicode NFC/NFD and case equivalents.
+For safety, the entire font step is skipped when it encounters scripts, MathML,
+embedded documents, imported/remote stylesheets, CSS variables, generated content,
+unsupported list markers or text transformations. This deliberately sacrifices
+some possible savings when displayed characters cannot be determined reliably.
+All fonts are preserved when encryption metadata exists. Variable, color, MathML/
+Graphite and embedding/subsetting-restricted fonts are also preserved.
+
+Fonts within each book are processed sequentially, with at most 16 fonts per book, 8 MiB per input font,
+16 MiB per expanded font, 16 MiB of text resources, 4,096 resources and 65,536
+collected code points. Each font runs in a disposable child process with a
+10-second timeout and a 128 MiB V8 heap cap. Parent-side RSS sampling every 100 ms
+terminates a worker observed above 256 MiB; this is a sampled budget, **not an OS
+hard memory limit**, and short allocation spikes can exceed it. Monitoring is
+supported on Linux (`/proc`) and macOS (`/bin/ps`); if it is unavailable, fonts
+remain unchanged. Other platforms conservatively skip this optional feature.
+These budgets apply per book/worker; concurrent API calls can run separate workers.
+
+Failures and uncertain content produce report warnings; `--strict` can reject
+these warnings while preserving an existing final EPUB. Known unsupported fonts
+and absent size benefits are informational skips. EPUBCheck validates the final
+candidate but does not certify font rendering on every reading system. A candidate
+cleanup or ownership failure aborts optimization even without `--strict`, rather
+than packaging a stray temporary font.
 
 ### Image Concurrency
 
@@ -957,7 +991,7 @@ This project is built with TypeScript and uses modern ESM modules. Here's how th
 - `pnpm test:e2e` runs the public `optimize`, `optimize:clean`, `optimize:lossless`, `optimize:repair`, and `optimize:author` commands, including a configured author workflow
 - Every pnpm E2E output is checked for content integrity and validated with EPUBCheck; clean/keep-temp behavior and workflow-specific transformations are also verified
 - The author E2E fixture also checks before/after content integrity, sequential NCX navigation, and a maximum output-size ratio to catch compression regressions
-- `pnpm test:docker` validates raw Docker balanced/author plus Docker Compose balanced, lossless, repair, author, and configured-author workflows
+- `pnpm test:docker` validates raw Docker balanced/author/fonts plus Docker Compose balanced, lossless, repair, author, and configured-author workflows
 - Docker E2E verifies reports, content integrity, EPUBCheck output, workflow-specific transformations, and clean/keep-temp behavior
 - CI validates the project on Node.js 22 and 24, and runs the Docker E2E workflow on Node.js 24
 - Unit tests run in a Node.js environment and mock external dependencies where appropriate
