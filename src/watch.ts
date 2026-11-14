@@ -1,4 +1,5 @@
 import fs from "fs-extra";
+import { acquireKernelWatchLock, clearRecoverableWatchRecord } from "./utils/watch-lock.js";
 import path from "node:path";
 import os from "node:os";
 import { constants } from "node:fs";
@@ -130,7 +131,15 @@ export async function runWatch(args: Args, options: WatchOptions): Promise<Watch
       : undefined;
   const settings = settingsDigest(args, authorConfig);
   const lockPath = path.join(output, ".epub-watch.lock");
-  const lock = await open(lockPath, "wx", 0o600);
+  const kernel = await acquireKernelWatchLock(output);
+  let lock;
+  try {
+    if (kernel) await clearRecoverableWatchRecord(lockPath, kernel.identity);
+    lock = await open(lockPath, "wx", 0o600);
+  } catch (error) {
+    await kernel?.release();
+    throw error;
+  }
   const lockOwner = await lock.stat();
   const result: WatchReport = { succeeded: 0, failed: 0, skipped: 0 };
   const observations = new Map<
@@ -138,7 +147,14 @@ export async function runWatch(args: Args, options: WatchOptions): Promise<Watch
     { fingerprint: string; since: number; attempted: boolean }
   >();
   try {
-    await lock.writeFile(JSON.stringify({ pid: process.pid, input }));
+    await lock.writeFile(
+      JSON.stringify({
+        pid: process.pid,
+        input,
+        method: kernel ? "linux-flock-v1" : "exclusive-file-v1",
+        guard: kernel?.identity,
+      })
+    );
     reportInfo(`Watching ${input}; output: ${output}. Stop with Ctrl+C.`);
     while (!options.signal.aborted) {
       await ownedDirectory(input, inputOwner);
@@ -303,8 +319,12 @@ export async function runWatch(args: Args, options: WatchOptions): Promise<Watch
     );
     return result;
   } finally {
-    await lock.close();
-    await ownedDirectory(output, outputOwner);
-    await removeOwnedLock(lockPath, lockOwner);
+    try {
+      await lock.close();
+      await ownedDirectory(output, outputOwner);
+      await removeOwnedLock(lockPath, lockOwner);
+    } finally {
+      await kernel?.release();
+    }
   }
 }

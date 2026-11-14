@@ -133,7 +133,9 @@ describe("watched folder", () => {
     await vi.waitFor(async () =>
       expect(await fs.pathExists(path.join(args.outputDir!, ".epub-watch.lock"))).toBe(true)
     );
-    await expect(runWatch(args, { signal: controller().signal })).rejects.toThrow("EEXIST");
+    await expect(runWatch(args, { signal: controller().signal })).rejects.toThrow(
+      /EEXIST|holds the output guard/
+    );
     c.abort();
     await running;
     expect((await runFor()).failed).toBe(0);
