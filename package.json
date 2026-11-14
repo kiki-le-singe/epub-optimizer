@@ -1,6 +1,6 @@
 {
   "name": "epub-optimizer",
-  "version": "3.12.0",
+  "version": "3.13.0",
   "description": "Optimize EPUB files by compressing HTML, CSS, images and recompressing the archive",
   "repository": {
     "type": "git",
