@@ -67,6 +67,9 @@ export async function assertDockerWatch(runDir: string, image: string): Promise<
       report.validation?.totals?.warnings !== 0
     )
       throw new Error("Docker watch output failed validation.");
+    const overview = await fs.readFile(path.join(output, "index.html"), "utf8");
+    if (!overview.includes("book.epub") || !overview.includes("optimized.epub"))
+      throw new Error("Docker watcher summary missing book links");
     docker(["stop", "--time", "120", name]);
     if (docker(["inspect", "--format", "{{.State.ExitCode}}", name]) !== "0")
       throw new Error("Docker watch did not stop gracefully.");

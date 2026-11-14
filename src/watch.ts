@@ -1,4 +1,7 @@
 import fs from "fs-extra";
+import { acquireKernelWatchLock, clearRecoverableWatchRecord } from "./utils/watch-lock.js";
+import { refreshWatchSummary, writeWatchFile } from "./utils/watch-summary.js";
+import type { PipelineReport } from "./utils/run-report.js";
 import path from "node:path";
 import os from "node:os";
 import { constants } from "node:fs";
@@ -130,7 +133,15 @@ export async function runWatch(args: Args, options: WatchOptions): Promise<Watch
       : undefined;
   const settings = settingsDigest(args, authorConfig);
   const lockPath = path.join(output, ".epub-watch.lock");
-  const lock = await open(lockPath, "wx", 0o600);
+  const kernel = await acquireKernelWatchLock(output);
+  let lock;
+  try {
+    if (kernel) await clearRecoverableWatchRecord(lockPath, kernel.identity);
+    lock = await open(lockPath, "wx", 0o600);
+  } catch (error) {
+    await kernel?.release();
+    throw error;
+  }
   const lockOwner = await lock.stat();
   const result: WatchReport = { succeeded: 0, failed: 0, skipped: 0 };
   const observations = new Map<
@@ -138,7 +149,15 @@ export async function runWatch(args: Args, options: WatchOptions): Promise<Watch
     { fingerprint: string; since: number; attempted: boolean }
   >();
   try {
-    await lock.writeFile(JSON.stringify({ pid: process.pid, input }));
+    await lock.writeFile(
+      JSON.stringify({
+        pid: process.pid,
+        input,
+        method: kernel ? "linux-flock-v1" : "exclusive-file-v1",
+        guard: kernel?.identity,
+      })
+    );
+    await refreshWatchSummary(output);
     reportInfo(`Watching ${input}; output: ${output}. Stop with Ctrl+C.`);
     while (!options.signal.aborted) {
       await ownedDirectory(input, inputOwner);
@@ -255,17 +274,55 @@ export async function runWatch(args: Args, options: WatchOptions): Promise<Watch
             : undefined;
           if (authorConfigPath) await fs.writeJson(authorConfigPath, authorConfig);
           reportInfo(`Watch book: ${entry.name}`);
-          await runOptimization({
-            ...args,
-            watch: undefined,
-            authorConfig: authorConfigPath,
-            outputDir: undefined,
-            input: snapshot,
-            output: target,
-            temp: path.join(os.tmpdir(), `epub-watch-extract-${randomUUID()}`),
-            reportJson: path.join(job, "report.json"),
-            reportHtml: path.join(job, "report.html"),
-          });
+          let detail: PipelineReport | undefined;
+          let processingError: unknown;
+          let processingFailed = false;
+          try {
+            await runOptimization(
+              {
+                ...args,
+                watch: undefined,
+                authorConfig: authorConfigPath,
+                outputDir: undefined,
+                input: snapshot,
+                output: target,
+                temp: path.join(os.tmpdir(), `epub-watch-extract-${randomUUID()}`),
+                reportJson: path.join(job, "report.json"),
+                reportHtml: path.join(job, "report.html"),
+              },
+              {
+                onReport: (report) => {
+                  detail = report;
+                },
+              }
+            );
+          } catch (error) {
+            processingError = error;
+            processingFailed = true;
+          }
+          if (processingFailed) {
+            await ownedDirectory(job, jobOwner);
+            await writeWatchFile(
+              path.join(job, "watch-status.json"),
+              JSON.stringify({
+                name: entry.name,
+                success: !processingFailed,
+                outputPublished:
+                  detail?.steps.some(
+                    (step) => step.name === "Publish validated EPUB" && step.status === "success"
+                  ) ?? false,
+                error: processingFailed
+                  ? String(
+                      processingError instanceof Error ? processingError.message : processingError
+                    )
+                  : undefined,
+                reductionPercent: detail?.sizes?.reductionPercent,
+              })
+            );
+            await refreshWatchSummary(output);
+
+            throw processingError;
+          }
           await ownedDirectory(output, outputOwner);
           await ownedDirectory(job, jobOwner);
           await fs.writeFile(
@@ -277,6 +334,26 @@ export async function runWatch(args: Args, options: WatchOptions): Promise<Watch
             ),
             { flag: "wx", mode: 0o600 }
           );
+          await ownedDirectory(job, jobOwner);
+          await writeWatchFile(
+            path.join(job, "watch-status.json"),
+            JSON.stringify({
+              name: entry.name,
+              success: !processingFailed,
+              outputPublished:
+                detail?.steps.some(
+                  (step) => step.name === "Publish validated EPUB" && step.status === "success"
+                ) ?? false,
+              error: processingFailed
+                ? String(
+                    processingError instanceof Error ? processingError.message : processingError
+                  )
+                : undefined,
+              reductionPercent: detail?.sizes?.reductionPercent,
+            })
+          );
+          await refreshWatchSummary(output);
+
           result.succeeded++;
           reportInfo(`Watch completed: ${entry.name} → ${target}`);
         } catch (error) {
@@ -303,8 +380,12 @@ export async function runWatch(args: Args, options: WatchOptions): Promise<Watch
     );
     return result;
   } finally {
-    await lock.close();
-    await ownedDirectory(output, outputOwner);
-    await removeOwnedLock(lockPath, lockOwner);
+    try {
+      await lock.close();
+      await ownedDirectory(output, outputOwner);
+      await removeOwnedLock(lockPath, lockOwner);
+    } finally {
+      await kernel?.release();
+    }
   }
 }
