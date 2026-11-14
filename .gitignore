@@ -48,3 +48,7 @@ temp_epub-*/
 .cache/
 digests/
 trivy_envs.txt
+
+# Private watched-folder books, reports and local Compose identity
+/watch/
+/.env.watch
