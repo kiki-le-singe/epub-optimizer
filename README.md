@@ -738,6 +738,47 @@ The entire path plan is checked before processing: input/output/report aliases, 
 
 The exported `runBatch(args)` API returns the structured summary without setting a process exit code. Pass resolved options, including `batch` and `outputDir`; use `optimizeEPUB(args)` for single-book calls.
 
+### Background Docker watcher
+
+One-time setup from the repository root (Docker Compose v2 required):
+
+```bash
+mkdir -p watch/inbox watch/optimized
+printf 'WATCH_UID=%s\nWATCH_GID=%s\n' "$(id -u)" "$(id -g)" > .env.watch
+```
+
+Start the published, digest-pinned image in the background:
+
+```bash
+docker compose --env-file .env.watch -f compose.watch.yaml up -d
+```
+
+Drop EPUBs into `watch/inbox`. Results and per-book reports appear in
+`watch/optimized`, in separate revision directories. The inbox is mounted read-only;
+both directories and `.env.watch` are ignored by Git and Docker builds. No server
+or network connection runs inside the container. The initial image download requires
+network access on the host. The existing `compose.yaml` single-book workflow is unchanged.
+
+```bash
+# Show progress (Ctrl+C stops following logs, not the watcher)
+docker compose --env-file .env.watch -f compose.watch.yaml logs -f watch
+# Stop and remove the service; books and results remain on the host
+docker compose --env-file .env.watch -f compose.watch.yaml down
+```
+
+Docker restarts the service after normal daemon/machine restarts unless explicitly
+stopped. Shutdown allows five minutes for the current book; increase
+`stop_grace_period` for longer operations. **Forced termination or power loss can
+leave a stale output lock:** stop the service, confirm no other watcher is using
+that output, remove `watch/optimized/.epub-watch.lock`, then start again. The service
+does not automatically break locks. An unchanged failed book is retried after restart.
+Logs rotate at 10 MB with three files retained.
+
+Use `EPUB_WATCH_INBOX` and `EPUB_WATCH_OUTPUT` for other host directories (create them
+first). On a NAS, set `WATCH_UID` and `WATCH_GID` in `.env.watch` to an account allowed
+to read the inbox and write the output. Override `EPUB_OPTIMIZER_DOCKER_IMAGE` only
+with the version/digest you intend to run; it is never updated implicitly by this file.
+
 ### Watched folder
 
 ```bash

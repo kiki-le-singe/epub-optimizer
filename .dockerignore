@@ -38,3 +38,6 @@ temp_epub-*/
 reports/
 .cache/
 digests/
+watch/
+.env.watch
+compose.watch.yaml

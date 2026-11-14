@@ -1,4 +1,6 @@
 // @ts-expect-error Native Node TypeScript requires the source extension.
+import { assertComposeWatch } from "./compose-watch-e2e.ts";
+// @ts-expect-error Native Node TypeScript requires the source extension.
 import { assertDockerWatch } from "./watch-docker-e2e.ts";
 // @ts-expect-error Native Node TypeScript requires the source extension.
 import { createFontFixture } from "./font-fixtures.ts";
@@ -214,6 +216,7 @@ async function main(): Promise<void> {
     await createFixtureEpubStructure(fixtureDir);
     await createEpub(inputEpub, fixtureDir);
     await assertDockerWatch(runDir, imageName);
+    await assertComposeWatch(runDir, imageName, repoRoot);
     await createAuthorFixtureEpubStructure(authorFixtureDir);
     await createEpub(authorInputEpub, authorFixtureDir);
     await createConfiguredAuthorFixtureEpubStructure(configuredAuthorFixtureDir);

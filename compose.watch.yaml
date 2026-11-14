@@ -1,0 +1,34 @@
+name: epub-optimizer-watch
+services:
+  watch:
+    image: ${EPUB_OPTIMIZER_DOCKER_IMAGE:-ghcr.io/kiki-le-singe/epub-optimizer:3.13.0@sha256:acc2854cc9102eef1721ca6f699d7d4831d71d819a072a7ed1f3b685bdd7e625}
+    user: "${WATCH_UID:-1000}:${WATCH_GID:-1000}"
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 5m
+    read_only: true
+    network_mode: none
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      HOME: /tmp
+    tmpfs: [/tmp]
+    working_dir: /epub-files
+    command: [--watch, /inbox, --output-dir, /optimized, --clean, --strict]
+    volumes:
+      - type: bind
+        source: ${EPUB_WATCH_INBOX:-./watch/inbox}
+        target: /inbox
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EPUB_WATCH_OUTPUT:-./watch/optimized}
+        target: /optimized
+        bind:
+          create_host_path: false
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
