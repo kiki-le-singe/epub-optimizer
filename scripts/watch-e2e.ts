@@ -109,6 +109,13 @@ export async function assertWatchWorkflow(
       throw new Error("Watch --clean left extraction files.");
     if (hash(await fs.readFile(path.join(input, "book.epub"))) !== hash(original))
       throw new Error("Watch changed its original.");
+    const overview = await fs.readFile(path.join(output, "index.html"), "utf8");
+    if (
+      !overview.includes("book.epub") ||
+      !overview.includes("broken.epub") ||
+      !overview.includes("optimized.epub")
+    )
+      throw new Error("Watcher summary is missing successful or failed book details.");
     first.child.kill("SIGTERM");
     if ((await first.exited) !== 1)
       throw new Error("Watch did not report its failed book on graceful exit.");
