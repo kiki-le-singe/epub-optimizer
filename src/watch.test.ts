@@ -55,7 +55,9 @@ async function add(name = "a.epub", text = "original") {
   await fs.writeFile(path.join(args.watch!, name), text);
 }
 async function jobs() {
-  return (await fs.readdir(args.outputDir!)).filter((n) => !n.startsWith("."));
+  return (await fs.readdir(args.outputDir!)).filter(
+    (n) => !n.startsWith(".") && n !== "index.html"
+  );
 }
 
 describe("watched folder", () => {
