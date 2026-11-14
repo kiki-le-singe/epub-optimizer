@@ -58,6 +58,9 @@ export async function assertComposeWatch(
       report.validation?.totals?.warnings !== 0
     )
       throw new Error("Compose watch validation failed");
+    const overview = await fs.readFile(path.join(output, "index.html"), "utf8");
+    if (!overview.includes("book.epub") || !overview.includes("optimized.epub"))
+      throw new Error("Docker watcher summary missing book links");
     const before = (await fs.stat(path.join(job, "optimized.epub"))).mtimeMs;
     compose("restart");
     await delay(4500);
