@@ -1,4 +1,6 @@
 import fs from "fs-extra";
+import { refreshWatchSummary, writeWatchFile } from "./utils/watch-summary.js";
+import type { PipelineReport } from "./utils/run-report.js";
 import path from "node:path";
 import os from "node:os";
 import { constants } from "node:fs";
@@ -139,6 +141,7 @@ export async function runWatch(args: Args, options: WatchOptions): Promise<Watch
   >();
   try {
     await lock.writeFile(JSON.stringify({ pid: process.pid, input }));
+    await refreshWatchSummary(output);
     reportInfo(`Watching ${input}; output: ${output}. Stop with Ctrl+C.`);
     while (!options.signal.aborted) {
       await ownedDirectory(input, inputOwner);
@@ -255,17 +258,55 @@ export async function runWatch(args: Args, options: WatchOptions): Promise<Watch
             : undefined;
           if (authorConfigPath) await fs.writeJson(authorConfigPath, authorConfig);
           reportInfo(`Watch book: ${entry.name}`);
-          await runOptimization({
-            ...args,
-            watch: undefined,
-            authorConfig: authorConfigPath,
-            outputDir: undefined,
-            input: snapshot,
-            output: target,
-            temp: path.join(os.tmpdir(), `epub-watch-extract-${randomUUID()}`),
-            reportJson: path.join(job, "report.json"),
-            reportHtml: path.join(job, "report.html"),
-          });
+          let detail: PipelineReport | undefined;
+          let processingError: unknown;
+          let processingFailed = false;
+          try {
+            await runOptimization(
+              {
+                ...args,
+                watch: undefined,
+                authorConfig: authorConfigPath,
+                outputDir: undefined,
+                input: snapshot,
+                output: target,
+                temp: path.join(os.tmpdir(), `epub-watch-extract-${randomUUID()}`),
+                reportJson: path.join(job, "report.json"),
+                reportHtml: path.join(job, "report.html"),
+              },
+              {
+                onReport: (report) => {
+                  detail = report;
+                },
+              }
+            );
+          } catch (error) {
+            processingError = error;
+            processingFailed = true;
+          }
+          if (processingFailed) {
+            await ownedDirectory(job, jobOwner);
+            await writeWatchFile(
+              path.join(job, "watch-status.json"),
+              JSON.stringify({
+                name: entry.name,
+                success: !processingFailed,
+                outputPublished:
+                  detail?.steps.some(
+                    (step) => step.name === "Publish validated EPUB" && step.status === "success"
+                  ) ?? false,
+                error: processingFailed
+                  ? String(
+                      processingError instanceof Error ? processingError.message : processingError
+                    )
+                  : undefined,
+                reductionPercent: detail?.sizes?.reductionPercent,
+              })
+            );
+            await refreshWatchSummary(output);
+
+            throw processingError;
+          }
           await ownedDirectory(output, outputOwner);
           await ownedDirectory(job, jobOwner);
           await fs.writeFile(
@@ -277,6 +318,26 @@ export async function runWatch(args: Args, options: WatchOptions): Promise<Watch
             ),
             { flag: "wx", mode: 0o600 }
           );
+          await ownedDirectory(job, jobOwner);
+          await writeWatchFile(
+            path.join(job, "watch-status.json"),
+            JSON.stringify({
+              name: entry.name,
+              success: !processingFailed,
+              outputPublished:
+                detail?.steps.some(
+                  (step) => step.name === "Publish validated EPUB" && step.status === "success"
+                ) ?? false,
+              error: processingFailed
+                ? String(
+                    processingError instanceof Error ? processingError.message : processingError
+                  )
+                : undefined,
+              reductionPercent: detail?.sizes?.reductionPercent,
+            })
+          );
+          await refreshWatchSummary(output);
+
           result.succeeded++;
           reportInfo(`Watch completed: ${entry.name} → ${target}`);
         } catch (error) {

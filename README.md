@@ -781,6 +781,14 @@ with the version/digest you intend to run; it is never updated implicitly by thi
 
 ### Watched folder
 
+Open `<output-dir>/index.html` in a browser for an offline overview of completed
+and failed processing attempts, size reductions, diagnostics and links to each
+optimized book and JSON/HTML report. The file updates after each recorded attempt;
+refresh the browser to see changes. Results survive restart via `watch-status.json`
+in each job directory. No web server, scripts or external assets are needed. Older
+jobs are also listed when their bounded JSON reports are readable. Invalid/oversized
+records are ignored; original reports remain available.
+
 ```bash
 mkdir -p inbox optimized
 pnpm optimize --watch inbox --output-dir optimized --strict --clean
