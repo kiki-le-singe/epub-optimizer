@@ -47,6 +47,7 @@ export async function planBatch(args: Args): Promise<BatchPlan> {
   resolvePngBackground(args);
   if (!args.batch || !args.outputDir)
     throw new Error("Batch processing requires --batch and --output-dir.");
+  if (args.watch) throw new Error("Batch cannot be combined with watch mode.");
   if (args.doctor || args.inspect) throw new Error("Batch processing supports optimization only.");
   const inputDirectory = path.resolve(args.batch),
     outputDirectory = path.resolve(args.outputDir);
