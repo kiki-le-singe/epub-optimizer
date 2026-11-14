@@ -774,6 +774,11 @@ that output, remove `watch/optimized/.epub-watch.lock`, then start again. The se
 does not automatically break locks. An unchanged failed book is retried after restart.
 Logs rotate at 10 MB with three files retained.
 
+Newer Linux/Docker builds use a kernel-backed guard and can recover their own
+interrupted watch records automatically after process/container death. The pinned
+3.13.0 Compose image predates this capability: select a release that includes it
+(or build the current sources) before relying on automatic crash recovery.
+
 Use `EPUB_WATCH_INBOX` and `EPUB_WATCH_OUTPUT` for other host directories (create them
 first). On a NAS, set `WATCH_UID` and `WATCH_GID` in `.env.watch` to an account allowed
 to read the inbox and write the output. Override `EPUB_OPTIMIZER_DOCKER_IMAGE` only
@@ -841,10 +846,29 @@ reports stay on the host; Java and EPUBCheck are included in the image.
 Ctrl+C or SIGTERM stops accepting new books and lets the current book finish. Exit
 status is 1 if any book failed during that session, otherwise 0. Polling works on
 mounted folders as well as local disks. Only one watcher may use an output directory;
-an exclusive `.epub-watch.lock` enforces this. If the process was forcibly killed or
+an exclusive `.epub-watch.lock` enforces this. With legacy exclusive-file locking, if the process was forcibly killed or
 the machine crashed, first confirm no watcher is running, then remove that stale lock
 before restarting. An output or completion record altered externally is refused;
 choose a fresh output directory to rerun it safely.
+
+#### Watch lock recovery
+
+On Linux with `/usr/bin/flock` and a mount that retains descriptor locks, the watcher
+retains an exclusive lock on a persistent
+`.epub-watch.guard` file for its entire lifetime. Process/container death releases
+the kernel lock. After reacquiring that same guard, a new watcher can remove its
+own modern interrupted `.epub-watch.lock` record and resume. No timestamp timeout
+or PID guessing is used. **Do not delete or replace the guard file.**
+
+Legacy/unknown records, changed guard identity, unsafe targets and lock errors are
+refused. macOS, Windows and Linux without the utility retain the previous exclusive
+file behavior and require manual recovery after a crash. The watcher probes lock
+retention at startup; shared mounts that do not retain descriptor locks also use
+this conservative fallback. For those cases, stop the
+service, confirm no watcher uses the output, then remove the stale record before
+restarting. Never remove another active watcher's lock. Automatic recovery is tested
+on local Linux-backed Docker mounts; remote/network filesystems and their locking
+mount options require separate validation. See [Linux flock semantics](https://man7.org/linux/man-pages/man2/flock.2.html).
 
 ### Safety Model
 
