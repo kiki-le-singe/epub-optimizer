@@ -203,7 +203,7 @@ async function main(): Promise<void> {
 
     await fs.writeFile(
       path.join(consumer, "consumer.ts"),
-      `import { optimizeEPUB, runBatch, reportWarning, type Args, type Preset, type OptimizeOptions, type ContentProcessingOptions, type PipelineReport, type BatchReport, type EpubCheckReport } from "epub-optimizer";
+      `import { optimizeEPUB, runBatch, runWatch, type WatchOptions, type WatchReport, reportWarning, type Args, type Preset, type OptimizeOptions, type ContentProcessingOptions, type PipelineReport, type BatchReport, type EpubCheckReport } from "epub-optimizer";
 export async function typedConsumer(args: Args, report?: PipelineReport): Promise<BatchReport> {
   const preset: Preset = "balanced";
   const hooks: ContentProcessingOptions = { runStep: async (_name, operation) => operation() };
@@ -213,6 +213,11 @@ export async function typedConsumer(args: Args, report?: PipelineReport): Promis
   void result; void validation; reportWarning("example");
   return runBatch(args);
 }
+export function typedWatcher(args: Args, signal: WatchOptions["signal"]): Promise<WatchReport> {
+  return runWatch(args, { signal });
+}
+// @ts-expect-error Watch requires an event-capable cancellation signal.
+runWatch({} as Args, { signal: { aborted: false } });
 // @ts-expect-error API arguments must not degrade to any.
 optimizeEPUB(123);
 // @ts-expect-error PNG background must remain a string.

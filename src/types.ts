@@ -3,6 +3,8 @@ export type Preset = "balanced" | "lossless" | "author";
 export interface Args {
   input: string;
   batch?: string;
+  watch?: string;
+  watchSettleMs?: number;
   outputDir?: string;
   output: string;
   temp: string;
