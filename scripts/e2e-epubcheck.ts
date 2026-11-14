@@ -1,4 +1,6 @@
 // @ts-expect-error Native Node TypeScript requires the source extension.
+import { runValidationCorpus } from "./validation-corpus.ts";
+// @ts-expect-error Native Node TypeScript requires the source extension.
 import { assertWatchWorkflow } from "./watch-e2e.ts";
 // @ts-expect-error Native Node TypeScript requires the source extension.
 import { createFontFixture } from "./font-fixtures.ts";
@@ -1655,6 +1657,7 @@ async function main(): Promise<void> {
     await createEpub(configuredAuthorInputEpub, configuredAuthorFixtureDir);
     await createLegacyFixtureEpubStructure(legacyFixtureDir);
     await createEpub(legacyInputEpub, legacyFixtureDir);
+    await runValidationCorpus(runDir, pipelinePath, env);
     await fs.writeJson(authorConfigPath, {
       summaryHref: "contents.xhtml",
       coverSpineId: "front-cover",
