@@ -3,6 +3,7 @@ import { runOptimization } from "./optimization.js";
 import { processEpubContent, type ContentProcessingOptions } from "./processors/epub-processor.js";
 import type { Args } from "./types.js";
 
+export { runWatch, type WatchOptions, type WatchReport, type WatchSignal } from "./watch.js";
 export { runBatch, type BatchReport } from "./batch.js";
 export type { BatchItem } from "./batch.js";
 export type { Args, Preset } from "./types.js";
@@ -25,6 +26,7 @@ export async function optimizeEPUB(
 ): Promise<{ success: boolean; input: string; output: string }> {
   // Keep the caller's options intact when feature detection adjusts processing.
   const resolvedArgs = { ...(args ?? (await parseArguments())) };
+  if (resolvedArgs.watch) throw new Error("Use runWatch(args, options) for watch optimization.");
   if (resolvedArgs.batch) throw new Error("Use runBatch(args) for batch optimization.");
   if (options.skipPackaging) {
     return processEpubContent(resolvedArgs, options);

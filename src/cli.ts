@@ -36,8 +36,17 @@ async function parseArguments(): Promise<Args> {
       describe: "Optimize regular EPUB files in this directory (non-recursive)",
       type: "string",
     })
+    .option("watch", {
+      describe: "Continuously optimize stable EPUB files in this directory (non-recursive)",
+      type: "string",
+    })
+    .option("watch-settle-ms", {
+      describe: "Wait this long without file changes before processing a watched EPUB",
+      type: "number",
+      default: 3000,
+    })
     .option("output-dir", {
-      describe: "Destination directory for batch outputs and per-book reports",
+      describe: "Destination directory for batch/watch outputs and per-book reports",
       type: "string",
     })
     .option("temp", {
@@ -169,18 +178,26 @@ async function parseArguments(): Promise<Args> {
     .alias("version", "v")
     .strict()
     .check((argv) => {
-      if (argv.batch) {
-        if (!argv["output-dir"]) throw new Error("--batch requires --output-dir.");
-        if (argv.doctor || argv.inspect) throw new Error("--batch supports optimization only.");
+      if (argv.watch && argv.batch) throw new Error("--watch cannot be combined with --batch.");
+      if (!Number.isSafeInteger(argv["watch-settle-ms"]) || argv["watch-settle-ms"] < 1000)
+        throw new Error("--watch-settle-ms must be an integer of at least 1000.");
+      if (argv.watch && (argv["report-json"] || argv["report-html"]))
+        throw new Error("Watch writes per-book JSON and HTML reports automatically.");
+      if (argv.batch || argv.watch) {
+        if (!argv["output-dir"]) throw new Error("--batch/--watch requires --output-dir.");
+        if (argv.doctor || argv.inspect)
+          throw new Error("--batch/--watch supports optimization only.");
         const explicit = hideBin(process.argv);
         if (
           explicit.some(
             (value) => /^(--input|--output|--temp)(=|$)/.test(value) || /^-[iot]/.test(value)
           )
         ) {
-          throw new Error("--batch cannot be combined with explicit --input, --output or --temp.");
+          throw new Error(
+            "--batch/--watch cannot be combined with explicit --input, --output or --temp."
+          );
         }
-      } else if (argv["output-dir"]) throw new Error("--output-dir requires --batch.");
+      } else if (argv["output-dir"]) throw new Error("--output-dir requires --batch or --watch.");
       if (argv["report-html"] && (argv.doctor || argv.inspect))
         throw new Error("--report-html is for optimization runs; use --report-json with --doctor.");
       if (
