@@ -1090,6 +1090,8 @@ This project is built with TypeScript and uses modern ESM modules. Here's how th
 
 ### Testing
 
+See the [validation corpus and manual reading-system checklist](docs/VALIDATION.md) for what automated checks cover and what still requires visual review.
+
 - Test files are colocated with the source files they test (e.g., `src/index.ts` and `src/index.test.ts`)
 - This "side-by-side" approach has several advantages:
   - Easy to locate tests for any module
