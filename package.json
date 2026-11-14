@@ -1,6 +1,6 @@
 {
   "name": "epub-optimizer",
-  "version": "3.12.0",
+  "version": "3.13.0",
   "description": "Optimize EPUB files by compressing HTML, CSS, images and recompressing the archive",
   "repository": {
     "type": "git",
@@ -75,7 +75,7 @@
     "overrides": {
       "brace-expansion@5.0.5": "5.0.6",
       "cheerio>undici": "^7.30.1",
-      "vite": "^8.3.5"
+      "vite": "^8.3.7"
     }
   },
   "keywords": [
@@ -94,8 +94,8 @@
     "@types/unzipper": "^0.10.11",
     "@types/yargs": "^17.0.35",
     "@types/yazl": "^3.3.1",
-    "@typescript-eslint/eslint-plugin": "^8.72.1",
-    "@typescript-eslint/parser": "^8.72.1",
+    "@typescript-eslint/eslint-plugin": "^8.72.2",
+    "@typescript-eslint/parser": "^8.72.2",
     "@vitest/coverage-v8": "^5.1.0",
     "@vitest/ui": "^5.1.0",
     "eslint": "^10.14.0",
@@ -103,8 +103,8 @@
     "harfbuzzjs": "1.6.4",
     "prettier": "^3.9.10",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.72.1",
-    "vite": "^8.3.5",
+    "typescript-eslint": "^8.72.2",
+    "vite": "^8.3.7",
     "vitest": "^5.1.0"
   }
 }

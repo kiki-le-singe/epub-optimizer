@@ -1,4 +1,6 @@
 // @ts-expect-error Native Node TypeScript requires the source extension.
+import { assertWatchWorkflow } from "./watch-e2e.ts";
+// @ts-expect-error Native Node TypeScript requires the source extension.
 import { createFontFixture } from "./font-fixtures.ts";
 // @ts-expect-error Native Node TypeScript requires the source extension.
 import { saveDiagnostics } from "./ci-diagnostics.ts";
@@ -1646,6 +1648,7 @@ async function main(): Promise<void> {
   try {
     await createFixtureEpubStructure(fixtureDir);
     await createEpub(inputEpub, fixtureDir);
+    await assertWatchWorkflow(runDir, inputEpub, pipelinePath, env);
     await createAuthorFixtureEpubStructure(authorFixtureDir);
     await createEpub(authorInputEpub, authorFixtureDir);
     await createConfiguredAuthorFixtureEpubStructure(configuredAuthorFixtureDir);

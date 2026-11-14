@@ -99,4 +99,22 @@ describe("CLI options", () => {
     expect(args.lossless).toBe(true);
     expect(args.clean).toBe(true);
   });
+  it("parses watch settings without enabling modifying passes", async () => {
+    process.argv = [
+      "node",
+      "epub-optimizer",
+      "--watch",
+      "inbox",
+      "--output-dir",
+      "out",
+      "--watch-settle-ms",
+      "5000",
+    ];
+    const args = await parseArguments();
+    expect(args.watch).toBe("inbox");
+    expect(args.outputDir).toBe("out");
+    expect(args.watchSettleMs).toBe(5000);
+    expect(args.authorWorkflow).toBe(false);
+    expect(args.repair).toBe(false);
+  });
 });
