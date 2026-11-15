@@ -97,15 +97,43 @@ describe("watched folder", () => {
   it("continues after a failure, attempts an unchanged failure only once per session, and can retry after restart", async () => {
     await add("a.epub");
     await add("b.EPUB");
-    vi.mocked(runOptimization).mockImplementation(async (book) => {
-      if ((await fs.readFile(book.input, "utf8")) === "original") throw new Error("bad book");
-      await fs.writeFile(book.output, "validated");
-    });
     await add("b.EPUB", "good");
-    expect(await runFor()).toEqual({ succeeded: 1, failed: 1, skipped: 0 });
-    expect(runOptimization).toHaveBeenCalledTimes(2);
-    expect(await runFor()).toEqual({ succeeded: 0, failed: 1, skipped: 1 });
+    let session = 0;
+    async function runSession() {
+      const c = controller();
+      // A changed final book stops the session only after the earlier failure,
+      // success or durable skip has actually completed, irrespective of disk speed.
+      const stopText = `stop-session-${++session}`;
+      await add("z-stop.epub", stopText);
+      vi.mocked(runOptimization).mockImplementation(async (book) => {
+        const text = await fs.readFile(book.input, "utf8");
+        if (text === "original") {
+          // Deliberately exceed runFor's old 120 ms deadline to reproduce slow CI.
+          await delay(150);
+          throw new Error("bad book");
+        }
+        await fs.writeFile(book.output, "validated");
+        if (text === stopText) c.abort();
+      });
+      let timedOut = false;
+      const watchdog = setTimeout(() => {
+        timedOut = true;
+        c.abort();
+      }, 3000);
+      try {
+        const result = await runWatch(args, { signal: c.signal, pollIntervalMs: 5 });
+        if (timedOut) throw new Error("Watcher did not reach the final book in time");
+        return result;
+      } finally {
+        clearTimeout(watchdog);
+        c.abort();
+      }
+    }
+    // Counts include the final control book, which succeeds once in each session.
+    expect(await runSession()).toEqual({ succeeded: 2, failed: 1, skipped: 0 });
     expect(runOptimization).toHaveBeenCalledTimes(3);
+    expect(await runSession()).toEqual({ succeeded: 1, failed: 1, skipped: 1 });
+    expect(runOptimization).toHaveBeenCalledTimes(5);
   });
   it("accepts empty directories, ignores partial names, nested books, empty files and symlinks", async () => {
     await add("a.epub.part");
