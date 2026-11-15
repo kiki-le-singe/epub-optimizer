@@ -1149,6 +1149,8 @@ async function assertBatchWorkflow(runDir: string, input: string): Promise<void>
       pipelinePath,
       "--batch",
       source,
+      "--jobs",
+      "2",
       "--output-dir",
       output,
       "--preset",
@@ -1206,20 +1208,20 @@ async function assertBatchWorkflow(runDir: string, input: string): Promise<void>
   const successOnly = path.join(runDir, "batch-success");
   await fs.ensureDir(successOnly);
   await fs.copyFile(input, path.join(successOnly, "valid.epub"));
-  const success = spawnSync(
-    process.execPath,
-    [
-      pipelinePath,
-      "--batch",
-      successOnly,
-      "--output-dir",
-      path.join(runDir, "batch-success-output"),
-      "--preset",
-      "lossless",
-      "--clean",
-    ],
-    { cwd: runDir, env: withJavaFallback(process.env), encoding: "utf8", timeout: 60_000 }
-  );
+  const configFile = path.join(runDir, "batch-config.json");
+  await fs.writeJson(configFile, {
+    batch: "batch-success",
+    "output-dir": "batch-success-output",
+    preset: "lossless",
+    clean: true,
+    jobs: 2,
+  });
+  const success = spawnSync(process.execPath, [pipelinePath, "--config", configFile], {
+    cwd: repoRoot,
+    env: withJavaFallback(process.env),
+    encoding: "utf8",
+    timeout: 60_000,
+  });
   if (success.error) throw success.error;
   if (success.status !== 0)
     throw new Error(`Successful batch exited nonzero.\n${success.stdout}\n${success.stderr}`);

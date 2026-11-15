@@ -1,3 +1,4 @@
+import { readCliConfig } from "./utils/cli-config.js";
 import yargs from "yargs/yargs";
 import { hideBin } from "yargs/helpers";
 import config from "./utils/config.js";
@@ -19,6 +20,11 @@ const packageJson = JSON.parse(
  */
 async function parseArguments(): Promise<Args> {
   const parsed = await yargs(hideBin(process.argv))
+    .config(
+      "config",
+      "Load explicit JSON configuration (CLI options take precedence)",
+      readCliConfig
+    )
     .usage(`${packageJson.description}\n\nUsage: epub-optimizer [options]`)
     .option("input", {
       alias: "i",
@@ -35,6 +41,28 @@ async function parseArguments(): Promise<Args> {
     .option("batch", {
       describe: "Optimize regular EPUB files in this directory (non-recursive)",
       type: "string",
+    })
+    .option("jobs", {
+      describe: "Concurrent batch books (1-4); each has its own image and Java memory use",
+      type: "number",
+      default: 1,
+    })
+    .option("storage", {
+      describe: "Inspect watcher output storage without deleting files",
+      type: "string",
+    })
+    .option("storage-plan", {
+      describe: "Save a new read-only storage purge preview",
+      type: "string",
+    })
+    .option("apply-storage-plan", {
+      describe: "Apply a saved and reverified storage plan",
+      type: "string",
+    })
+    .option("keep-revisions", {
+      describe: "Successful revisions retained per original (minimum 1)",
+      type: "number",
+      default: 2,
     })
     .option("watch", {
       describe: "Continuously optimize stable EPUB files in this directory (non-recursive)",
@@ -178,6 +206,42 @@ async function parseArguments(): Promise<Args> {
     .alias("version", "v")
     .strict()
     .check((argv) => {
+      if (argv.config !== undefined && typeof argv.config !== "string")
+        throw new Error("Choose a single --config file.");
+      for (const key of ["storage", "storage-plan", "apply-storage-plan"] as const) {
+        if (argv[key] !== undefined && !argv[key]?.trim())
+          throw new Error(`--${key} requires a non-empty path.`);
+      }
+      const explicit = hideBin(process.argv);
+      const configFile = typeof argv.config === "string" ? readCliConfig(argv.config) : {};
+      const hasExplicitPaths =
+        explicit.some(
+          (value) => /^(--input|--output|--temp)(=|$)/.test(value) || /^-[iot]/.test(value)
+        ) || ["input", "output", "temp"].some((key) => key in configFile);
+      if (argv.storage || argv["apply-storage-plan"]) {
+        if (
+          hasExplicitPaths ||
+          argv.config ||
+          argv.watch ||
+          argv.batch ||
+          argv.doctor ||
+          argv.inspect ||
+          argv["output-dir"] ||
+          argv["report-json"] ||
+          argv["report-html"] ||
+          (argv.storage && argv["apply-storage-plan"])
+        )
+          throw new Error(
+            "Storage maintenance cannot be combined with optimization modes or reports."
+          );
+        if (argv["apply-storage-plan"] && argv["storage-plan"])
+          throw new Error("Choose storage preview or apply, not both.");
+      } else if (argv["storage-plan"]) throw new Error("--storage-plan requires --storage.");
+      if (!Number.isSafeInteger(argv["keep-revisions"]) || argv["keep-revisions"] < 1)
+        throw new Error("--keep-revisions must be an integer of at least 1.");
+      if (!Number.isSafeInteger(argv.jobs) || argv.jobs < 1 || argv.jobs > 4)
+        throw new Error("--jobs must be an integer between 1 and 4.");
+      if (argv.jobs !== 1 && !argv.batch) throw new Error("--jobs requires --batch.");
       if (argv.watch && argv.batch) throw new Error("--watch cannot be combined with --batch.");
       if (!Number.isSafeInteger(argv["watch-settle-ms"]) || argv["watch-settle-ms"] < 1000)
         throw new Error("--watch-settle-ms must be an integer of at least 1000.");
@@ -187,12 +251,7 @@ async function parseArguments(): Promise<Args> {
         if (!argv["output-dir"]) throw new Error("--batch/--watch requires --output-dir.");
         if (argv.doctor || argv.inspect)
           throw new Error("--batch/--watch supports optimization only.");
-        const explicit = hideBin(process.argv);
-        if (
-          explicit.some(
-            (value) => /^(--input|--output|--temp)(=|$)/.test(value) || /^-[iot]/.test(value)
-          )
-        ) {
+        if (hasExplicitPaths) {
           throw new Error(
             "--batch/--watch cannot be combined with explicit --input, --output or --temp."
           );

@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseArguments } from "./cli.js";
 
 const originalArgv = process.argv;
 afterEach(() => {
+  vi.restoreAllMocks();
   process.argv = originalArgv;
 });
 
@@ -117,4 +118,34 @@ describe("CLI options", () => {
     expect(args.authorWorkflow).toBe(false);
     expect(args.repair).toBe(false);
   });
+});
+
+it("parses a storage preview independently of optimization paths", async () => {
+  process.argv = [
+    "node",
+    "tool",
+    "--storage",
+    "out",
+    "--storage-plan",
+    "preview.json",
+    "--keep-revisions",
+    "1",
+  ];
+  const args = await parseArguments();
+  expect(args.storage).toBe("out");
+  expect(args.storagePlan).toBe("preview.json");
+  expect(args.keepRevisions).toBe(1);
+});
+it.each([
+  ["--input", "book.epub"],
+  ["--watch", "inbox", "--output-dir", "out"],
+  ["--apply-storage-plan", "plan.json"],
+  ["--report-json", "report.json"],
+])("rejects ambiguous storage flags %j", async (...flags) => {
+  vi.spyOn(process, "exit").mockImplementation(() => {
+    throw new Error("Rejected incompatible flags");
+  });
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  process.argv = ["node", "tool", "--storage", "out", ...flags];
+  await expect(parseArguments()).rejects.toThrow("Rejected incompatible flags");
 });

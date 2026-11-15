@@ -241,6 +241,11 @@ pnpm build
 
 ### Local package and typed Node API
 
+Registry publication setup and the manual release workflow are described in
+[docs/NPM.md](docs/NPM.md). These instructions do not mean a package is already
+available on npm; until the first publication is confirmed, use the local tarball
+or published Docker image.
+
 Build and inspect a local package without publishing it to a registry:
 
 ```bash
@@ -426,6 +431,12 @@ Usage: epub-optimizer [options]
 Options:
   -i, --input       Input EPUB file path                    [string] [default: "mybook.epub"]
   -o, --output      Output EPUB file path                   [string] [default: "mybook_opt.epub"]
+  --config          Explicit JSON settings; CLI flags override file values
+  --jobs            Concurrent batch books (1-4; default: 1)
+  --storage         Inspect a watcher output directory without deleting anything
+  --storage-plan    Save a new JSON purge preview (requires --storage)
+  --apply-storage-plan  Reverify and apply a saved purge preview
+  --keep-revisions  Successful revisions retained per original (minimum 1; default 2)
   --batch           Directory of EPUB files to optimize (non-recursive)
   --watch           Continuously optimize EPUB files dropped in this directory
   --watch-settle-ms  Quiet interval before processing a watched file [default: 3000, minimum: 1000]
@@ -480,6 +491,71 @@ Examples:
 > - `pnpm optimize:author` - Complete author workflow: generic optimization, repairs, lazy loading, cover navigation, summary page, and chapter sections
 > - `pnpm optimize:clean` - Same as optimize but removes temporary files afterward
 > - `pnpm cleanup <directory>` - Removes a marked temporary directory from a previous run
+
+### JSON configuration
+
+Use an explicit JSON file with long, kebab-case option names. There is no automatic
+search for configuration files and no executable JavaScript, includes or environment
+interpolation. Built-in defaults apply first, file settings second, explicit CLI
+flags last (including `--no-fonts` and other negative booleans).
+
+```json
+{
+  "preset": "balanced",
+  "strict": true,
+  "clean": true,
+  "image-concurrency": 2,
+  "watch": "inbox",
+  "output-dir": "optimized"
+}
+```
+
+```bash
+pnpm optimize --config optimizer.json
+# Override one setting without editing the file:
+pnpm optimize --config optimizer.json --image-concurrency 1
+```
+
+Paths from the file are relative to that file's directory; CLI paths are relative
+to the current working directory. Unknown keys and mistyped values fail before
+processing. The file must be regular JSON, at most 64 KiB. Optimization options,
+paths, batch/watch settings and `jobs` are supported; help/version, storage/purge
+commands, nested config and short/camelCase aliases are deliberately excluded.
+Storage maintenance cannot be combined with `--config`.
+
+### Storage inventory and controlled purge
+
+Stop the watcher before applying a purge. Preview is read-only; keep two successful
+revisions per original by default, or explicitly choose at least one:
+
+```bash
+pnpm optimize --storage watch/optimized --keep-revisions 2 \
+  --storage-plan /tmp/epub-storage-plan.json
+# Review that JSON file, then explicitly apply that same preview:
+pnpm optimize --apply-storage-plan /tmp/epub-storage-plan.json
+```
+
+A saved plan is created exclusively: an existing file is never overwritten.
+`verifiedRevisionBytes` counts recognized, checksum-verified successful revisions
+only; `candidateBytes` is their proposed removal size. These are apparent file
+bytes, not total filesystem usage or guaranteed reclaimed space. Unknown entries,
+failed runs, unexpected files, symlinks, hard links and altered outputs are listed
+as protected rather than deleted. Revisions are grouped by original absolute path
+and ordered by completion-record modification time. Originals are never read or
+removed by maintenance.
+
+Apply acquires the same lock as the watcher and recomputes the saved candidates;
+changed candidates require a new preview. Only recognized revision files are
+unlinked; no recursive deletion follows links. An interruption can leave an
+`.epub-prune-*` recovery directory: it is preserved as an unknown entry, so inspect
+it manually before any cleanup. A purge is irreversible; keep backups of outputs
+you need. Paths in a container must refer to that container's mounted output directory;
+create and apply a plan in the same path namespace.
+
+Temporary extraction directories are kept separately. Use `--clean` for future
+successful runs; remove an old, inspected, marked extraction directory explicitly
+with `pnpm cleanup <directory>`. Storage retention does not sweep system temporary
+folders or discard failed-run diagnostics automatically.
 
 ### Modes and Presets
 
@@ -662,7 +738,7 @@ The configuration is validated before structure updates. Unknown keys, unsafe pa
 - `--report-json reports/report.json` writes a structured report on success and on pipeline failures that occur after preflight path validation.
 - The report directory is created automatically. Local reports under `reports/` are ignored by Git.
 
-Processing diagnostics are emitted explicitly and collected within each asynchronous step; the optimizer does not replace global `console` methods or infer severity from message text. Step `messages` and strict warning/error handling retain their existing format. Custom API processing hooks should use the exported `reportWarning(...args)` and `reportError(...args)` helpers to participate in reports and strict checks. Ordinary `console` output remains display-only; thrown exceptions still fail the operation. Nested step diagnostics also reach the enclosing operation, while concurrent operations have separate collectors and completed steps stop collecting late callbacks. Batch processing remains sequential.
+Processing diagnostics are emitted explicitly and collected within each asynchronous step; the optimizer does not replace global `console` methods or infer severity from message text. Step `messages` and strict warning/error handling retain their existing format. Custom API processing hooks should use the exported `reportWarning(...args)` and `reportError(...args)` helpers to participate in reports and strict checks. Ordinary `console` output remains display-only; thrown exceptions still fail the operation. Nested step diagnostics also reach the enclosing operation, while concurrent operations have separate collectors and completed steps stop collecting late callbacks. Batch concurrency is bounded by `--jobs` (one by default).
 
 Once EPUBCheck runs, optimization reports include an optional `validation` object with its native `exitCode`, diagnostic `source` (`json`, `text`, or `unavailable`), version when available, `totals` (`fatals`, `errors`, `warnings`, `infos`), and detailed `messages`. Each message contains a `code`, uppercase `severity`, `message`, `locations` (path and available line/column/context), `additionalLocations`, and an optional suggestion. The same details appear in HTML reports and per-book batch reports, including failed runs. These fields are additive; existing step statuses and messages are retained, and doctor mode is unchanged.
 
@@ -723,6 +799,15 @@ The report path must differ from the input and output EPUB paths and must be abs
 
 ### Batch optimization
 
+`--jobs 2` enables two books in flight (`1` by default, maximum `4`). Output paths
+are checked for the entire batch before work starts, each book has a unique temp
+directory and report, and summary rows retain input order even when completion
+order differs. A failed book does not stop the others. Each book retains its own
+image concurrency and Java memory requirements; start with `--image-concurrency 1`
+on a constrained NAS. EPUBCheck runs asynchronously so timers and sibling books remain responsive.
+Concurrency is not a guarantee of a proportional speedup. See the reproducible
+[batch measurement](docs/BATCH-PERFORMANCE.md).
+
 Optimize the regular `.epub` files directly inside a directory (case-insensitive extension, non-recursive):
 
 ```bash
@@ -739,6 +824,21 @@ The entire path plan is checked before processing: input/output/report aliases, 
 The exported `runBatch(args)` API returns the structured summary without setting a process exit code. Pass resolved options, including `batch` and `outputDir`; use `optimizeEPUB(args)` for single-book calls.
 
 ### Background Docker watcher
+
+For a NAS or custom host directory, the setup helper creates directories and a
+private env file without starting Docker or changing existing settings:
+
+```bash
+sh scripts/setup-watch.sh /absolute/path/to/epub-library .env.watch
+docker compose --env-file .env.watch -f compose.watch.yaml config
+docker compose --env-file .env.watch -f compose.watch.yaml up -d
+```
+
+Review `WATCH_UID`/`WATCH_GID` for the NAS account allowed to access the files.
+The helper pins the published 3.15.0 digest; it does not install Docker, elevate
+permissions, change ownership or enable unreleased source features in that image.
+It refuses existing env files and symbolic-link storage directories. Linux NAS
+vendor interfaces and ACLs vary; validate permissions on the target device.
 
 One-time setup from the repository root (Docker Compose v2 required):
 
@@ -1015,6 +1115,7 @@ epub-optimizer/
 │   ├── ci.yml                 # Audit, shared quality/Docker checks, and Required CI gate
 │   ├── docker-check.yml       # Shared native AMD64/ARM64 Docker E2E and image scans
 │   ├── epubcheck-watch.yml    # Weekly check for new EPUBCheck releases (opens an issue)
+│   ├── npm-publish.yml        # Manual npm publication of a verified stable release
 │   ├── prepare-release.yml    # Prepare and merge a checked release PR to main
 │   ├── quality.yml            # Shared Node 22/24, coverage, lint, types, and EPUBCheck checks
 │   ├── release-published.yml  # Promote tested image digests and sync main into develop by PR
@@ -1031,6 +1132,8 @@ epub-optimizer/
 ├── vitest.config.ts        # Test configuration
 ├── epubcheck/              # EPUBCheck for EPUB validation (not included in repo)
 ├── scripts/                # Build and maintenance scripts
+│   ├── benchmark-batch.ts     # Generated-book concurrency and Node RSS comparison
+│   ├── setup-watch.sh         # Non-overwriting NAS/host directory and env setup
 │   ├── clean-path.ts          # Guarded cleanup helper used instead of rm -rf
 │   ├── docker-e2e.ts          # Docker fixture test runner
 │   ├── e2e-epubcheck.ts       # Local fixture test runner with EPUBCheck

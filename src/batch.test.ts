@@ -115,3 +115,40 @@ describe("batch optimization", () => {
     expect((await runBatch(args)).books[0]?.outputPublished).toBe(false);
   });
 });
+
+it("bounds parallel work, preserves input order and isolates reports after out-of-order completion", async () => {
+  for (const name of ["a.epub", "b.epub", "c.epub", "d.epub"])
+    await fs.writeFile(path.join(args.batch!, name), name);
+  let active = 0,
+    maximum = 0;
+  const temps = new Set<string>();
+  vi.mocked(runOptimization).mockImplementation(async (book) => {
+    active++;
+    maximum = Math.max(maximum, active);
+    temps.add(book.temp);
+    await new Promise((resolve) =>
+      setTimeout(resolve, path.basename(book.input) === "a.epub" ? 35 : 5)
+    );
+    active--;
+    if (path.basename(book.input) === "b.epub") throw new Error("one failed book");
+  });
+  const report = await runBatch({ ...args, jobs: 2 });
+  expect(maximum).toBe(2);
+  expect(temps.size).toBe(4);
+  expect(report.books.map((book) => path.basename(book.input))).toEqual([
+    "a.epub",
+    "b.epub",
+    "c.epub",
+    "d.epub",
+  ]);
+  expect(report.succeeded).toBe(3);
+  expect(report.failed).toBe(1);
+  expect(report.books[1].error).toBe("one failed book");
+});
+it.each([0, -1, 1.5, 5, NaN])(
+  "rejects invalid job count %j before writing outputs",
+  async (jobs) => {
+    await expect(runBatch({ ...args, jobs })).rejects.toThrow("integer between 1 and 4");
+    expect(await fs.pathExists(args.outputDir!)).toBe(false);
+  }
+);

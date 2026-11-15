@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { reportError } from "./utils/diagnostics.js";
+import { planStorage, saveStoragePlan, applyStoragePlan } from "./storage.js";
 import { runWatch } from "./watch.js";
 import { runBatch } from "./batch.js";
 import { parseArguments } from "./cli.js";
@@ -8,7 +9,15 @@ import { isEntryPoint } from "./scripts/utils.js";
 
 export async function main(): Promise<void> {
   const args = await parseArguments();
-  if (args.watch) {
+  if (args.applyStoragePlan) {
+    process.stdout.write(
+      JSON.stringify(await applyStoragePlan(args.applyStoragePlan), null, 2) + "\n"
+    );
+  } else if (args.storage) {
+    const plan = await planStorage(args.storage, args.keepRevisions);
+    if (args.storagePlan) await saveStoragePlan(plan, args.storagePlan);
+    process.stdout.write(JSON.stringify(plan, null, 2) + "\n");
+  } else if (args.watch) {
     const controller = new AbortController();
     const stop = () => controller.abort();
     process.on("SIGINT", stop);
