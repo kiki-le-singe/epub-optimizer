@@ -98,42 +98,57 @@ describe("watched folder", () => {
     await add("a.epub");
     await add("b.EPUB");
     await add("b.EPUB", "good");
-    let session = 0;
-    async function runSession() {
-      const c = controller();
-      // A changed final book stops the session only after the earlier failure,
-      // success or durable skip has actually completed, irrespective of disk speed.
-      const stopText = `stop-session-${++session}`;
-      await add("z-stop.epub", stopText);
-      vi.mocked(runOptimization).mockImplementation(async (book) => {
-        const text = await fs.readFile(book.input, "utf8");
-        if (text === "original") {
-          // Deliberately exceed runFor's old 120 ms deadline to reproduce slow CI.
-          await delay(150);
-          throw new Error("bad book");
-        }
-        await fs.writeFile(book.output, "validated");
-        if (text === stopText) c.abort();
-      });
-      let timedOut = false;
-      const watchdog = setTimeout(() => {
-        timedOut = true;
-        c.abort();
-      }, 3000);
-      try {
-        const result = await runWatch(args, { signal: c.signal, pollIntervalMs: 5 });
-        if (timedOut) throw new Error("Watcher did not reach the final book in time");
-        return result;
-      } finally {
-        clearTimeout(watchdog);
-        c.abort();
+    vi.mocked(runOptimization).mockImplementation(async (book) => {
+      if ((await fs.readFile(book.input, "utf8")) === "original") {
+        // Reproduce processing that exceeds the old fixed 120 ms session deadline.
+        await delay(150);
+        throw new Error("bad book");
       }
+      await fs.writeFile(book.output, "validated");
+    });
+    async function runUntil(ready: () => Promise<void> | void) {
+      const c = controller();
+      const running = runWatch(args, { signal: c.signal, pollIntervalMs: 5 });
+      // Observe early rejection while waiting; the final await still propagates it.
+      void running.catch(() => undefined);
+      try {
+        await vi.waitFor(ready, { timeout: 3000, interval: 10 });
+      } finally {
+        c.abort();
+        await running;
+      }
+      return running;
     }
-    // Counts include the final control book, which succeeds once in each session.
-    expect(await runSession()).toEqual({ succeeded: 2, failed: 1, skipped: 0 });
+    const failures = () =>
+      vi
+        .mocked(console.error)
+        .mock.calls.filter(([message]) => String(message).includes("Watch book failed: a.epub:"))
+        .length;
+    let completedBook = "";
+    expect(
+      await runUntil(async () => {
+        expect(failures()).toBe(1);
+        for (const job of await jobs()) {
+          const marker = path.join(args.outputDir!, job, "completed.json");
+          if (await fs.pathExists(marker)) {
+            const record = await fs.readJson(marker);
+            if (record.input === path.join(args.watch!, "b.EPUB")) completedBook = marker;
+          }
+        }
+        expect(completedBook).not.toBe("");
+      })
+    ).toEqual({ succeeded: 1, failed: 1, skipped: 0 });
+    expect(runOptimization).toHaveBeenCalledTimes(2);
+    // Files can settle/requeue independently. Observe reuse of this specific
+    // completion record, rather than assuming a later filename ran last.
+    const readRecord = vi.spyOn(fs, "readJson");
+    expect(
+      await runUntil(() => {
+        expect(failures()).toBe(2);
+        expect(readRecord.mock.calls.some(([file]) => file === completedBook)).toBe(true);
+      })
+    ).toEqual({ succeeded: 0, failed: 1, skipped: 1 });
     expect(runOptimization).toHaveBeenCalledTimes(3);
-    expect(await runSession()).toEqual({ succeeded: 1, failed: 1, skipped: 1 });
-    expect(runOptimization).toHaveBeenCalledTimes(5);
   });
   it("accepts empty directories, ignores partial names, nested books, empty files and symlinks", async () => {
     await add("a.epub.part");
