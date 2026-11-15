@@ -1,3 +1,4 @@
+import { assertDistinctInputOutput } from "./output-transaction.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -72,5 +73,19 @@ export function readCliConfig(file: string): Record<string, unknown> {
     return result;
   } finally {
     fs.closeSync(handle);
+  }
+}
+
+/** A settings file is an input too: generated output must never replace it. */
+export function protectCliConfig(
+  file: string,
+  targets: Array<string | undefined>,
+  outputDirectory?: string
+): void {
+  for (const target of targets) if (target) assertDistinctInputOutput(file, target);
+  if (outputDirectory && fs.existsSync(outputDirectory)) {
+    const relative = path.relative(fs.realpathSync(outputDirectory), fs.realpathSync(file));
+    if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative)))
+      throw new Error("Keep --config outside the batch/watch output directory.");
   }
 }

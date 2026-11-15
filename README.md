@@ -521,7 +521,8 @@ to the current working directory. Unknown keys and mistyped values fail before
 processing. The file must be regular JSON, at most 64 KiB. Optimization options,
 paths, batch/watch settings and `jobs` are supported; help/version, storage/purge
 commands, nested config and short/camelCase aliases are deliberately excluded.
-Storage maintenance cannot be combined with `--config`.
+Storage maintenance cannot be combined with `--config`. The settings file cannot
+alias an output/report target and must stay outside batch/watch output directories.
 
 ### Storage inventory and controlled purge
 

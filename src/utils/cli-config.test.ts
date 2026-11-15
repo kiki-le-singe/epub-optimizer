@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import fs from "fs-extra";
 import os from "node:os";
 import path from "node:path";
-import { readCliConfig } from "./cli-config.js";
+import { readCliConfig, protectCliConfig } from "./cli-config.js";
 import { parseArguments } from "../cli.js";
 let root: string;
 const argv = process.argv;
@@ -62,4 +62,18 @@ it("rejects oversized files, symlinks and prototype keys", async () => {
   const link = path.join(root, "link.json");
   await fs.symlink(file, link);
   expect(() => readCliConfig(link)).toThrow();
+});
+
+it("preserves configuration from output/report aliases and watcher/batch generated resources", async () => {
+  const file = path.join(root, "config.json");
+  await fs.writeJson(file, { strict: true });
+  const alias = path.join(root, "alias.json");
+  await fs.link(file, alias);
+  expect(() => protectCliConfig(file, [file])).toThrow("must be different");
+  expect(() => protectCliConfig(file, [alias])).toThrow("must be different");
+  expect(() => protectCliConfig(file, [], root)).toThrow("outside the batch/watch");
+  expect(() =>
+    protectCliConfig(file, [path.join(root, "output.epub")], path.join(root, "new-out"))
+  ).not.toThrow();
+  expect(await fs.readJson(file)).toEqual({ strict: true });
 });

@@ -1,4 +1,4 @@
-import { readCliConfig } from "./utils/cli-config.js";
+import { readCliConfig, protectCliConfig } from "./utils/cli-config.js";
 import yargs from "yargs/yargs";
 import { hideBin } from "yargs/helpers";
 import config from "./utils/config.js";
@@ -212,6 +212,12 @@ async function parseArguments(): Promise<Args> {
         if (argv[key] !== undefined && !argv[key]?.trim())
           throw new Error(`--${key} requires a non-empty path.`);
       }
+      if (typeof argv.config === "string")
+        protectCliConfig(
+          argv.config,
+          [argv.output, argv["report-json"], argv["report-html"]],
+          argv["output-dir"]
+        );
       const explicit = hideBin(process.argv);
       const configFile = typeof argv.config === "string" ? readCliConfig(argv.config) : {};
       const hasExplicitPaths =
