@@ -57,7 +57,7 @@ vi.mock("./scripts/create-epub.js", () => ({
   run: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("./scripts/validate-epub.js", () => ({
-  run: vi.fn(),
+  runAsync: vi.fn(),
 }));
 vi.mock("fs-extra", () => ({
   default: { pathExists: vi.fn().mockResolvedValue(false) },
@@ -121,7 +121,7 @@ describe("pipeline orchestration", () => {
     const { runFixes } = await import("./scripts/fix/index.js");
     const { runStructureUpdates } = await import("./scripts/ops/update-structure.js");
     const { run: createEPUBFile } = await import("./scripts/create-epub.js");
-    const { run: validateEPUB } = await import("./scripts/validate-epub.js");
+    const { runAsync: validateEPUB } = await import("./scripts/validate-epub.js");
 
     await main();
 
@@ -275,7 +275,7 @@ describe("pipeline orchestration", () => {
   });
 
   it("does not publish the output when candidate validation fails", async () => {
-    const { run: validateEPUB } = await import("./scripts/validate-epub.js");
+    const { runAsync: validateEPUB } = await import("./scripts/validate-epub.js");
     const { commitCandidateOutput, discardCandidateOutput } =
       await import("./utils/output-transaction.js");
     vi.mocked(validateEPUB).mockImplementationOnce(() => {

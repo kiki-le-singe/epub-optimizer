@@ -1,0 +1,81 @@
+name: Publish released npm package
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Latest published stable release tag (vX.Y.Z)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: npm-publication
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.repository == 'kiki-le-singe/epub-optimizer' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      source: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.x"
+      - name: Verify published release and tested source
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          SOURCE=$(git rev-parse "refs/tags/$TAG^{commit}")
+          git merge-base --is-ancestor "$SOURCE" origin/main
+          gh release view "$TAG" --repo kiki-le-singe/epub-optimizer --json tagName,isDraft,isPrerelease > "$RUNNER_TEMP/release.json"
+          gh release view --repo kiki-le-singe/epub-optimizer --json tagName > "$RUNNER_TEMP/latest.json"
+          gh release download "$TAG" --repo kiki-le-singe/epub-optimizer --pattern release-image.json --dir "$RUNNER_TEMP"
+          git show "$SOURCE:package.json" > "$RUNNER_TEMP/source-package.json"
+          export SOURCE
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import { validateNpmPublication } from './scripts/validate-npm-publication.ts';
+          const read = name => JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/${name}`, 'utf8'));
+          validateNpmPublication(process.env.TAG, process.env.SOURCE, read('source-package.json').version,
+            read('release.json'), read('latest.json').tagName, read('release-image.json'));
+          JS
+          echo "sha=$SOURCE" >> "$GITHUB_OUTPUT"
+  quality:
+    needs: verify
+    uses: ./.github/workflows/quality.yml
+    with:
+      ref: ${{ needs.verify.outputs.source }}
+  publish:
+    needs: [verify, quality]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.verify.outputs.source }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-project
+      - name: Recheck latest release, pack and publish with npm OIDC
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh release view --repo kiki-le-singe/epub-optimizer --json tagName --jq .tagName)" = "$TAG"
+          pnpm pack --out "$RUNNER_TEMP/epub-optimizer.tgz"
+          npm publish "$RUNNER_TEMP/epub-optimizer.tgz" --registry=https://registry.npmjs.org --access public --provenance

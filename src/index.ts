@@ -4,6 +4,8 @@ import { processEpubContent, type ContentProcessingOptions } from "./processors/
 import type { Args } from "./types.js";
 
 export { runWatch, type WatchOptions, type WatchReport, type WatchSignal } from "./watch.js";
+export { planStorage, saveStoragePlan, applyStoragePlan } from "./storage.js";
+export type { StoragePlan, StorageRevision } from "./storage.js";
 export { runBatch, type BatchReport } from "./batch.js";
 export type { BatchItem } from "./batch.js";
 export type { Args, Preset } from "./types.js";
@@ -26,6 +28,8 @@ export async function optimizeEPUB(
 ): Promise<{ success: boolean; input: string; output: string }> {
   // Keep the caller's options intact when feature detection adjusts processing.
   const resolvedArgs = { ...(args ?? (await parseArguments())) };
+  if (resolvedArgs.storage || resolvedArgs.applyStoragePlan)
+    throw new Error("Use storage maintenance functions for storage operations.");
   if (resolvedArgs.watch) throw new Error("Use runWatch(args, options) for watch optimization.");
   if (resolvedArgs.batch) throw new Error("Use runBatch(args) for batch optimization.");
   if (options.skipPackaging) {

@@ -3,6 +3,12 @@ export type Preset = "balanced" | "lossless" | "author";
 export interface Args {
   input: string;
   batch?: string;
+  /** Maximum concurrent books in batch mode; defaults to 1. */
+  jobs?: number;
+  storage?: string;
+  storagePlan?: string;
+  applyStoragePlan?: string;
+  keepRevisions?: number;
   watch?: string;
   watchSettleMs?: number;
   outputDir?: string;
