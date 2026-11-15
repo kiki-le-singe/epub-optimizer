@@ -145,6 +145,48 @@ export async function assertWatchWorkflow(
       await first.exited;
     }
   }
+  // Exercise saved storage previews through the built CLI using generated revisions.
+  const originalJob = (await completed())[0];
+  if (!originalJob) throw new Error("Missing storage fixture job");
+  const olderJob = originalJob.slice(0, -16) + "d".repeat(16);
+  const olderDir = path.join(output, olderJob);
+  await fs.copy(path.join(output, originalJob), olderDir);
+  const marker = await fs.readJson(path.join(olderDir, "completed.json"));
+  marker.settings = "d".repeat(16);
+  await fs.writeJson(path.join(olderDir, "completed.json"), marker);
+  await fs.utimes(path.join(olderDir, "completed.json"), 1, 1);
+  const planFile = path.join(runDir, "storage-plan.json");
+  const invoke = (flags: string[]) =>
+    spawnSync(process.execPath, [pipelinePath, ...flags], {
+      env,
+      encoding: "utf8",
+      timeout: 10000,
+    });
+  const preview = invoke([
+    "--storage",
+    output,
+    "--storage-plan",
+    planFile,
+    "--keep-revisions",
+    "1",
+  ]);
+  if (preview.status !== 0) throw new Error(`Storage preview failed: ${preview.stderr}`);
+  const plan = JSON.parse(preview.stdout);
+  if (
+    plan.candidates.length !== 1 ||
+    plan.candidates[0].job !== olderJob ||
+    !(await fs.pathExists(olderDir))
+  )
+    throw new Error("Storage preview failed to preserve data or choose the older revision");
+  const applied = invoke(["--apply-storage-plan", planFile]);
+  if (
+    applied.status !== 0 ||
+    (await fs.pathExists(olderDir)) ||
+    !(await fs.pathExists(path.join(output, originalJob, "optimized.epub")))
+  )
+    throw new Error(`Storage purge failed or removed the current revision: ${applied.stderr}`);
+  if (hash(await fs.readFile(path.join(input, "book.epub"))) !== hash(original))
+    throw new Error("Storage purge changed an original");
   console.log(
     "Watch E2E passed: partial filenames, failure recovery, native validation, reports, restart deduplication and graceful signals."
   );

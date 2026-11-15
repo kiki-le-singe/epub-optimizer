@@ -9,7 +9,7 @@ import type { Args } from "./types.js";
 import { runFixes } from "./scripts/fix/index.js";
 import { runStructureUpdates } from "./scripts/ops/update-structure.js";
 import { run as createEPUBFile } from "./scripts/create-epub.js";
-import { run as validateEPUB } from "./scripts/validate-epub.js";
+import { runAsync as validateEPUB } from "./scripts/validate-epub.js";
 import { removeTempDir } from "./utils/temp-dir.js";
 import {
   assertDistinctInputOutput,

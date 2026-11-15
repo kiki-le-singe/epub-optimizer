@@ -1,4 +1,5 @@
 import { reportError, reportInfo, reportWarning } from "../utils/diagnostics.js";
+import { runBufferedProcess, type BufferedResult } from "../utils/buffered-process.js";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -37,7 +38,9 @@ function assertOwnedReportDirectory(directory: string, owner: { dev: number; ino
 }
 
 /** Run the pinned Java validator; the requested EPUB is never changed here. */
-export function run(opts: ValidationOptions = {}): void {
+function* validation(
+  opts: ValidationOptions
+): Generator<{ args: string[]; timeoutMs: number }, void, BufferedResult> {
   let outputEpub = opts.output;
   if (!outputEpub) {
     const argv = parseArgs(false, true);
@@ -66,12 +69,7 @@ export function run(opts: ValidationOptions = {}): void {
       reportPath,
     ];
     if (opts.strict) args.push("--failonwarnings");
-    const result = spawnSync("java", args, {
-      encoding: "utf8",
-      maxBuffer: 16 * 1024 * 1024,
-      timeout: timeoutMs,
-      killSignal: "SIGKILL",
-    });
+    const result = yield { args, timeoutMs };
     report.exitCode = result.status;
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
@@ -163,6 +161,41 @@ export function run(opts: ValidationOptions = {}): void {
     }
   }
   if (failure) throw failure.error;
+}
+
+/** Synchronous compatibility entry point for existing direct callers. */
+export function run(opts: ValidationOptions = {}): void {
+  const operation = validation(opts);
+  const request = operation.next();
+  if (request.done) return;
+  let result: BufferedResult;
+  try {
+    result = spawnSync("java", request.value.args, {
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+      timeout: request.value.timeoutMs,
+      killSignal: "SIGKILL",
+    });
+  } catch (error) {
+    operation.throw(error);
+    return;
+  }
+  operation.next(result);
+}
+
+/** Keep timers and sibling book processing responsive during native validation. */
+export async function runAsync(opts: ValidationOptions = {}): Promise<void> {
+  const operation = validation(opts);
+  const request = operation.next();
+  if (request.done) return;
+  let result: BufferedResult;
+  try {
+    result = await runBufferedProcess("java", request.value.args, request.value.timeoutMs);
+  } catch (error) {
+    operation.throw(error);
+    return;
+  }
+  operation.next(result);
 }
 
 if (isEntryPoint(import.meta.url)) {

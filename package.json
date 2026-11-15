@@ -1,6 +1,6 @@
 {
   "name": "epub-optimizer",
-  "version": "3.15.0",
+  "version": "3.16.0",
   "description": "Optimize EPUB files by compressing HTML, CSS, images and recompressing the archive",
   "repository": {
     "type": "git",
@@ -48,7 +48,8 @@
     "lint": "eslint src scripts --ext .ts",
     "lint:fix": "eslint src scripts --ext .ts --fix",
     "format": "prettier --write \"**/*.{ts,json,md}\"",
-    "format:check": "prettier --check \"**/*.{ts,json,md}\""
+    "format:check": "prettier --check \"**/*.{ts,json,md}\"",
+    "benchmark:batch": "node --experimental-strip-types scripts/benchmark-batch.ts"
   },
   "author": "kiki-le-singe",
   "license": "MIT",

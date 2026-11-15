@@ -3,9 +3,11 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { parseEpubCheckMessages, run } from "./validate-epub.js";
+import { runBufferedProcess } from "../utils/buffered-process.js";
+import { parseEpubCheckMessages, run, runAsync } from "./validate-epub.js";
 import type { EpubCheckReport } from "../utils/epubcheck-report.js";
 
+vi.mock("../utils/buffered-process.js", () => ({ runBufferedProcess: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
 const successSummary = "Messages: 0 fatals / 0 errors / 0 warnings / 0 infos\n";
 const cleanJson = () => ({
@@ -326,6 +328,28 @@ describe("validate EPUB", () => {
         },
       })
     ).toThrow("consumer error");
+    expect(fs.existsSync(path.dirname(reportPath))).toBe(false);
+  });
+  it("applies the same structured diagnostics and cleanup to async native validation", async () => {
+    vi.mocked(runBufferedProcess).mockImplementation(async (_command, args) => {
+      return spawnSync("java", args, { encoding: "utf8" });
+    });
+    const onReport = vi.fn();
+    await runAsync({ output: "async.epub", strict: true, onReport });
+    expect(onReport).toHaveBeenCalledWith(expect.objectContaining({ source: "json", exitCode: 0 }));
+    expect(fs.existsSync(path.dirname(reportPath))).toBe(false);
+    mockValidation({ status: 1 });
+    await expect(runAsync({ output: "async.epub", onReport })).rejects.toThrow(
+      "EPUB validation failed"
+    );
+    expect(fs.existsSync(path.dirname(reportPath))).toBe(false);
+    mockValidation({
+      status: null,
+      error: Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }),
+    });
+    await expect(runAsync({ output: "async.epub", timeoutMs: 1000, onReport })).rejects.toThrow(
+      "1000 ms time limit"
+    );
     expect(fs.existsSync(path.dirname(reportPath))).toBe(false);
   });
 });
