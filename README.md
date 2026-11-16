@@ -136,10 +136,12 @@ This depends on whether preserving your book's design and typography is importan
 **Fastest: run the published image (no clone, no build):**
 
 ```bash
-docker run --rm -v "$PWD:/epub-files" boopykiki/epub-optimizer:3.16.1 \
-  -i YourBook.epub -o YourBook-optimized.epub
+docker run --rm --network none --user "$(id -u):$(id -g)" -v "$PWD:/epub-files" \
+  boopykiki/epub-optimizer:3.16.1 \
+  -i YourBook.epub -o YourBook-optimized.epub --strict --clean
 ```
 
+This command uses a macOS/Linux shell and runs with your host UID/GID so the output folder stays writable.
 The image ships Node.js, Java, and EPUBCheck pre-installed and supports amd64 and arm64 (Apple Silicon).
 It is published on [Docker Hub](https://hub.docker.com/r/boopykiki/epub-optimizer)
 and GHCR (`ghcr.io/kiki-le-singe/epub-optimizer:3.16.1`). Both registries serve the
