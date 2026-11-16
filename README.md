@@ -227,6 +227,29 @@ Version 3 makes the default command safer and less specific to this project's or
 
 ## Installation
 
+### Install from npm
+
+The CLI is published on [npm as `epub-optimizer`](https://www.npmjs.com/package/epub-optimizer).
+Use Node.js 22.12+ and Java 17+. Install locally in a dedicated directory:
+
+```bash
+mkdir epub-tools
+cd epub-tools
+npm init -y
+npm install epub-optimizer
+bash node_modules/epub-optimizer/scripts/install-epubcheck.sh ./epubcheck
+EPUBCHECK_PATH="$PWD/epubcheck/epubcheck.jar" npx --no-install epub-optimizer \
+  -i /absolute/path/to/book.epub -o book-optimized.epub --strict --clean
+```
+
+The output is written to `epub-tools/book-optimized.epub`; the source book stays
+unchanged. The installer downloads the pinned, checksum-verified EPUBCheck validator.
+Java must already be installed. npm users do not need pnpm or a repository checkout.
+For Docker with Java and EPUBCheck included, use the Docker instructions above.
+For an always-on drop folder on a NAS or Linux host, see [the NAS guide](docs/NAS.md).
+
+### Build from the repository
+
 ```bash
 # Clone the repository
 git clone https://github.com/kiki-le-singe/epub-optimizer.git
@@ -241,10 +264,9 @@ pnpm build
 
 ### Local package and typed Node API
 
-Registry publication setup and the manual release workflow are described in
-[docs/NPM.md](docs/NPM.md). These instructions do not mean a package is already
-available on npm; until the first publication is confirmed, use the local tarball
-or published Docker image.
+The published package includes the typed Node API. Maintainer publication setup
+and staged approval are described in [docs/NPM.md](docs/NPM.md). The local tarball
+workflow below is useful for testing unpublished changes.
 
 Build and inspect a local package without publishing it to a registry:
 
@@ -825,6 +847,10 @@ The entire path plan is checked before processing: input/output/report aliases, 
 The exported `runBatch(args)` API returns the structured summary without setting a process exit code. Pass resolved options, including `batch` and `outputDir`; use `optimizeEPUB(args)` for single-book calls.
 
 ### Background Docker watcher
+
+For a step-by-step installation using the published 3.16.1 image, see
+[Docker / NAS setup](docs/NAS.md). The instructions below also describe older pinned
+defaults; set the image explicitly when choosing a newer release.
 
 For a NAS or custom host directory, the setup helper creates directories and a
 private env file without starting Docker or changing existing settings:
