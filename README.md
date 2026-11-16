@@ -136,11 +136,15 @@ This depends on whether preserving your book's design and typography is importan
 **Fastest: run the published image (no clone, no build):**
 
 ```bash
-docker run --rm -v "$PWD:/epub-files" ghcr.io/kiki-le-singe/epub-optimizer \
+docker run --rm -v "$PWD:/epub-files" boopykiki/epub-optimizer:3.16.1 \
   -i YourBook.epub -o YourBook-optimized.epub
 ```
 
 The image ships Node.js, Java, and EPUBCheck pre-installed and supports amd64 and arm64 (Apple Silicon).
+It is published on [Docker Hub](https://hub.docker.com/r/boopykiki/epub-optimizer)
+and GHCR (`ghcr.io/kiki-le-singe/epub-optimizer:3.16.1`). Both registries serve the
+same tested release digest. No npm, Java or EPUBCheck installation is needed on
+the host when using Docker. For a background drop folder, see [Docker / NAS setup](docs/NAS.md).
 
 **Traditional installation:**
 

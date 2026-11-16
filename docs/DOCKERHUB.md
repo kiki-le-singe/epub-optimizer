@@ -1,8 +1,9 @@
 # Docker Hub distribution (maintainer setup)
 
-GHCR remains the existing public distribution. Docker Hub is optional and is not
-available until the namespace, public repository and first successful mirror are
-confirmed. Do not advertise a placeholder Docker Hub pull command as published.
+The public image is [boopykiki/epub-optimizer](https://hub.docker.com/r/boopykiki/epub-optimizer).
+The first successful mirror published 3.16.1 and `latest` with the same tested
+multi-platform digest as GHCR. The setup below documents maintenance or replacement
+of that configuration; new destinations still require their own first-upload check.
 
 ## One-time setup
 
@@ -48,8 +49,7 @@ when `DOCKERHUB_IMAGE` is set. A Docker Hub failure leaves the completed GHCR
 publication intact; retry the dedicated mirror workflow. The manual path also
 allows the current release to be mirrored without creating another version.
 
-After the first successful upload, add the actual Docker Hub link and pull command
-to README and the NAS guide. Users can choose either registry; use immutable version
+The README and NAS guide include the verified Docker Hub link and pull command. Users can choose either registry; use immutable version
 digests for reproducible deployment. Initial uploads do not establish search ranking.
 
 ## Suggested public repository overview
