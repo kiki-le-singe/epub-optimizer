@@ -1116,7 +1116,7 @@ epub-optimizer/
 │   ├── ci.yml                 # Audit, shared quality/Docker checks, and Required CI gate
 │   ├── docker-check.yml       # Shared native AMD64/ARM64 Docker E2E and image scans
 │   ├── epubcheck-watch.yml    # Weekly check for new EPUBCheck releases (opens an issue)
-│   ├── npm-publish.yml        # Manual npm publication of a verified stable release
+│   ├── npm-publish.yml        # Stage a verified release on npm for maintainer approval
 │   ├── prepare-release.yml    # Prepare and merge a checked release PR to main
 │   ├── quality.yml            # Shared Node 22/24, coverage, lint, types, and EPUBCheck checks
 │   ├── release-published.yml  # Promote tested image digests and sync main into develop by PR
