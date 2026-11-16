@@ -42,6 +42,7 @@ function controller(): AbortController {
   controllers.push(c);
   return c;
 }
+// A short observation window is intentional only for cases with no eligible work.
 async function runFor(ms = 120) {
   const c = controller();
   const timer = setTimeout(() => c.abort(), ms);
@@ -50,6 +51,32 @@ async function runFor(ms = 120) {
   } finally {
     clearTimeout(timer);
   }
+}
+async function runUntil(ready: () => Promise<void> | void) {
+  const c = controller();
+  const running = runWatch(args, { signal: c.signal, pollIntervalMs: 5 });
+  // Observe early rejection while waiting; the final await still propagates it.
+  void running.catch(() => undefined);
+  try {
+    await vi.waitFor(ready, { timeout: 3000, interval: 10 });
+  } finally {
+    c.abort();
+    await running;
+  }
+  return running;
+}
+function completionCount() {
+  return vi
+    .mocked(console.log)
+    .mock.calls.filter(([message]) => String(message).startsWith("Watch completed:")).length;
+}
+async function runCompleted() {
+  const before = completionCount();
+  return runUntil(() => expect(completionCount()).toBe(before + 1));
+}
+async function runFailed() {
+  const before = vi.mocked(console.error).mock.calls.length;
+  return runUntil(() => expect(vi.mocked(console.error).mock.calls.length).toBeGreaterThan(before));
 }
 async function add(name = "a.epub", text = "original") {
   await fs.writeFile(path.join(args.watch!, name), text);
@@ -63,35 +90,80 @@ async function jobs() {
 describe("watched folder", () => {
   it("waits for quiet files, snapshots them, and does not rerun unchanged inputs", async () => {
     await add();
+    // Drive only the watcher's monotonic clock; slow filesystem scheduling must
+    // not accidentally let a real 15 ms sleep exceed the settling interval.
+    let clock = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
+    const source = path.join(args.watch!, "a.epub");
+    const stats = vi.spyOn(fs, "lstat");
+    const observations = () =>
+      stats.mock.calls.flatMap(([file], index) =>
+        file === source ? [stats.mock.results[index]!.value] : []
+      );
+    const afterScan = async (count: number) => {
+      await vi.waitFor(() => expect(observations().length).toBeGreaterThanOrEqual(count), {
+        timeout: 3000,
+      });
+      await observations().at(-1);
+    };
     const c = controller();
     const running = runWatch(args, { signal: c.signal, pollIntervalMs: 5 });
-    await delay(15);
-    await fs.appendFile(path.join(args.watch!, "a.epub"), "-finished");
-    expect(runOptimization).not.toHaveBeenCalled();
-    await vi.waitFor(() => expect(runOptimization).toHaveBeenCalledOnce());
-    const book = vi.mocked(runOptimization).mock.calls[0][0];
-    expect(book.input).not.toBe(path.join(args.watch!, "a.epub"));
-    await delay(40);
-    c.abort();
-    expect(await running).toEqual({ succeeded: 1, failed: 0, skipped: 0 });
-    expect(await fs.pathExists(path.dirname(book.input))).toBe(false);
-    expect(await fs.readFile(path.join(args.watch!, "a.epub"), "utf8")).toBe("original-finished");
-    expect(await fs.pathExists(path.join(args.outputDir!, ".epub-watch.lock"))).toBe(false);
+    void running.catch(() => undefined);
+    try {
+      await afterScan(2);
+      clock = 10;
+      await fs.appendFile(source, "-finished");
+      await afterScan(observations().length + 2);
+      clock = 34;
+      await afterScan(observations().length + 1);
+      expect(runOptimization).not.toHaveBeenCalled();
+      clock = 35;
+      await vi.waitFor(() => expect(runOptimization).toHaveBeenCalledOnce());
+      const book = vi.mocked(runOptimization).mock.calls[0][0];
+      expect(book.input).not.toBe(path.join(args.watch!, "a.epub"));
+      await vi.waitFor(() => expect(completionCount()).toBe(1), { timeout: 3000 });
+      c.abort();
+      expect(await running).toEqual({ succeeded: 1, failed: 0, skipped: 0 });
+      expect(await fs.pathExists(path.dirname(book.input))).toBe(false);
+      expect(await fs.readFile(path.join(args.watch!, "a.epub"), "utf8")).toBe("original-finished");
+      expect(await fs.pathExists(path.join(args.outputDir!, ".epub-watch.lock"))).toBe(false);
+    } finally {
+      c.abort();
+      await running;
+    }
   });
   it("recognizes completed books after restart and processes new content without replacing old outputs", async () => {
+    // The settling interval alone exceeds the old 120 ms session cutoff.
+    args.watchSettleMs = 150;
+    vi.mocked(runOptimization).mockImplementation(async (book) => {
+      await delay(150);
+      await fs.writeFile(book.output, "validated");
+    });
     await add();
-    expect((await runFor()).succeeded).toBe(1);
+    expect((await runCompleted()).succeeded).toBe(1);
     const first = (await jobs())[0];
-    expect((await runFor()).skipped).toBe(1);
+    const marker = path.join(args.outputDir!, first, "completed.json");
+    const reads = vi.spyOn(fs, "readJson");
+    try {
+      expect(
+        (
+          await runUntil(() =>
+            expect(reads.mock.calls.some(([file]) => file === marker)).toBe(true)
+          )
+        ).skipped
+      ).toBe(1);
+    } finally {
+      reads.mockRestore();
+    }
     expect(runOptimization).toHaveBeenCalledOnce();
     await add("a.epub", "changed");
-    expect((await runFor()).succeeded).toBe(1);
+    expect((await runCompleted()).succeeded).toBe(1);
     expect(await jobs()).toHaveLength(2);
     expect(await fs.readFile(path.join(args.outputDir!, first, "optimized.epub"), "utf8")).toBe(
       "validated"
     );
     args.fonts = true;
-    expect((await runFor()).succeeded).toBe(1);
+    expect((await runCompleted()).succeeded).toBe(1);
     expect(await jobs()).toHaveLength(3);
   });
   it("continues after a failure, attempts an unchanged failure only once per session, and can retry after restart", async () => {
@@ -106,19 +178,6 @@ describe("watched folder", () => {
       }
       await fs.writeFile(book.output, "validated");
     });
-    async function runUntil(ready: () => Promise<void> | void) {
-      const c = controller();
-      const running = runWatch(args, { signal: c.signal, pollIntervalMs: 5 });
-      // Observe early rejection while waiting; the final await still propagates it.
-      void running.catch(() => undefined);
-      try {
-        await vi.waitFor(ready, { timeout: 3000, interval: 10 });
-      } finally {
-        c.abort();
-        await running;
-      }
-      return running;
-    }
     const failures = () =>
       vi
         .mocked(console.error)
@@ -221,10 +280,10 @@ describe("watched folder", () => {
   });
   it("refuses altered completed outputs rather than overwriting them", async () => {
     await add();
-    await runFor();
+    await runCompleted();
     const job = (await jobs())[0];
     await fs.writeFile(path.join(args.outputDir!, job, "optimized.epub"), "external change");
-    expect((await runFor()).failed).toBe(1);
+    expect((await runFailed()).failed).toBe(1);
     expect(runOptimization).toHaveBeenCalledOnce();
     expect(await fs.readFile(path.join(args.outputDir!, job, "optimized.epub"), "utf8")).toBe(
       "external change"
@@ -232,22 +291,22 @@ describe("watched folder", () => {
   });
   it("protects live input hard links from report writes on retry", async () => {
     await add();
-    await runFor();
+    await runCompleted();
     const job = path.join(args.outputDir!, (await jobs())[0]);
     await fs.remove(path.join(job, "completed.json"));
     await fs.link(path.join(args.watch!, "a.epub"), path.join(job, "report.json"));
-    expect((await runFor()).failed).toBe(1);
+    expect((await runFailed()).failed).toBe(1);
     expect(runOptimization).toHaveBeenCalledOnce();
     expect(await fs.readFile(path.join(args.watch!, "a.epub"), "utf8")).toBe("original");
   });
   it("refuses symlink job directories", async () => {
     await add();
-    await runFor();
+    await runCompleted();
     const job = path.join(args.outputDir!, (await jobs())[0]);
     await fs.remove(job);
     await fs.ensureDir(path.join(root, "foreign"));
     await fs.symlink(path.join(root, "foreign"), job);
-    expect((await runFor()).failed).toBe(1);
+    expect((await runFailed()).failed).toBe(1);
     expect(await fs.readdir(path.join(root, "foreign"))).toEqual([]);
   });
   it("does not delete a replaced lock", async () => {
@@ -286,9 +345,9 @@ describe("watched folder", () => {
       summaries.push((await fs.readJson(book.authorConfig!)).summaryHref);
       await fs.writeFile(book.output, "validated");
     });
-    await runFor();
+    await runCompleted();
     await fs.writeJson(args.authorConfig, { summaryHref: "second.xhtml" });
-    await runFor();
+    await runCompleted();
     expect(summaries).toEqual(["first.xhtml", "second.xhtml"]);
     expect(await jobs()).toHaveLength(2);
   });
@@ -296,11 +355,11 @@ describe("watched folder", () => {
     "rejects a replaced output FIFO without blocking the watcher",
     async () => {
       await add();
-      await runFor();
+      await runCompleted();
       const target = path.join(args.outputDir!, (await jobs())[0], "optimized.epub");
       await fs.remove(target);
       execFileSync("mkfifo", [target]);
-      expect((await runFor()).failed).toBe(1);
+      expect((await runFailed()).failed).toBe(1);
       expect(runOptimization).toHaveBeenCalledOnce();
     }
   );
