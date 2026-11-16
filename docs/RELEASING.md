@@ -1,5 +1,14 @@
 # Releases and CI
 
+## Optional Docker Hub mirror
+
+Docker Hub distribution is opt-in; see [DOCKERHUB.md](DOCKERHUB.md) for account,
+repository, credentials and first-upload setup. When `DOCKERHUB_IMAGE` is configured,
+finalization mirrors the latest stable tested index after GHCR promotion and branch
+synchronization. It never rebuilds images. Missing configuration keeps the optional
+job disabled; a failed mirror does not undo GHCR publication. The dedicated manual
+mirror workflow retries a published release without creating another version.
+
 ## Prepare a version
 
 Commit and push changes to `develop`, then wait for its CI to pass. In GitHub Actions, run **Prepare release** from `main` with a new version such as `3.7.0` or `3.7.0-rc.1`. The workflow checks CI against the current develop commit, creates or updates `codex/release-X.Y.Z`, merges develop into that branch and updates `package.json`. It opens a PR to main, waits for its real pull-request CI and the **Required CI** gate, then merges through GitHub's API with the expected head commit. Only then does it dispatch **Release**, bound to that merged commit. Main's push triggers CI normally. Version downgrades and changes to develop, the PR head or its target during validation stop preparation.
