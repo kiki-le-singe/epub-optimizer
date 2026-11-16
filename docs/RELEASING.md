@@ -87,3 +87,13 @@ E2E scripts copy the generated reports before deleting their temporary fixture d
 ## Token permissions
 
 CI and quality checks use read-only repository access. Only release image jobs get package write access; draft creation gets repository write access. Preparation and synchronization use the repository-scoped App token for Git and PR operations. Their job `GITHUB_TOKEN` stays read-only for repository contents; finalization additionally grants it package write access for GHCR. The App does not bypass repository rules. External actions are pinned by full commit SHA.
+
+## Optional npm distribution
+
+npm publication is separate from Docker promotion and remains a manual operation.
+After the npm package and repository-scoped trusted publisher have been configured,
+use **Publish released npm package** (`npm-publish.yml`) from main with the latest
+published stable tag. It verifies the tag/source/image record and runs Node 22/24
+quality checks before the protected `release` environment publishes that exact source
+using npm OIDC and provenance. It never publishes a GitHub release or moves Docker
+`latest`. First publication requires maintainer authentication; see [NPM.md](NPM.md).

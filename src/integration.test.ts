@@ -6,10 +6,10 @@ import { optimizeEPUB, reportWarning } from "./index";
 import { parseArguments } from "./cli";
 import type { Args } from "./types";
 import { compressEPUB } from "./processors/archive-processor";
-import { run as validateEPUB } from "./scripts/validate-epub.js";
+import { runAsync as validateEPUB } from "./scripts/validate-epub.js";
 import { getContentPath } from "./utils/epub-utils";
 
-vi.mock("./scripts/validate-epub.js", () => ({ run: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("./scripts/validate-epub.js", () => ({ runAsync: vi.fn().mockResolvedValue(undefined) }));
 
 // Mock the CLI module to avoid parsing real argv
 vi.mock("./cli", () => ({
