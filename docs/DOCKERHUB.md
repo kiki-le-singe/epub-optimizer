@@ -45,7 +45,7 @@ unit test does not prove Docker Hub permissions, multi-platform registry support
 or a successful upload. Physical NAS interfaces remain unverified.
 
 Future finalization runs mirror after GHCR promotion and branch synchronization
-when `DOCKERHUB_IMAGE` is set. A Docker Hub failure leaves the completed GHCR
+when `DOCKERHUB_IMAGE` is set. Prereleases skip the optional mirror job. A Docker Hub failure leaves the completed GHCR
 publication intact; retry the dedicated mirror workflow. The manual path also
 allows the current release to be mirrored without creating another version.
 
