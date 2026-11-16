@@ -1,4 +1,4 @@
-name: Publish released npm package
+name: Stage released npm package
 on:
   workflow_dispatch:
     inputs:
@@ -55,7 +55,7 @@ jobs:
     uses: ./.github/workflows/quality.yml
     with:
       ref: ${{ needs.verify.outputs.source }}
-  publish:
+  stage:
     needs: [verify, quality]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -69,7 +69,9 @@ jobs:
           ref: ${{ needs.verify.outputs.source }}
           persist-credentials: false
       - uses: ./.github/actions/setup-project
-      - name: Recheck latest release, pack and publish with npm OIDC
+      - name: Install npm with staged publishing support
+        run: npm install --global npm@11.21.2 --registry=https://registry.npmjs.org
+      - name: Recheck latest release, pack and stage with npm OIDC
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
@@ -78,4 +80,5 @@ jobs:
           set -euo pipefail
           test "$(gh release view --repo kiki-le-singe/epub-optimizer --json tagName --jq .tagName)" = "$TAG"
           pnpm pack --out "$RUNNER_TEMP/epub-optimizer.tgz"
-          npm publish "$RUNNER_TEMP/epub-optimizer.tgz" --registry=https://registry.npmjs.org --access public --provenance
+          npm stage publish "$RUNNER_TEMP/epub-optimizer.tgz" --registry=https://registry.npmjs.org --access public --provenance
+          printf '%s\n' 'Package submitted for npm approval. Review the staged package on npm and approve it with 2FA; this workflow does not publish it directly.' >> "$GITHUB_STEP_SUMMARY"
