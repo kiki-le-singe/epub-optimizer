@@ -92,8 +92,9 @@ CI and quality checks use read-only repository access. Only release image jobs g
 
 npm publication is separate from Docker promotion and remains a manual operation.
 After the npm package and repository-scoped trusted publisher have been configured,
-use **Publish released npm package** (`npm-publish.yml`) from main with the latest
+use **Stage released npm package** (`npm-publish.yml`) from main with the latest
 published stable tag. It verifies the tag/source/image record and runs Node 22/24
-quality checks before the protected `release` environment publishes that exact source
-using npm OIDC and provenance. It never publishes a GitHub release or moves Docker
+quality checks before the protected `release` environment stages that exact source
+using npm OIDC and provenance. The maintainer then approves the staged package on
+npm with 2FA; a successful staging workflow does not make the package public. It never publishes a GitHub release or moves Docker
 `latest`. First publication requires maintainer authentication; see [NPM.md](NPM.md).
