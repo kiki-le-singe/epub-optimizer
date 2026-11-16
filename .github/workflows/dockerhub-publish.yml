@@ -1,0 +1,67 @@
+name: Mirror tested release to Docker Hub
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Latest published stable release (e.g. v3.16.1)
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  # Manual copies serialize with release finalization. A reusable call already
+  # holds its caller's release-catalog lock and must not wait for that same lock.
+  group: ${{ github.workflow == 'Mirror tested release to Docker Hub' && 'release-catalog' || 'dockerhub-publication' }}
+  cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
+jobs:
+  mirror:
+    if: github.repository == 'kiki-le-singe/epub-optimizer' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.x
+      - name: Require explicit Docker Hub configuration
+        env:
+          HUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+          HUB_USER: ${{ vars.DOCKERHUB_USERNAME }}
+          HUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          test -n "$HUB_IMAGE" && test -n "$HUB_USER" && test -n "$HUB_TOKEN"
+      - name: Install registry copy tool
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends skopeo
+      - name: Authenticate to Docker Hub
+        env:
+          REGISTRY_AUTH_FILE: ${{ runner.temp }}/dockerhub-auth.json
+          HUB_USER: ${{ vars.DOCKERHUB_USERNAME }}
+          HUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          umask 077
+          printf '%s' "$HUB_TOKEN" | skopeo login --username "$HUB_USER" --password-stdin docker.io
+      - name: Copy and verify the tested multi-platform release
+        env:
+          REGISTRY_AUTH_FILE: ${{ runner.temp }}/dockerhub-auth.json
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+        run: node --experimental-strip-types scripts/mirror-dockerhub.ts
+      - name: Remove temporary registry authentication
+        if: always()
+        env:
+          REGISTRY_AUTH_FILE: ${{ runner.temp }}/dockerhub-auth.json
+        run: rm -f "$REGISTRY_AUTH_FILE"
