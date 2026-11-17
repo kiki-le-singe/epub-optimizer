@@ -3,6 +3,8 @@ import { runValidationCorpus } from "./validation-corpus.ts";
 // @ts-expect-error Native Node TypeScript requires the source extension.
 import { assertWatchWorkflow } from "./watch-e2e.ts";
 // @ts-expect-error Native Node TypeScript requires the source extension.
+import { assertNativeUi } from "./ui-e2e.ts";
+// @ts-expect-error Native Node TypeScript requires the source extension.
 import { createFontFixture } from "./font-fixtures.ts";
 // @ts-expect-error Native Node TypeScript requires the source extension.
 import { saveDiagnostics } from "./ci-diagnostics.ts";
@@ -1652,6 +1654,8 @@ async function main(): Promise<void> {
   try {
     await createFixtureEpubStructure(fixtureDir);
     await createEpub(inputEpub, fixtureDir);
+    const uiOutput = await assertNativeUi(runDir, inputEpub, env);
+    await assertOptimizedOutput(uiOutput, path.join(runDir, "ui-output-check"));
     await assertWatchWorkflow(runDir, inputEpub, pipelinePath, env);
     await createAuthorFixtureEpubStructure(authorFixtureDir);
     await createEpub(authorInputEpub, authorFixtureDir);

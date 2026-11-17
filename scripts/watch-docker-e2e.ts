@@ -3,6 +3,8 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
+// @ts-expect-error Native Node TypeScript requires the source extension.
+import { waitForWatchOverview } from "./watch-e2e-readiness.ts";
 
 export async function assertDockerWatch(runDir: string, image: string): Promise<void> {
   const name = `epub-watch-e2e-${randomUUID()}`;
@@ -67,9 +69,9 @@ export async function assertDockerWatch(runDir: string, image: string): Promise<
       report.validation?.totals?.warnings !== 0
     )
       throw new Error("Docker watch output failed validation.");
-    const overview = await fs.readFile(path.join(output, "index.html"), "utf8");
-    if (!overview.includes("book.epub") || !overview.includes("optimized.epub"))
-      throw new Error("Docker watcher summary missing book links");
+    await waitForWatchOverview(output, ["book.epub", "optimized.epub"], {
+      logs: () => docker(["logs", name]),
+    });
     docker(["stop", "--time", "120", name]);
     if (docker(["inspect", "--format", "{{.State.ExitCode}}", name]) !== "0")
       throw new Error("Docker watch did not stop gracefully.");

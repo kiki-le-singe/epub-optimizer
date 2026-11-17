@@ -66,3 +66,10 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
           EXPECTED_RELEASE_ID: ${{ github.event.release.id || '' }}
         run: node --experimental-strip-types scripts/release.ts finalize
+  dockerhub:
+    needs: finalize
+    if: vars.DOCKERHUB_IMAGE != '' && !github.event.release.prerelease && !contains(inputs.tag || github.event.release.tag_name, '-')
+    uses: ./.github/workflows/dockerhub-publish.yml
+    with:
+      tag: ${{ inputs.tag || github.event.release.tag_name }}
+    secrets: inherit

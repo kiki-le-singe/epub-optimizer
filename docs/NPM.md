@@ -1,5 +1,9 @@
 # npm distribution
 
+The package is published as [epub-optimizer](https://www.npmjs.com/package/epub-optimizer).
+For user installation and first optimization, see [the README](../README.md#install-from-npm).
+The remaining sections describe maintainer publication operations.
+
 The local package is tested by `pnpm test:package`, including installation outside
 this repository, declarations, the CLI/API, fonts and validation failure safety.
 There is no npm publication as part of a build, test, PR merge or Docker release.

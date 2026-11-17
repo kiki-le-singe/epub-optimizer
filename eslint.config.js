@@ -24,7 +24,7 @@ export default tseslint.config(
   },
   // For all TypeScript files
   {
-    files: ["**/*.ts", "**/*.d.ts"],
+    files: ["**/*.ts", "**/*.tsx", "**/*.d.ts"],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
