@@ -27,6 +27,7 @@
     "**/*.spec.ts",
     "**/__tests__/**",
     "vitest.config.ts",
-    "coverage"
+    "coverage",
+    "ui"
   ]
 }

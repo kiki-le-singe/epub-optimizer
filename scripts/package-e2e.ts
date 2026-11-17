@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+// @ts-expect-error Native Node TypeScript requires the source extension.
+import { assertNativeUi } from "./ui-e2e.ts";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
@@ -144,13 +146,16 @@ async function main(): Promise<void> {
       pkg.main,
       pkg.types,
       "scripts/install-epubcheck.sh",
+      "dist/ui-assets/app.js",
+      "dist/ui-assets/app.css",
+      "ui/SHADCN-LICENSE.md",
     ];
     for (const name of required)
       assert.ok(entries.includes(`package/${name}`), `Missing packaged ${name}`);
     for (const entry of entries) {
       assert.ok(!entry.includes("..") && !entry.startsWith("/"), `Unsafe archive entry: ${entry}`);
       assert.ok(
-        /^package\/(?:package\.json|README\.md|LICENSE|scripts\/install-epubcheck\.sh|dist\/.+\.(?:js|d\.ts))$/.test(
+        /^package\/(?:package\.json|README\.md|LICENSE|ui\/SHADCN-LICENSE\.md|scripts\/install-epubcheck\.sh|dist\/.+\.(?:js|css|d\.ts))$/.test(
           entry
         ),
         `Unexpected packaged file: ${entry}`
@@ -193,6 +198,9 @@ async function main(): Promise<void> {
     assert.equal(pnpm(["exec", "epub-optimizer", "--version"], consumer).trim(), pkg.version);
     assert.equal(run(process.execPath, [bin, "--version"], cwd).trim(), pkg.version);
     assert.match(run(process.execPath, [bin, "--help"], cwd), /--png-background/);
+    const uiBin = installedPkg.bin["epub-optimizer-ui"];
+    assert.ok(uiBin, "Installed package is missing its local UI command");
+    assert.match(run(process.execPath, [path.join(installed, uiBin), "--help"], cwd), /--port/);
     await fs.access(
       path.join(
         consumer,
@@ -317,6 +325,7 @@ assert.equal(await fs.readFile(args.output, "utf8"), "previous output");
     );
     run(process.execPath, [path.join(consumer, "api-client.mjs")], cwd, env);
     await assertReport(path.join(cwd, "api.json"));
+    await assertNativeUi(root, input, env, path.join(installed, "dist/src/ui/server.js"));
 
     // A package install does not silently download a validator. Missing configuration must fail safely.
     const unconfiguredEnv = { ...process.env };

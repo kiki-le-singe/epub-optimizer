@@ -5,6 +5,8 @@ import { assertComposeWatch } from "./compose-watch-e2e.ts";
 // @ts-expect-error Native Node TypeScript requires the source extension.
 import { assertDockerWatch } from "./watch-docker-e2e.ts";
 // @ts-expect-error Native Node TypeScript requires the source extension.
+import { assertDockerUi } from "./ui-e2e.ts";
+// @ts-expect-error Native Node TypeScript requires the source extension.
 import { createFontFixture } from "./font-fixtures.ts";
 // @ts-expect-error Native Node TypeScript requires the source extension.
 import { saveDiagnostics } from "./ci-diagnostics.ts";
@@ -217,6 +219,8 @@ async function main(): Promise<void> {
   try {
     await createFixtureEpubStructure(fixtureDir);
     await createEpub(inputEpub, fixtureDir);
+    const uiOutput = await assertDockerUi(runDir, inputEpub, imageName, repoRoot);
+    await assertOptimizedOutput(uiOutput, path.join(runDir, "ui-output-check"));
     await assertDockerWatch(runDir, imageName);
     await assertComposeWatch(runDir, imageName, repoRoot);
     await assertWatchCrashRecovery(runDir, imageName);
