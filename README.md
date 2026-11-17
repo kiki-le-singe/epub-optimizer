@@ -158,14 +158,14 @@ This depends on whether preserving your book's design and typography is importan
 
 ```bash
 docker run --rm --network none --user "$(id -u):$(id -g)" -v "$PWD:/epub-files" \
-  boopykiki/epub-optimizer:3.16.1 \
+  boopykiki/epub-optimizer:3.17.0 \
   -i YourBook.epub -o YourBook-optimized.epub --strict --clean
 ```
 
 This command uses a macOS/Linux shell and runs with your host UID/GID so the output folder stays writable.
 The image ships Node.js, Java, and EPUBCheck pre-installed and supports amd64 and arm64 (Apple Silicon).
 It is published on [Docker Hub](https://hub.docker.com/r/boopykiki/epub-optimizer)
-and GHCR (`ghcr.io/kiki-le-singe/epub-optimizer:3.16.1`). Both registries serve the
+and GHCR (`ghcr.io/kiki-le-singe/epub-optimizer:3.17.0`). Both registries serve the
 same tested release digest. No npm, Java or EPUBCheck installation is needed on
 the host when using Docker. For a background drop folder, see [Docker / NAS setup](docs/NAS.md).
 
@@ -875,7 +875,7 @@ The exported `runBatch(args)` API returns the structured summary without setting
 
 ### Background Docker watcher
 
-For a step-by-step installation using the published 3.16.1 image, see
+For a step-by-step installation using the published 3.17.0 image, see
 [Docker / NAS setup](docs/NAS.md). The instructions below also describe older pinned
 defaults; set the image explicitly when choosing a newer release.
 
