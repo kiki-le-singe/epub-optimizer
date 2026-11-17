@@ -1,0 +1,28 @@
+name: epub-optimizer-ui
+services:
+  ui:
+    image: ${EPUB_OPTIMIZER_DOCKER_IMAGE:-epub-optimizer:ui-local}
+    build:
+      context: .
+      target: runtime
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ports: ["127.0.0.1:8787:8787"]
+    networks: [local-ui]
+    environment:
+      HOME: /tmp
+    tmpfs: ["/tmp:rw,nosuid,noexec,size=1073741824"]
+    mem_limit: 2g
+    cpus: 2.0
+    stop_grace_period: 15s
+    command: [--ui, --host, 0.0.0.0, --port, "8787"]
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+networks:
+  local-ui:
+    driver: bridge

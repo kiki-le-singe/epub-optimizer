@@ -1,0 +1,108 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@source "./**/*.{ts,tsx}";
+@custom-variant dark (&:is(.dark *));
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--foreground);
+  --color-popover: var(--card);
+  --color-popover-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-text: var(--primary-text);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--foreground);
+  --color-muted: var(--secondary);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: #fff;
+  --color-border: var(--border);
+  --color-input: var(--border);
+  --color-ring: var(--primary-text);
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+:root {
+  color-scheme: light;
+  --background: #f8f9f7;
+  --foreground: #202226;
+  --card: #fff;
+  --secondary: #eef0ed;
+  --muted-foreground: #646a68;
+  --border: #dce1dd;
+  --primary: #00e599;
+  --primary-foreground: #10251d;
+  /* Bright accents are fills; text, icons and rings need 4.5:1 on cards. */
+  --primary-text: #00744e;
+  --accent: #e8faf3;
+  --destructive: #b6372b;
+}
+:root[data-accent="blue"] {
+  --primary: #0057ff;
+  --primary-foreground: #fff;
+  --primary-text: #0057ff;
+  --accent: #edf3ff;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #101113;
+  --foreground: #ededf0;
+  --card: #1a1b1f;
+  --secondary: #292a30;
+  --muted-foreground: #aaaab3;
+  --border: #34343c;
+  --primary-text: #00e599;
+  --accent: #00e59914;
+  --destructive: #f29b8d;
+}
+:root[data-theme="dark"][data-accent="blue"] {
+  --primary-text: #7aa5ff;
+  --accent: #0057ff1c;
+}
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply m-0 bg-background font-sans text-foreground antialiased;
+  }
+  button:not(:disabled),
+  select:not(:disabled) {
+    cursor: pointer;
+  }
+  a:focus-visible {
+    @apply rounded-sm outline-2 outline-offset-4 outline-ring;
+  }
+}
+.upload-zone {
+  background: linear-gradient(145deg, var(--accent), var(--card));
+}
+.upload-zone:hover:not(:has(input:disabled)) {
+  border-color: var(--primary);
+}
+.indeterminate > div {
+  width: 35%;
+  animation: processing 1.5s ease-in-out infinite;
+}
+@keyframes processing {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(390%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  .indeterminate > div {
+    transform: translateX(0) !important;
+  }
+}

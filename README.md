@@ -40,6 +40,7 @@ Memory was observed, not bounded by design. In local v3.8.0 runs of the `balance
 ## Table of Contents
 
 - [Quick Start](#quick-start)
+- [Local Graphical Interface](#local-graphical-interface)
 - [Migrating to v3](#migrating-to-v3)
 - [Features](#features)
 - [About This Project](#about-this-project)
@@ -78,6 +79,26 @@ Memory was observed, not bounded by design. In local v3.8.0 runs of the `balance
 - [Troubleshooting](#troubleshooting)
 - [Dependencies](#dependencies)
 - [License](#license)
+
+## Local Graphical Interface
+
+The local browser interface supports one EPUB at a time, three presets, progress,
+cancellation, strict EPUBCheck validation, and EPUB/HTML/JSON downloads. It offers
+French, English, Italian, Spanish and German, with light, dark and system themes.
+Language and theme choices are remembered by your browser; they do not change the
+book's language.
+
+This interface is included from version 3.17.0. Published npm packages and Docker
+images for **3.16.1 and earlier do not include it**.
+
+With Docker installed, build and start it from this checkout:
+
+```bash
+docker compose -f compose.ui.yaml up -d --build
+```
+
+Open <http://127.0.0.1:8787>, choose an EPUB, select a preset and download the result.
+See [the local interface guide](docs/LOCAL-UI.md) for requirements, limits and shutdown.
 
 ## About This Project
 

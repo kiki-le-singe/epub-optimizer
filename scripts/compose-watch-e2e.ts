@@ -3,6 +3,8 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
+// @ts-expect-error Native Node TypeScript requires the source extension.
+import { waitForWatchOverview } from "./watch-e2e-readiness.ts";
 
 export async function assertComposeWatch(
   runDir: string,
@@ -58,9 +60,9 @@ export async function assertComposeWatch(
       report.validation?.totals?.warnings !== 0
     )
       throw new Error("Compose watch validation failed");
-    const overview = await fs.readFile(path.join(output, "index.html"), "utf8");
-    if (!overview.includes("book.epub") || !overview.includes("optimized.epub"))
-      throw new Error("Docker watcher summary missing book links");
+    await waitForWatchOverview(output, ["book.epub", "optimized.epub"], {
+      logs: () => compose("logs"),
+    });
     const before = (await fs.stat(path.join(job, "optimized.epub"))).mtimeMs;
     compose("restart");
     await delay(4500);
