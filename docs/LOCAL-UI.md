@@ -29,8 +29,8 @@ It uses a standard Docker bridge network; outbound traffic is not blocked at the
 network level. Uploaded copies and results live in temporary
 container storage. Do not expose this single-user service to the Internet or LAN.
 
-The UI is not included in the published 3.16.1 images or npm package. Until a new
-release includes it, build from source using the command above.
+The UI is included from version 3.17.0. Published images and npm packages for
+3.16.1 and earlier do not include it; build from source using the command above.
 
 ## Start natively
 

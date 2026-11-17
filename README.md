@@ -88,8 +88,8 @@ French, English, Italian, Spanish and German, with light, dark and system themes
 Language and theme choices are remembered by your browser; they do not change the
 book's language.
 
-This interface is currently available from source. The published npm package and
-Docker images for **3.16.1 do not include it**.
+This interface is included from version 3.17.0. Published npm packages and Docker
+images for **3.16.1 and earlier do not include it**.
 
 With Docker installed, build and start it from this checkout:
 
