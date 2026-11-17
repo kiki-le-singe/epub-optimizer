@@ -41,3 +41,4 @@ digests/
 watch/
 .env.watch
 compose.watch.yaml
+compose.ui.yaml
