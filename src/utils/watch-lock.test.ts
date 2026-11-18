@@ -64,3 +64,52 @@ it("rejects oversized records and hard links", async () => {
   await fs.link(file, path.join(root, "other"));
   await expect(clearRecoverableWatchRecord(file, "owned")).rejects.toThrow("Unsafe");
 });
+it.skipIf(process.platform !== "linux")(
+  "refuses a hard-linked or symlinked guard without keeping a lock or touching its target",
+  async () => {
+    const guard = path.join(root, ".epub-watch.guard");
+    const other = path.join(root, "other");
+    await fs.writeFile(guard, "");
+    await fs.link(guard, other);
+    await expect(acquireKernelWatchLock(root)).rejects.toThrow("Refusing unsafe watch guard file");
+
+    await fs.remove(guard);
+    await fs.writeFile(other, "keep");
+    await fs.symlink(other, guard);
+    await expect(acquireKernelWatchLock(root)).rejects.toThrow();
+    expect(await fs.readFile(other, "utf8")).toBe("keep");
+    expect((await fs.lstat(guard)).isSymbolicLink()).toBe(true);
+
+    // Neither refusal may leave the guard locked: a clean guard is acquirable at once.
+    await fs.remove(guard);
+    const lock = await acquireKernelWatchLock(root);
+    expect(lock).toBeDefined();
+    if (lock) locks.push(lock);
+  }
+);
+it.skipIf(process.platform !== "linux")(
+  "identifies the guard file so only records written under it are recoverable",
+  async () => {
+    const lock = await acquireKernelWatchLock(root);
+    expect(lock).toBeDefined();
+    if (!lock) return;
+    locks.push(lock);
+    const guard = await fs.stat(path.join(root, ".epub-watch.guard"));
+    expect(lock.identity).toBe(`${guard.dev}:${guard.ino}`);
+    expect(guard.mode & 0o777).toBe(0o600);
+
+    const record = path.join(root, "lock");
+    await fs.writeJson(record, { method: "linux-flock-v1", guard: "0:0" });
+    await expect(clearRecoverableWatchRecord(record, lock.identity)).rejects.toThrow("Legacy");
+    await fs.writeJson(record, { method: "linux-flock-v1", guard: lock.identity });
+    await clearRecoverableWatchRecord(record, lock.identity);
+    expect(await fs.pathExists(record)).toBe(false);
+  }
+);
+it.skipIf(process.platform === "linux")(
+  "offers no kernel lock, and creates no guard file, outside Linux",
+  async () => {
+    expect(await acquireKernelWatchLock(root)).toBeUndefined();
+    expect(await fs.readdir(root)).toEqual([]);
+  }
+);

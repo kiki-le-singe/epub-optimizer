@@ -101,6 +101,12 @@ async function parseArguments(): Promise<Args> {
       type: "number",
       default: DEFAULT_MIN_IMAGE_SSIM,
     })
+    .option("convert-webp", {
+      describe:
+        "Convert PNG and JPEG images to WebP when smaller (EPUB 3 only; older readers may not display WebP)",
+      type: "boolean",
+      default: false,
+    })
     .option("png-background", {
       describe:
         "Flatten eligible transparent PNGs onto an opaque #RRGGBB color before JPEG conversion",
