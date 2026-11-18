@@ -26,7 +26,8 @@ optimized (DRM or internal DTD declarations). No optimized EPUB is produced; the
 complete diagnosis is available as a JSON download. The page displays only numbers
 and translated messages for known findings: text taken from the book stays in the
 JSON report. These checks are partial and do not replace an accessibility audit;
-see [Accessibility Checks](../README.md#accessibility-checks).
+see [Accessibility Checks](../README.md#accessibility-checks). Analysis is included
+from version 3.18.0.
 
 Stop with:
 
