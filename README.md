@@ -58,6 +58,7 @@ Memory was observed, not bounded by design. In local v3.8.0 runs of the `balance
   - [Safe Temporary Directories and Validation Deadlines](#safe-temporary-directories-and-validation-deadlines)
   - [Image Concurrency](#image-concurrency)
   - [Doctor / Inspect Mode](#doctor--inspect-mode)
+    - [Accessibility Checks](#accessibility-checks)
   - [Structured Reports and Profiling](#structured-reports-and-profiling)
   - [Batch Optimization](#batch-optimization)
   - [Safety Model](#safety-model)
@@ -233,6 +234,7 @@ Version 3 makes the default command safer and less specific to this project's or
 - **Balanced, lossless, and author presets**
 - Strict failure mode, per-step profiling, and JSON run reports
 - Non-destructive doctor/inspect mode for OPF, navigation, internal reference, image weight, and optimization-risk summaries
+- **Accessibility checks in doctor mode**: missing image text alternatives, document languages, EPUB Accessibility metadata and page navigation. See [Accessibility Checks](#accessibility-checks).
 - Archive extraction limits, zip-slip and symlink rejection, and safe OPF/manifest/navigation path resolution
 - **Graceful handling of special EPUBs**: detects `META-INF/encryption.xml` and refuses DRM-encrypted books instead of silently corrupting them, while still optimizing books whose only encrypted resources are fonts (the fonts are left byte-for-byte intact)
 - **Fixed-layout aware**: automatically disables image downscaling for pre-paginated (`rendition:layout`) EPUBs so page images stay aligned with the declared viewport
@@ -750,11 +752,37 @@ Doctor mode extracts the EPUB to a system temporary directory, reads `container.
 
 For supported books, the report includes OPF path/version, manifest and spine counts, EPUB3/NCX navigation presence, internal reference counts and missing targets, image byte totals and largest images, duplicate image basenames, large raster images, opaque PNG conversion candidates, and other optimization-risk hints.
 
-Doctor checks internal DTD subsets and content DRM before interpreting package or content XML. When either blocks optimization, it prints the reason and writes `analysisComplete: false`, `optimization.blocked: true`, and structured blockers in `optimization.blockers` and `risks`. Detailed `opf`, `navigation`, `references`, `images`, and `content` fields are omitted rather than reporting misleading metrics. Font obfuscation alone remains inspectable. Exit code 0 means the diagnosis completed, including a diagnosis that finds a blocker; optimizing a blocked book still fails.
+Doctor checks internal DTD subsets and content DRM before interpreting package or content XML. When either blocks optimization, it prints the reason and writes `analysisComplete: false`, `optimization.blocked: true`, and structured blockers in `optimization.blockers` and `risks`. Detailed `opf`, `navigation`, `references`, `images`, `content`, and `accessibility` fields are omitted rather than reporting misleading metrics. Font obfuscation alone remains inspectable. Exit code 0 means the diagnosis completed, including a diagnosis that finds a blocker; optimizing a blocked book still fails.
 
 For a complete diagnosis, `analysisComplete` is true and `optimization.blocked` is false. These fields do not certify EPUB validity or replace EPUBCheck. Consumers of doctor JSON must check `analysisComplete` before reading detailed metrics.
 
 Image reporting distinguishes `images.totalBytes` (uncompressed manifest image file bytes) from `images.compressedBytes` (the compressed ZIP payload of unique image resources). `images.archivePercent` uses compressed image bytes divided by the EPUB archive size, including ZIP overhead. Multiple manifest references to the same resource count once in the compressed share. When inspecting only an extracted directory without ZIP metadata, `compressedBytes` and `archivePercent` are `null`; uncompressed bytes are never presented as a percentage of compressed archive size.
+
+#### Accessibility Checks
+
+A complete diagnosis also includes an `accessibility` object and a console section.
+EPUBCheck validates the EPUB format, not accessibility; these checks cover a few
+frequent, machine-detectable problems:
+
+| Field            | What is checked                                                                                                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `language`       | `dc:language` values of the package, and XHTML documents whose root element has no `lang` or `xml:lang`.                                                                                                           |
+| `images`         | `<img>` elements without a text alternative. An image passes with an `alt` attribute (even empty), an ARIA label, a `title`, or `role="presentation"`/`"none"`. Images with an empty `alt` are counted separately. |
+| `metadata`       | `schema:accessMode`, `accessModeSufficient`, `accessibilityFeature`, `accessibilityHazard`, `accessibilitySummary` and `dcterms:conformsTo`, in EPUB 3 or EPUB 2 (`name`/`content`) form.                          |
+| `pageNavigation` | Page break markers, a page list (EPUB 3 `nav` or NCX `pageList`) and a paginated source (`dc:source` or `pageBreakSource`).                                                                                        |
+| `issues`         | Findings as `{ level, code, message }`, with `a11y-` codes. Warnings are requirements of EPUB Accessibility 1.1 or WCAG; infos are recommendations or items to review.                                             |
+
+`images.withoutTextAlternativeImages` lists at most 1,000 images as
+`{ document, src }`; `images.withoutTextAlternative` is always the exact count.
+Accessibility findings stay in `accessibility.issues` and are not added to the
+optimization `risks`. They never change the exit code.
+
+These are heuristics, not a conformance audit. They do not judge whether an
+alternative text is meaningful, and they do not check contrast, heading order,
+reading order, tables, link text, inline SVG or media overlays. Use a dedicated
+checker such as [Ace by DAISY](https://daisy.github.io/ace/) and a manual review
+before claiming conformance. The optimizer itself does not add or change
+accessibility metadata or alternative text.
 
 #### Optional Author Workflow Configuration
 
