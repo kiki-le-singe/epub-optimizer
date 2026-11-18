@@ -15,6 +15,7 @@ import { assertDistinctInputOutput, assertSafeOutputTarget } from "../utils/outp
 import { detectEpubFeatures } from "../utils/epub-features.js";
 import { assertNoInternalDtdSubsets } from "../utils/xml-dtd.js";
 import { resolvePngBackground } from "../utils/pipeline-options.js";
+import { convertToWebp } from "./webp-converter.js";
 import { resolveMinImageSsim } from "../utils/image-quality.js";
 import type { ImageQualityRecord } from "../utils/image-quality-record.js";
 
@@ -113,6 +114,24 @@ export async function processEpubContent(
     //    sharp pass so converted JPEGs don't need a follow-up downscale — step
     //    5 skips them to avoid a double recompression.
     const maxImageDim = resolvedArgs.maxImageDim > 0 ? resolvedArgs.maxImageDim : undefined;
+    // 4a. Optional WebP conversion runs first, on original pixels, so an image is
+    //     never encoded twice. Converted files are skipped by the steps below.
+    let convertedWebps = new Set<string>();
+    if (resolvedArgs.convertWebp && !resolvedArgs.lossless) {
+      convertedWebps = await runStep("Convert images to WebP", () =>
+        convertToWebp(resolvedArgs.temp, {
+          quality: resolvedArgs.jpgQuality,
+          concurrency: resolvedArgs.imageConcurrency,
+          maxDim: maxImageDim,
+          minSsim,
+          onQuality: options.onImageQuality,
+        })
+      );
+      reportInfo("🖼️  Converted images to WebP");
+    } else {
+      skipStep("Convert images to WebP", "Enable with --convert-webp (EPUB 3 only).");
+    }
+
     let convertedJpegs = new Set<string>();
     if (resolvedArgs.convertPng && !resolvedArgs.lossless) {
       convertedJpegs = await runStep("Convert PNG to JPEG", () =>
@@ -141,7 +160,10 @@ export async function processEpubContent(
           jpegQuality: resolvedArgs.jpgQuality,
           pngQuality: resolvedArgs.pngQuality,
           maxDim: maxImageDim,
-          skip: convertedJpegs,
+          skip:
+            convertedWebps.size > 0
+              ? new Set([...convertedJpegs, ...convertedWebps])
+              : convertedJpegs,
           concurrency: resolvedArgs.imageConcurrency,
           minSsim,
           onQuality: options.onImageQuality,

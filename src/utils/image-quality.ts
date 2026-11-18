@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import sharp, { type Sharp } from "sharp";
 
 /** Default minimum SSIM accepted for a lossy image re-encode (0 disables the guard). */
@@ -84,7 +85,10 @@ export async function imageSsim(
   reference: () => Sharp,
   candidate: string | Buffer
 ): Promise<number> {
-  const candidateMeta = await sharp(candidate).metadata();
+  // Read a path into memory: libvips can cache a file by name, and callers
+  // re-encode to the same path between measurements.
+  const encoded = typeof candidate === "string" ? await fs.readFile(candidate) : candidate;
+  const candidateMeta = await sharp(encoded).metadata();
   const referenceMeta = await reference().metadata();
   const width = candidateMeta.width;
   const height = candidateMeta.pageHeight ?? candidateMeta.height;
@@ -94,7 +98,7 @@ export async function imageSsim(
   for (const background of backgrounds) {
     const [a, b] = await Promise.all([
       render(reference(), width, height, background),
-      render(sharp(candidate), width, height, background),
+      render(sharp(encoded), width, height, background),
     ]);
     if (a.info.width !== b.info.width || a.info.height !== b.info.height)
       throw new Error("Image quality comparison produced mismatched dimensions.");
