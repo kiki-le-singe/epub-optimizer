@@ -5,6 +5,7 @@ interface RawPipelineOptions {
   authorWorkflow?: boolean;
   repair?: boolean;
   convertPng?: boolean;
+  convertWebp?: boolean;
   lazyLoading?: boolean;
   maxImageDim?: number;
   pngBackground?: string;
@@ -17,6 +18,7 @@ export interface ResolvedPipelineOptions {
   authorWorkflow: boolean;
   repair: boolean;
   convertPng: boolean;
+  convertWebp: boolean;
   lazyLoading: boolean;
   maxImageDim: number;
   lossless: boolean;
@@ -49,12 +51,16 @@ export function resolvePipelineOptions(options: RawPipelineOptions): ResolvedPip
   const authorWorkflow = options.authorWorkflow === true || options.preset === "author";
   const lossless = options.preset === "lossless";
   const pngBackground = resolvePngBackground(options);
+  // A format change cannot preserve original image bytes.
+  if (lossless && options.convertWebp === true)
+    throw new Error("--convert-webp cannot be combined with the lossless preset.");
 
   return {
     preset: options.preset,
     authorWorkflow,
     repair: options.repair === true || authorWorkflow,
     convertPng: options.convertPng ?? !lossless,
+    convertWebp: options.convertWebp === true,
     lazyLoading: options.lazyLoading ?? authorWorkflow,
     maxImageDim: options.maxImageDim ?? (lossless ? 0 : 1600),
     lossless,
@@ -71,6 +77,8 @@ export function applyPipelineOptions(args: Args): Args {
     repair: resolved.repair,
     "convert-png": resolved.convertPng,
     convertPng: resolved.convertPng,
+    "convert-webp": resolved.convertWebp,
+    convertWebp: resolved.convertWebp,
     "lazy-loading": resolved.lazyLoading,
     lazyLoading: resolved.lazyLoading,
     "max-image-dim": resolved.maxImageDim,

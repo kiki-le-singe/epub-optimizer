@@ -8,6 +8,7 @@ describe("resolvePipelineOptions", () => {
       authorWorkflow: false,
       repair: false,
       convertPng: true,
+      convertWebp: false,
       lazyLoading: false,
       maxImageDim: 1600,
       lossless: false,
@@ -26,8 +27,19 @@ describe("resolvePipelineOptions", () => {
   it("disables lossy image transformations in lossless mode", () => {
     expect(resolvePipelineOptions({ preset: "lossless" })).toMatchObject({
       convertPng: false,
+      convertWebp: false,
       maxImageDim: 0,
       lossless: true,
     });
+  });
+
+  it("makes WebP conversion opt-in for every preset and refuses it in lossless mode", () => {
+    expect(resolvePipelineOptions({ preset: "author" }).convertWebp).toBe(false);
+    expect(resolvePipelineOptions({ preset: "balanced", convertWebp: true }).convertWebp).toBe(
+      true
+    );
+    expect(() => resolvePipelineOptions({ preset: "lossless", convertWebp: true })).toThrow(
+      "--convert-webp cannot be combined with the lossless preset."
+    );
   });
 });

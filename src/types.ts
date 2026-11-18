@@ -46,6 +46,9 @@ export interface Args {
   maxImageDim: number;
   "convert-png": boolean;
   convertPng: boolean;
+  /** Opt-in conversion of PNG/JPEG images to WebP (EPUB 3 only). */
+  "convert-webp"?: boolean;
+  convertWebp?: boolean;
   "lazy-loading": boolean;
   lazyLoading: boolean;
   lossless: boolean;

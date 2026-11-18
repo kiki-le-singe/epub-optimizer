@@ -29,6 +29,7 @@ const booleans = new Set([
   "repair",
   "author-workflow",
   "convert-png",
+  "convert-webp",
   "lazy-loading",
   "strict",
   "profile",
