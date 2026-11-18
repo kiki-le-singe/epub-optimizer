@@ -24,6 +24,10 @@ async function createLargeOpaquePng(filePath: string): Promise<void> {
     .toFile(filePath);
 }
 
+// Noise fixtures exceed the size threshold but cannot convert to JPEG without
+// large SSIM loss; reference-rewrite tests disable the quality guard.
+const NO_GUARD = { minSsim: 0 };
+
 async function createSmallOpaquePng(filePath: string): Promise<void> {
   await sharp({
     create: {
@@ -243,7 +247,19 @@ describe("PNG to JPEG converter", () => {
     const epubDir = path.join(tempDir, "flattened-no-benefit");
     await createEpubTree(epubDir);
     const png = path.join(epubDir, "OPS/images/cat.png");
-    const original = await sharp(await createTransparentPng())
+    // Noise with a transparent corner: JPEG cannot beat a 32-colour palette here.
+    const width = 512,
+      height = 512;
+    const pixels = Buffer.alloc(width * height * 4);
+    let seed = 42;
+    for (let index = 0; index < width * height; index++) {
+      for (let channel = 0; channel < 3; channel++) {
+        seed = (1664525 * seed + 1013904223) >>> 0;
+        pixels[index * 4 + channel] = seed >>> 24;
+      }
+      pixels[index * 4 + 3] = index % width < 64 && index < width * 64 ? 0 : 255;
+    }
+    const original = await sharp(pixels, { raw: { width, height, channels: 4 } })
       .png({ palette: true, colours: 32 })
       .toBuffer();
     expect(original.length).toBeGreaterThan(200 * 1024);
@@ -273,7 +289,7 @@ describe("PNG to JPEG converter", () => {
 
     await createEpubTree(epubDir);
 
-    const converted = await convertPngToJpeg(epubDir, 70, 1);
+    const converted = await convertPngToJpeg(epubDir, 70, 1, undefined, undefined, NO_GUARD);
 
     expect(Array.from(converted)).toEqual([catJpg]);
     expect(await fs.pathExists(catPng)).toBe(false);
@@ -314,7 +330,7 @@ describe("PNG to JPEG converter", () => {
 
     await createEpubTree(epubDir, { includeCatReferences: false });
 
-    const converted = await convertPngToJpeg(epubDir, 70, 1);
+    const converted = await convertPngToJpeg(epubDir, 70, 1, undefined, undefined, NO_GUARD);
 
     expect(converted.size).toBe(0);
     expect(await fs.pathExists(catPng)).toBe(true);
@@ -370,7 +386,7 @@ describe("PNG to JPEG converter", () => {
       )
     );
 
-    const converted = await convertPngToJpeg(epubDir, 70, 1);
+    const converted = await convertPngToJpeg(epubDir, 70, 1, undefined, undefined, NO_GUARD);
 
     expect(Array.from(converted)).toContain(spacedJpg);
     expect(await fs.pathExists(spacedPng)).toBe(false);
@@ -397,7 +413,7 @@ describe("PNG to JPEG converter", () => {
 
     await createEpubTree(epubDir, { includeCatManifest: false });
 
-    const converted = await convertPngToJpeg(epubDir, 70, 1);
+    const converted = await convertPngToJpeg(epubDir, 70, 1, undefined, undefined, NO_GUARD);
 
     expect(converted.size).toBe(0);
     expect(await fs.pathExists(catPng)).toBe(true);
