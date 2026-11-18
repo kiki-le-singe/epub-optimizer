@@ -31,18 +31,26 @@ const epubcheckPath = path.resolve(
   process.env.EPUBCHECK_PATH ?? path.join("epubcheck", "epubcheck.jar")
 );
 
+// Photo-like content: smooth gradients and waves with light grain. The grain
+// keeps the PNG above the 200 KB conversion threshold while JPEG stays above
+// the default image quality guard, as real photographs do.
 async function createOpaquePng(): Promise<Buffer> {
   const width = 1024;
   const height = 1024;
   const pixels = Buffer.alloc(width * height * 3);
+  const clamp = (value: number) => Math.max(0, Math.min(255, Math.round(value)));
+  let seed = 42;
 
   for (let i = 0; i < pixels.length; i += 3) {
     const n = i / 3;
     const x = n % width;
     const y = Math.floor(n / width);
-    pixels[i] = (x * 17 + y * 3) % 256;
-    pixels[i + 1] = (x * 5 + y * 19) % 256;
-    pixels[i + 2] = (x * 11 + y * 7) % 256;
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    const grain = ((seed >>> 24) % 7) - 3;
+    const wave = Math.sin(Math.hypot(x - 300, y - 500) / 40) * 50;
+    pixels[i] = clamp(60 + (x / width) * 140 + wave + grain);
+    pixels[i + 1] = clamp(40 + (y / height) * 160 - wave / 2 + grain);
+    pixels[i + 2] = clamp(120 + Math.sin(x / 90) * 60 + grain);
   }
 
   return sharp(pixels, { raw: { width, height, channels: 3 } })

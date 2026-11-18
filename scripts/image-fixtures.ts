@@ -1,19 +1,26 @@
 import { deflateSync } from "node:zlib";
 import sharp from "sharp";
 
-/** Large static RGBA fixture, with transparent, half-red and noisy opaque regions. */
+/**
+ * Large static RGBA fixture, with transparent, half-red and photo-like opaque
+ * regions. Light grain keeps it above the 200 KB conversion threshold while
+ * JPEG conversion stays above the default image quality guard.
+ */
 export async function createTransparentPng(): Promise<Buffer> {
   const width = 512;
   const height = 512;
   const pixels = Buffer.alloc(width * height * 4);
+  const clamp = (value: number) => Math.max(0, Math.min(255, Math.round(value)));
   let seed = 42;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const offset = (y * width + x) * 4;
-      for (let channel = 0; channel < 3; channel++) {
-        seed = (1664525 * seed + 1013904223) >>> 0;
-        pixels[offset + channel] = seed >>> 24;
-      }
+      seed = (1664525 * seed + 1013904223) >>> 0;
+      const grain = ((seed >>> 24) % 7) - 3;
+      const wave = Math.sin(Math.hypot(x - 150, y - 250) / 20) * 50;
+      pixels[offset] = clamp(60 + (x / width) * 140 + wave + grain);
+      pixels[offset + 1] = clamp(40 + (y / height) * 160 - wave / 2 + grain);
+      pixels[offset + 2] = clamp(120 + Math.sin(x / 45) * 60 + grain);
       pixels[offset + 3] = 255;
       if (y < 64 && x < 128) {
         pixels[offset] = 255;

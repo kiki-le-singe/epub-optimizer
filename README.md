@@ -57,6 +57,7 @@ Memory was observed, not bounded by design. In local v3.8.0 runs of the `balance
   - [Modes and Presets](#modes-and-presets)
   - [Safe Temporary Directories and Validation Deadlines](#safe-temporary-directories-and-validation-deadlines)
   - [Image Concurrency](#image-concurrency)
+  - [Image Quality Guard](#image-quality-guard)
   - [Doctor / Inspect Mode](#doctor--inspect-mode)
     - [Accessibility Checks](#accessibility-checks)
   - [Structured Reports and Profiling](#structured-reports-and-profiling)
@@ -215,6 +216,7 @@ Version 3 makes the default command safer and less specific to this project's or
 - HTML/XHTML minification (removes comments and minifies embedded code while preserving text and significant whitespace)
 - CSS optimization (minifies and combines rules)
 - Image compression (JPEG, PNG, WebP, GIF, AVIF, and SVG according to the selected preset and quality settings)
+- **Image quality guard**: every lossy re-encode is compared with its source (SSIM). Encodes below `--min-image-ssim` are redone at higher quality or the original is kept, and scores appear in JSON/HTML reports. See [Image Quality Guard](#image-quality-guard).
 - JPEG recompression applies EXIF orientation to the pixels before encoding, preserving the displayed rotation and mirroring.
 - PNG to JPEG conversion for non-transparent images (significantly reduces file size)
 - JavaScript minification (reduces script size)
@@ -498,6 +500,7 @@ Options:
   -t, --temp        Temporary directory for processing      [string] [default: unique temp_epub-<id>]
   --jpg-quality     JPEG compression quality (0-100)        [number] [default: 70]
   --png-quality     PNG compression quality (0-1 scale)     [number] [default: 0.6]
+  --min-image-ssim  Minimum SSIM (0-1) for lossy image re-encodes; 0 disables [number] [default: 0.85]
   --lang            UI language for labels (e.g. fr, en)    [string] [default: "fr"]
   --fonts           Enable experimental font subsetting      [boolean] [default: false]
   --preset          Optimization preset: balanced, lossless, author
@@ -739,6 +742,35 @@ A local Node 24 measurement on the 60 MB example, for the image stage alone, gav
 These are single measurements on one Mac, not cross-platform guarantees. All four
 runs produced identical raster bytes (SHA-256 comparison). Java memory is excluded.
 
+### Image Quality Guard
+
+Size options such as `--jpg-quality` and `--png-quality` apply to every image, but
+some images tolerate them worse than others. After each lossy encode (recompression
+or PNG-to-JPEG conversion), the optimizer measures its structural similarity (SSIM)
+with the source:
+
+- The source is first resized to the encode's dimensions, so an intended
+  `--max-image-dim` downscale is not counted as loss. Flattening onto an explicit
+  `--png-background` is also part of the reference.
+- The score is the lowest per-channel SSIM (1 = identical). Transparent images are
+  compared on white and on black. Animated images compare their first frame.
+- An encode below `--min-image-ssim` (default `0.85`) is redone at a higher-fidelity
+  setting: lossless PNG, or quality 92 for JPEG and WebP (80 for AVIF). If that is
+  still below the threshold or no smaller, the original image is kept
+  byte-for-byte, and a PNG is not converted to JPEG.
+- `--min-image-ssim 0` disables measurement and restores the previous behavior.
+
+On the 60 MB example book, all 13 lossy encodes of the default `balanced` preset
+scored between 0.895 and 0.959. The guard therefore changed no image, and the
+output content was identical to a run with the guard disabled. Measuring added
+about 1 s to the 6.6 s run (single local run, macOS ARM64, Node 25). Lower
+thresholds tolerate more loss; raise the threshold to protect detailed artwork at
+the cost of larger images.
+
+SSIM is a structural measure, not a guarantee of how an image looks in every
+reader. Open the optimized book to check important artwork. Guard decisions are
+informational, not warnings, so `--strict` does not fail on them.
+
 ### Doctor / Inspect Mode
 
 Use `--doctor` or `--inspect` to analyze an EPUB without publishing a candidate output and without modifying the input archive:
@@ -820,6 +852,8 @@ The configuration is validated before structure updates. Unknown keys, unsafe pa
 - The report directory is created automatically. Local reports under `reports/` are ignored by Git.
 
 Processing diagnostics are emitted explicitly and collected within each asynchronous step; the optimizer does not replace global `console` methods or infer severity from message text. Step `messages` and strict warning/error handling retain their existing format. Custom API processing hooks should use the exported `reportWarning(...args)` and `reportError(...args)` helpers to participate in reports and strict checks. Ordinary `console` output remains display-only; thrown exceptions still fail the operation. Nested step diagnostics also reach the enclosing operation, while concurrent operations have separate collectors and completed steps stop collecting late callbacks. Batch concurrency is bounded by `--jobs` (one by default).
+
+Unless `--min-image-ssim 0` is set, optimization reports include `imageQuality`: the configured `minSsim` and, sorted by path, one entry per lossy image encode that was kept or rejected. Each entry has the root-relative `path`, its `operation` (`recompress` or `png-to-jpeg`), `convertedTo` for a kept conversion, the `ssim` score and the `outcome`: `accepted` (configured settings kept), `fallback` (higher-quality encode kept) or `kept-original`. HTML reports show the same table. Images that were skipped, or not reduced in size, have no entry.
 
 Once EPUBCheck runs, optimization reports include an optional `validation` object with its native `exitCode`, diagnostic `source` (`json`, `text`, or `unavailable`), version when available, `totals` (`fatals`, `errors`, `warnings`, `infos`), and detailed `messages`. Each message contains a `code`, uppercase `severity`, `message`, `locations` (path and available line/column/context), `additionalLocations`, and an optional suggestion. The same details appear in HTML reports and per-book batch reports, including failed runs. These fields are additive; existing step statuses and messages are retained, and doctor mode is unchanged.
 

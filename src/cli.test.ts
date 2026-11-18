@@ -47,6 +47,27 @@ describe("CLI options", () => {
     }
   );
 
+  it("defaults the image quality guard and rejects thresholds outside 0-1", async () => {
+    process.argv = ["node", "epub-optimizer"];
+    expect((await parseArguments()).minImageSsim).toBe(0.85);
+    process.argv = ["node", "epub-optimizer", "--min-image-ssim", "0"];
+    expect((await parseArguments()).minImageSsim).toBe(0);
+    const errors: string[] = [];
+    vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("Rejected threshold");
+    });
+    vi.spyOn(console, "error").mockImplementation((message: unknown) => {
+      errors.push(String(message));
+    });
+    for (const value of ["1.2", "-0.5", "high"]) {
+      process.argv = ["node", "epub-optimizer", `--min-image-ssim=${value}`];
+      await expect(parseArguments()).rejects.toThrow("Rejected threshold");
+    }
+    expect(
+      errors.filter((line) => line.includes("--min-image-ssim must be between 0 and 1."))
+    ).toHaveLength(3);
+  });
+
   it("preserves an explicit destination and resolves the validation deadline", async () => {
     process.argv = [
       "node",

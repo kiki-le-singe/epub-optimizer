@@ -15,11 +15,15 @@ import { assertDistinctInputOutput, assertSafeOutputTarget } from "../utils/outp
 import { detectEpubFeatures } from "../utils/epub-features.js";
 import { assertNoInternalDtdSubsets } from "../utils/xml-dtd.js";
 import { resolvePngBackground } from "../utils/pipeline-options.js";
+import { resolveMinImageSsim } from "../utils/image-quality.js";
+import type { ImageQualityRecord } from "../utils/image-quality-record.js";
 
 export interface ContentProcessingOptions {
   runStep?: <T>(name: string, operation: () => Promise<T> | T) => Promise<T>;
   skipStep?: (name: string, reason: string) => void;
   afterExtract?: (tempDir: string) => Promise<void> | void;
+  /** Receives the measured visual similarity of each lossy image re-encode. */
+  onImageQuality?: (record: ImageQualityRecord) => void;
 }
 
 /**
@@ -34,6 +38,7 @@ export async function processEpubContent(
 ): Promise<{ success: boolean; input: string; output: string }> {
   const resolvedArgs = args;
   const pngBackground = resolvePngBackground(resolvedArgs);
+  const minSsim = resolveMinImageSsim(resolvedArgs.minImageSsim);
   const runStep =
     options.runStep ?? (async <T>(_name: string, operation: () => Promise<T> | T) => operation());
   const skipStep = options.skipStep ?? (() => {});
@@ -116,7 +121,8 @@ export async function processEpubContent(
           resolvedArgs.jpgQuality,
           resolvedArgs.imageConcurrency,
           maxImageDim,
-          pngBackground
+          pngBackground,
+          { minSsim, onQuality: options.onImageQuality }
         )
       );
       reportInfo("🖼️  Converted PNG to JPEG");
@@ -137,6 +143,8 @@ export async function processEpubContent(
           maxDim: maxImageDim,
           skip: convertedJpegs,
           concurrency: resolvedArgs.imageConcurrency,
+          minSsim,
+          onQuality: options.onImageQuality,
         })
       );
       reportInfo("🖼️  Optimized image files");
