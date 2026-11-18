@@ -1,5 +1,5 @@
 import type { UiKey } from "../../src/ui/translations.js";
-import type { UiDiagnosis, UiMode } from "../../src/ui/worker.js";
+import type { UiDiagnosis, UiMode, UiSummary } from "../../src/ui/worker.js";
 
 export type { UiDiagnosis as Diagnosis, UiMode as Mode };
 
@@ -9,15 +9,10 @@ export interface Job {
   name: string;
   preset: Preset;
   mode?: UiMode;
+  webp?: boolean;
   state: "uploading" | "running" | "cancelling" | "success" | "failed" | "cancelled";
   stage: string;
-  summary?: {
-    inputBytes: number;
-    outputBytes: number;
-    reductionPercent: number;
-    errors: number;
-    warnings: number;
-  };
+  summary?: UiSummary;
   diagnosis?: UiDiagnosis;
   error?: string;
   errorCode?: UiKey;
@@ -45,11 +40,15 @@ export function upload(
   file: File,
   preset: Preset,
   progress: (value: number) => void,
-  mode: UiMode = "optimize"
+  mode: UiMode = "optimize",
+  webp = false
 ): Promise<Job> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/jobs?preset=" + preset + (mode === "inspect" ? "&mode=inspect" : ""));
+    xhr.open(
+      "POST",
+      "/api/jobs?preset=" + preset + (mode === "inspect" ? "&mode=inspect" : webp ? "&webp=1" : "")
+    );
     xhr.setRequestHeader("Content-Type", "application/epub+zip");
     xhr.setRequestHeader("X-Epub-Name", encodeURIComponent(file.name));
     xhr.setRequestHeader("X-Epub-Token", token);

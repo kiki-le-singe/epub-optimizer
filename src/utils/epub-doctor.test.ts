@@ -109,6 +109,46 @@ describe("EPUB doctor", () => {
       expect.arrayContaining(["large-raster-images", "duplicate-image-basenames"])
     );
   });
+  it("warns about WebP images, more strongly outside EPUB 3", async () => {
+    const root = await createExtractedFixture();
+    const opf = path.join(root, "OPS/content.opf");
+    const inspect = () =>
+      inspectExtractedEpub(root, { input: "fixture.epub", archiveBytes: 1024 * 1024 });
+    const webpRisk = async () => {
+      const report = await inspect();
+      if (!report.analysisComplete) throw new Error("Expected a complete diagnosis");
+      return report.risks.find((risk) => risk.code === "webp-images");
+    };
+    expect(await webpRisk()).toBeUndefined();
+
+    await fs.writeFile(
+      path.join(root, "OPS/images/a/page.webp"),
+      await sharp({ create: { width: 8, height: 8, channels: 3, background: "#336699" } })
+        .webp()
+        .toBuffer()
+    );
+    await fs.writeFile(
+      opf,
+      (await fs.readFile(opf, "utf8")).replace(
+        "</manifest>",
+        '<item id="webp" href="images/a/page.webp" media-type="image/webp"/></manifest>'
+      )
+    );
+    expect(await webpRisk()).toEqual({
+      level: "info",
+      code: "webp-images",
+      message:
+        "1 WebP image(s): older reading systems and some conversion services may not display them.",
+    });
+
+    await fs.writeFile(
+      opf,
+      (await fs.readFile(opf, "utf8")).replace('version="3.0"', 'version="2.0"')
+    );
+    expect(await webpRisk()).toMatchObject({ level: "warning", code: "webp-images" });
+    expect((await webpRisk())!.message).toContain("not EPUB 3");
+  });
+
   it("adds accessibility findings without mixing them into optimization risks", async () => {
     const lines: string[] = [];
     vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {

@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { readUiDiagnosis, readUiReport, runUiWorker } from "./worker.js";
+import { readUiDiagnosis, readUiReport, runUiWorker, summarizeImageQuality } from "./worker.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -113,11 +113,13 @@ const doctorReport = {
     archivePercent: 72.5,
     largeRasterImages: [{}, {}],
     opaquePngCandidates: [{}],
+    byMediaType: { "image/webp": { count: 3, bytes: 10 }, "image/png": { count: 1, bytes: 5 } },
     largest: [{ href: "<img src=x onerror=alert(1)>" }],
   },
   risks: [
     { level: "warning", code: "missing-references", message: "<b>untrusted</b>" },
     { level: "info", code: "image-heavy", message: "text" },
+    { level: "info", code: "webp-images", message: "3 WebP image(s)" },
     { level: "info", code: "<script>", message: "unknown code" },
     { level: "info", code: "duplicate-image-basenames", message: "not shown" },
   ],
@@ -141,11 +143,16 @@ it("reduces a doctor report to numbers and known codes, without book-derived tex
     reports: { json: true, html: false },
     diagnosis: {
       blocked: false,
-      codes: ["missing-references", "image-heavy", "a11y-images-without-text-alternative"],
+      codes: [
+        "missing-references",
+        "image-heavy",
+        "webp-images",
+        "a11y-images-without-text-alternative",
+      ],
       archiveBytes: 5000,
       documents: 3,
       missingReferences: 2,
-      images: { count: 4, archivePercent: 72.5, large: 2, pngCandidates: 1 },
+      images: { count: 4, archivePercent: 72.5, large: 2, pngCandidates: 1, webp: 3 },
       accessibility: {
         documents: 3,
         documentsWithoutLanguage: 2,
@@ -209,4 +216,66 @@ it("runs the read-only doctor in inspect mode", async () => {
     "--report-json",
     "report.json",
   ]);
+});
+it("summarizes image fidelity from valid guard records only", async () => {
+  expect(
+    summarizeImageQuality({
+      minSsim: 0.85,
+      images: [
+        { path: "<b>.png", operation: "to-webp", ssim: 0.93, outcome: "accepted" },
+        { path: "b.png", operation: "to-webp", ssim: 1, outcome: "fallback" },
+        { path: "c.jpg", operation: "recompress", ssim: 0.9, outcome: "accepted" },
+        { path: "d.jpg", operation: "recompress", ssim: 0.4, outcome: "kept-original" },
+        { path: "e.jpg", operation: "recompress", ssim: 7, outcome: "accepted" },
+        { path: "f.jpg", operation: "recompress", ssim: 0.9, outcome: "<script>" },
+        null,
+      ],
+    })
+  ).toEqual({ checked: 4, lowestSsim: 0.9, toWebp: 2, fallback: 1, keptOriginal: 1 });
+  expect(summarizeImageQuality({ images: [{ ssim: 0.5, outcome: "kept-original" }] })).toEqual({
+    checked: 1,
+    lowestSsim: null,
+    toWebp: 0,
+    fallback: 0,
+    keptOriginal: 1,
+  });
+  for (const absent of [undefined, {}, { images: "all" }, { images: [] }])
+    expect(summarizeImageQuality(absent)).toBeUndefined();
+
+  const { dir, report } = await fixture();
+  await fs.writeFile(
+    path.join(dir, "report.json"),
+    JSON.stringify({
+      ...report,
+      imageQuality: { images: [{ operation: "recompress", ssim: 0.95, outcome: "accepted" }] },
+    })
+  );
+  expect((await readUiReport(dir, 0)).summary?.images).toEqual({
+    checked: 1,
+    lowestSsim: 0.95,
+    toWebp: 0,
+    fallback: 0,
+    keptOriginal: 0,
+  });
+});
+it("passes WebP conversion to the optimizer only when asked, never to the doctor", async () => {
+  const args = async (options: { webp?: boolean; mode?: "inspect" }) => {
+    const { dir } = await fixture();
+    const script = path.join(dir, "fixture.cjs");
+    await fs.writeFile(
+      script,
+      "require('node:fs').writeFileSync('args.json',JSON.stringify(process.argv.slice(2)));"
+    );
+    await runUiWorker({
+      directory: dir,
+      preset: "balanced",
+      onStage: () => {},
+      pipelinePath: script,
+      ...options,
+    }).done;
+    return JSON.parse(await fs.readFile(path.join(dir, "args.json"), "utf8")) as string[];
+  };
+  expect(await args({ webp: true })).toContain("--convert-webp");
+  expect(await args({})).not.toContain("--convert-webp");
+  expect(await args({ webp: true, mode: "inspect" })).not.toContain("--convert-webp");
 });

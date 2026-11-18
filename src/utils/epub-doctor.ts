@@ -279,6 +279,19 @@ function buildRisks(report: Omit<EpubDoctorReport, "risks" | "accessibility">): 
       `${report.images.opaquePngCandidates.length} large opaque PNG image(s) may benefit from JPEG conversion.`
     );
   }
+  const webp = report.images.byMediaType["image/webp"]?.count ?? 0;
+  if (webp > 0) {
+    // WebP became a core media type with EPUB 3.3; EPUB 2 requires a fallback.
+    const epub3 = (report.opf.version ?? "").trim().startsWith("3");
+    addRisk(
+      risks,
+      epub3 ? "info" : "warning",
+      "webp-images",
+      epub3
+        ? `${webp} WebP image(s): older reading systems and some conversion services may not display them.`
+        : `${webp} WebP image(s) in a package that is not EPUB 3: WebP is not a core image type there and many reading systems will not display them.`
+    );
+  }
   if (report.images.duplicateBasenames.length > 0) {
     addRisk(
       risks,
