@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowRight, ArrowUpRight, BookOpen, ShieldCheck, Upload } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowRight,
+  ArrowUpRight,
+  BookOpen,
+  ScanSearch,
+  ShieldCheck,
+  Upload,
+} from "lucide-react";
 import { languages, uiMessages, type UiKey } from "../src/ui/translations.js";
 import { Alert, AlertDescription } from "./components/ui/alert.js";
 import { Badge } from "./components/ui/badge.js";
@@ -16,7 +24,15 @@ import {
   preferences,
   type Theme,
 } from "./lib/preferences.js";
-import { ApiError, request, upload, type Job, type Preset } from "./lib/api.js";
+import {
+  ApiError,
+  request,
+  upload,
+  type Diagnosis,
+  type Job,
+  type Mode,
+  type Preset,
+} from "./lib/api.js";
 import { cn } from "./lib/utils.js";
 
 const languageNames = {
@@ -158,7 +174,7 @@ export function App({ token, maxUpload }: { token: string; maxUpload: number }):
     setFile(candidate);
     setError(null);
   };
-  const start = async () => {
+  const start = async (mode: Mode = "optimize") => {
     if (!file || busy || submitting.current) return;
     submitting.current = true;
     epoch.current++;
@@ -167,7 +183,7 @@ export function App({ token, maxUpload }: { token: string; maxUpload: number }):
     setUploading(true);
     setUploadPercent(0);
     try {
-      setJob(await upload(token, file, preset, setUploadPercent));
+      setJob(await upload(token, file, preset, setUploadPercent, mode));
     } catch (value) {
       showError(value);
     } finally {
@@ -186,21 +202,32 @@ export function App({ token, maxUpload }: { token: string; maxUpload: number }):
       setCancelling(false);
     }
   };
+  const inspecting = job?.mode === "inspect";
   const resultTitle: UiKey = uploading
     ? "uploading"
     : job?.state === "success"
-      ? "readyTitle"
+      ? inspecting
+        ? "analysisTitle"
+        : "readyTitle"
       : job?.state === "failed"
-        ? "failedTitle"
+        ? inspecting
+          ? "analysisFailedTitle"
+          : "failedTitle"
         : job?.state === "cancelled"
           ? "cancelledTitle"
-          : "processing";
+          : inspecting
+            ? "analyzing"
+            : "processing";
   const stage: UiKey = uploading
     ? "uploadDescription"
     : job?.state === "running"
-      ? (stages[job.stage] ?? "processFallback")
+      ? inspecting
+        ? "analyzingDescription"
+        : (stages[job.stage] ?? "processFallback")
       : job?.state === "success"
-        ? "readyDescription"
+        ? inspecting
+          ? "analysisDescription"
+          : "readyDescription"
         : job?.state === "failed"
           ? "failedDescription"
           : job?.state === "cancelling"
@@ -429,6 +456,19 @@ export function App({ token, maxUpload }: { token: string; maxUpload: number }):
                 <p className="mt-2 text-center text-[10px] text-muted-foreground">
                   {t("strictNote")}
                 </p>
+                <Button
+                  id="inspect"
+                  type="button"
+                  variant="outline"
+                  className="mt-4 h-10 w-full justify-between"
+                  disabled={busy || !file}
+                  onClick={() => {
+                    void start("inspect");
+                  }}
+                >
+                  {t("inspect")}
+                  <ScanSearch aria-hidden="true" />
+                </Button>
               </section>
             </CardContent>
           </Card>
@@ -446,8 +486,8 @@ export function App({ token, maxUpload }: { token: string; maxUpload: number }):
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <p className="mb-1 text-[9px] tracking-widest break-all text-primary-text">
-                    {t(busy ? "processingKicker" : "resultKicker")} ·{" "}
-                    {uploading ? file?.name : job?.name}
+                    {t(busy ? "processingKicker" : inspecting ? "diagnosisKicker" : "resultKicker")}{" "}
+                    · {uploading ? file?.name : job?.name}
                   </p>
                   <h2 className="text-xl font-semibold tracking-tight">{t(resultTitle)}</h2>
                   <p className="mt-1 text-xs text-muted-foreground">{t(stage)}</p>
@@ -475,34 +515,23 @@ export function App({ token, maxUpload }: { token: string; maxUpload: number }):
               )}
               {job?.state === "success" && job.summary && (
                 <>
-                  <div id="metrics" className="my-6 grid grid-cols-3 gap-3">
-                    {(
+                  <Metrics
+                    id="metrics"
+                    t={t}
+                    highlightLast={job.summary.reductionPercent > 0}
+                    values={[
+                      ["before", size(job.summary.inputBytes)],
+                      ["after", size(job.summary.outputBytes)],
                       [
-                        ["before", size(job.summary.inputBytes)],
-                        ["after", size(job.summary.outputBytes)],
-                        [
-                          "change",
-                          (job.summary.reductionPercent >= 0 ? "−" : "+") +
-                            Math.abs(job.summary.reductionPercent).toLocaleString(language, {
-                              maximumFractionDigits: 1,
-                            }) +
-                            " %",
-                        ],
-                      ] as const
-                    ).map(([key, value], index) => (
-                      <div key={key} className={cn(index > 0 && "border-l pl-3 sm:pl-5")}>
-                        <small className="block text-[10px] text-muted-foreground">{t(key)}</small>
-                        <strong
-                          className={cn(
-                            "mt-1 block text-lg font-medium tracking-tight whitespace-nowrap sm:text-3xl",
-                            index === 2 && job.summary!.reductionPercent > 0 && "text-primary-text"
-                          )}
-                        >
-                          {value}
-                        </strong>
-                      </div>
-                    ))}
-                  </div>
+                        "change",
+                        (job.summary.reductionPercent >= 0 ? "−" : "+") +
+                          Math.abs(job.summary.reductionPercent).toLocaleString(language, {
+                            maximumFractionDigits: 1,
+                          }) +
+                          " %",
+                      ],
+                    ]}
+                  />
                   <p className="rounded-md bg-accent px-3 py-2 text-[11px] text-foreground">
                     <ShieldCheck
                       className="mr-2 inline size-3.5 text-primary-text"
@@ -511,6 +540,9 @@ export function App({ token, maxUpload }: { token: string; maxUpload: number }):
                     {t("validation")}
                   </p>
                 </>
+              )}
+              {inspecting && job?.state === "success" && job.diagnosis && (
+                <DiagnosisPanel diagnosis={job.diagnosis} t={t} size={size} language={language} />
               )}
               {(job?.errorCode || job?.error) && (
                 <Alert variant="destructive" className="mt-4">
@@ -523,7 +555,7 @@ export function App({ token, maxUpload }: { token: string; maxUpload: number }):
               )}
               {job && (
                 <div className="mt-5 flex flex-wrap items-center gap-5">
-                  {job.state === "success" && (
+                  {job.state === "success" && !inspecting && (
                     <Button asChild>
                       <a id="download" href={"/api/jobs/" + job.id + "/download"}>
                         {t("download")}
@@ -560,6 +592,147 @@ export function App({ token, maxUpload }: { token: string; maxUpload: number }):
         </footer>
       </main>
     </>
+  );
+}
+
+type Translate = (key: UiKey, values?: Record<string, string | number>) => string;
+
+function DiagnosisPanel({
+  diagnosis,
+  t,
+  size,
+  language,
+}: {
+  diagnosis: Diagnosis;
+  t: Translate;
+  size: (bytes: number) => string;
+  language: string;
+}): ReactNode {
+  const { images, accessibility: a11y } = diagnosis;
+  const has = (code: Diagnosis["codes"][number]) => diagnosis.codes.includes(code);
+  const share = images.archivePercent?.toLocaleString(language, { maximumFractionDigits: 1 });
+  const percent = share === undefined ? "—" : share + " %";
+  type Finding = { warning: boolean; text: string };
+  const finding = (warning: boolean, text: string): Finding => ({ warning, text });
+  const optimization: Finding[] = [
+    ...(has("missing-references")
+      ? [finding(true, t("findMissingReferences", { count: diagnosis.missingReferences }))]
+      : []),
+    ...(has("missing-epub3-nav") ? [finding(true, t("findMissingNav"))] : []),
+    ...(has("image-heavy") ? [finding(false, t("findImageHeavy", { percent: share ?? "" }))] : []),
+    ...(has("large-raster-images")
+      ? [finding(false, t("findLargeImages", { count: images.large }))]
+      : []),
+    ...(has("png-conversion-candidates")
+      ? [finding(false, t("findPngCandidates", { count: images.pngCandidates }))]
+      : []),
+  ];
+  const accessibility: Finding[] = [
+    ...(has("a11y-images-without-text-alternative")
+      ? [
+          finding(
+            true,
+            t("a11yImages", { count: a11y.imagesWithoutTextAlternative, total: a11y.images })
+          ),
+        ]
+      : []),
+    ...(has("a11y-missing-package-language") ? [finding(true, t("a11yPackageLanguage"))] : []),
+    ...(has("a11y-documents-without-language")
+      ? [
+          finding(
+            true,
+            t("a11yDocuments", { count: a11y.documentsWithoutLanguage, total: a11y.documents })
+          ),
+        ]
+      : []),
+    ...(has("a11y-missing-metadata")
+      ? [finding(true, t("a11yMetadata", { names: a11y.missingMetadata.join(", ") }))]
+      : []),
+    ...(has("a11y-page-breaks-without-page-list")
+      ? [finding(true, t("a11yPageList", { count: a11y.pageBreaks }))]
+      : []),
+    ...(has("a11y-empty-alt")
+      ? [finding(false, t("a11yEmptyAlt", { count: a11y.emptyAlt, total: a11y.images }))]
+      : []),
+  ];
+
+  if (diagnosis.blocked)
+    return (
+      <Alert id="diagnosis" variant="destructive" className="mt-6">
+        <AlertDescription>
+          {t(has("internal-dtd") ? "blockedDtd" : has("drm") ? "blockedDrm" : "blockedGeneric")}
+        </AlertDescription>
+      </Alert>
+    );
+  return (
+    <div id="diagnosis">
+      <Metrics
+        t={t}
+        values={[
+          ["archiveSize", size(diagnosis.archiveBytes)],
+          ["imagesShare", percent],
+          ["documentsCount", diagnosis.documents.toLocaleString(language)],
+        ]}
+      />
+      <div className="grid gap-6 sm:grid-cols-2">
+        {(
+          [
+            ["optimizationHeading", optimization],
+            ["accessibilityHeading", accessibility],
+          ] as const
+        ).map(([heading, findings]) => (
+          <section key={heading}>
+            <h3 className="mb-2 text-xs font-semibold tracking-tight">{t(heading)}</h3>
+            <ul className="space-y-2 text-xs leading-relaxed">
+              {findings.length === 0 && <li className="text-muted-foreground">{t("noFinding")}</li>}
+              {findings.map(({ warning, text }) => (
+                <li key={text} className="flex items-start gap-2">
+                  <i
+                    aria-hidden="true"
+                    className={cn(
+                      "mt-1.5 size-1.5 shrink-0 rounded-full",
+                      warning ? "bg-amber-500" : "bg-muted-foreground/50"
+                    )}
+                  />
+                  <span className={cn(!warning && "text-muted-foreground")}>{text}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+      </div>
+      <p className="mt-5 text-[11px] text-muted-foreground">{t("a11yNote")}</p>
+    </div>
+  );
+}
+
+function Metrics({
+  t,
+  values,
+  highlightLast = false,
+  id,
+}: {
+  t: Translate;
+  values: ReadonlyArray<readonly [UiKey, string]>;
+  highlightLast?: boolean;
+  id?: string;
+}): ReactNode {
+  return (
+    <div id={id} className="my-6 grid grid-cols-3 gap-3">
+      {values.map(([key, value], index) => (
+        <div key={key} className={cn(index > 0 && "border-l pl-3 sm:pl-5")}>
+          <small className="block text-[10px] text-muted-foreground">{t(key)}</small>
+          <strong
+            className={cn(
+              "mt-1 block text-lg font-medium tracking-tight whitespace-nowrap sm:text-3xl",
+              index === 2 && highlightLast && "text-primary-text"
+            )}
+          >
+            {value}
+          </strong>
+        </div>
+      ))}
+    </div>
   );
 }
 

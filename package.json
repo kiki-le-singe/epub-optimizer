@@ -49,7 +49,7 @@
     "release:check": "node --experimental-strip-types scripts/validate-release.ts",
     "release:prepare": "node --experimental-strip-types scripts/prepare-release.ts",
     "lint": "eslint src scripts ui --ext .ts,.tsx",
-    "lint:fix": "eslint src scripts --ext .ts --fix",
+    "lint:fix": "eslint src scripts ui --ext .ts,.tsx --fix",
     "format": "prettier --write \"**/*.{ts,tsx,css,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,css,json,md}\"",
     "benchmark:batch": "node --experimental-strip-types scripts/benchmark-batch.ts",

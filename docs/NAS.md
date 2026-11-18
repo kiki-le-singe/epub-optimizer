@@ -24,11 +24,11 @@ owns the data folders (`id -u` and `id -g`). Set this exact published image, rep
 any older `EPUB_OPTIMIZER_DOCKER_IMAGE` line rather than adding a duplicate:
 
 ```dotenv
-EPUB_OPTIMIZER_DOCKER_IMAGE=docker.io/boopykiki/epub-optimizer:3.16.1@sha256:a5188ae0d649e822fac5b72750fe29eecb8b6f2087917b4de25b7775b85247b7
+EPUB_OPTIMIZER_DOCKER_IMAGE=docker.io/boopykiki/epub-optimizer:3.17.0@sha256:677ca24ef1421f359bfa678973ce88d72b2cddf09f9dd3537b9a3669ebb23206
 ```
 
 The setup helper and Compose defaults deliberately retain older pinned images.
-The explicit setting above selects 3.16.1 from [Docker Hub](https://hub.docker.com/r/boopykiki/epub-optimizer) and its tested multi-platform digest.
+The explicit setting above selects 3.17.0 from [Docker Hub](https://hub.docker.com/r/boopykiki/epub-optimizer) and its tested multi-platform digest.
 GHCR is also available: replace `docker.io/boopykiki/epub-optimizer` with
 `ghcr.io/kiki-le-singe/epub-optimizer`, keeping the same version and digest.
 Do not change ownership broadly or run the watcher as root to work around NAS ACLs;
@@ -75,5 +75,5 @@ revision. Keep storage backups and review retained results before deleting anyth
 
 If startup reports an output lock, confirm that no other watcher/container is using
 that output directory before investigating it. Never delete a lock while another
-watcher is running. On Linux, 3.16.1 supports recovery of its own interrupted records;
+watcher is running. On Linux, 3.16.1 and later support recovery of their own interrupted records;
 filesystem and kernel support still matter. See the README for lock troubleshooting.

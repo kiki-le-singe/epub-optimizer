@@ -21,7 +21,7 @@ export async function run(opts: RunOpts = {}): Promise<void> {
   }
 
   reportInfo("Creating new EPUB...");
-  await compressEPUB(outputEpubPath, extractedDir);
+  await compressEPUB(outputEpubPath, extractedDir, opts.sourceEpub);
   reportInfo(`Created optimized EPUB: ${outputEpub}`);
 }
 

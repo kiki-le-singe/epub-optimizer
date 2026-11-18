@@ -135,6 +135,7 @@ describe("pipeline orchestration", () => {
     expect(createEPUBFile).toHaveBeenCalledWith({
       tempDir: "/tmp/ep",
       output: "/tmp/candidate.epub",
+      sourceEpub: "in.epub",
     });
     expect(validateEPUB).toHaveBeenCalledWith(
       expect.objectContaining({ output: "/tmp/candidate.epub", strict: false })

@@ -17,6 +17,7 @@ const strings = new Set([...paths, "preset", "lang", "png-background"]);
 const numbers = new Set([
   "jpg-quality",
   "png-quality",
+  "min-image-ssim",
   "max-image-dim",
   "image-concurrency",
   "validation-timeout",
