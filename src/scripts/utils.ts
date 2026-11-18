@@ -34,6 +34,8 @@ export interface RunOpts {
   lang?: string;
   /** Output EPUB path (for create-epub / validate-epub). */
   output?: string;
+  /** EPUB the temp directory was extracted from; unchanged files reuse its compressed bytes. */
+  sourceEpub?: string;
   /** Fail instead of continuing after warnings or recoverable processing errors. */
   strict?: boolean;
   /** Maximum EPUBCheck runtime in milliseconds. */

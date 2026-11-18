@@ -166,7 +166,7 @@ export async function runOptimization(
     // touched until EPUBCheck has accepted the candidate.
     reportInfo("\n=== Create Candidate EPUB ===");
     await runReportedStep(report, "Create candidate EPUB", args.strict, () =>
-      createEPUBFile({ tempDir: args.temp, output: candidateOutput })
+      createEPUBFile({ tempDir: args.temp, output: candidateOutput, sourceEpub: args.input })
     );
 
     reportInfo("\n=== Validate Candidate EPUB ===");
