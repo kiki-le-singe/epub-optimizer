@@ -15,17 +15,17 @@ export async function main(): Promise<void> {
   });
   if (values.help) {
     reportInfo(
-      "Usage: epub-optimizer-ui [--host 127.0.0.1|0.0.0.0] [--port 8787]\nInterface locale, un EPUB à la fois. Java et EPUBCheck sont nécessaires hors Docker."
+      "Usage: epub-optimizer-ui [--host 127.0.0.1|0.0.0.0] [--port 8787]\nLocal interface, one EPUB at a time. Java and EPUBCheck are required outside Docker."
     );
     return;
   }
   if (!/^\d+$/.test(values.port!) || Number(values.port) < 1024 || Number(values.port) > 65535)
-    throw new Error("Le port doit être compris entre 1024 et 65535.");
+    throw new Error("The port must be between 1024 and 65535.");
   if (values.host !== "127.0.0.1" && values.host !== "0.0.0.0")
-    throw new Error("Adresse non prise en charge.");
+    throw new Error("Unsupported host address.");
   const app = await startLocalUi({ host: values.host, port: Number(values.port) });
   reportInfo(
-    `EPUB Optimizer · Interface locale : ${app.url}\nUn livre à la fois. Les résultats sont temporaires. Ctrl+C pour arrêter.`
+    `EPUB Optimizer · Local interface: ${app.url}\nOne book at a time. Results are temporary. Press Ctrl+C to stop.`
   );
   const stop = () => {
     void app.close().catch((error: unknown) => {

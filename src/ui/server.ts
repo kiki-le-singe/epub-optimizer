@@ -17,7 +17,7 @@ class HttpError extends Error {
   readonly status: number;
   readonly code: UiKey;
   constructor(status: number, code: UiKey) {
-    super(uiMessages.fr[code]);
+    super(uiMessages.en[code]);
     this.code = code;
     this.status = status;
   }
@@ -47,6 +47,17 @@ function equal(value: string | string[] | undefined, token: string): boolean {
     Buffer.byteLength(value) === Buffer.byteLength(token) &&
     timingSafeEqual(Buffer.from(value), Buffer.from(token))
   );
+}
+
+// Names the download after the uploaded book, like batch output ("book-optimized.epub").
+// The quoted ASCII fallback serves old clients; filename* carries the exact UTF-8 name.
+export function attachment(filename: string): string {
+  const fallback = filename.replace(/[^\x20-\x7e]|["\\%;]/g, "_");
+  const encoded = encodeURIComponent(filename).replace(
+    /['()*]/g,
+    (char) => "%" + char.charCodeAt(0).toString(16).toUpperCase()
+  );
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }
 
 export async function startLocalUi(
@@ -121,7 +132,7 @@ export async function startLocalUi(
         directory: next,
         owner: await fs.lstat(next),
         state: "uploading",
-        stage: "Envoi du fichier",
+        stage: "Upload",
         downloads: 0,
       };
       if (current) await removeJob(current);
@@ -143,7 +154,7 @@ export async function startLocalUi(
       if (!size) throw new HttpError(400, "emptyFile");
       if (closing) throw new HttpError(503, "shutdown");
       job.state = "running";
-      job.stage = "Préparation";
+      job.stage = "Prepare";
       const runningJob = job;
       try {
         job.worker = (options.worker ?? runUiWorker)({
@@ -159,7 +170,7 @@ export async function startLocalUi(
               if (runningJob.state === "running") {
                 runningJob.result = result;
                 runningJob.state = result.success ? "success" : "failed";
-                runningJob.stage = result.success ? "Terminé" : "Échec";
+                runningJob.stage = result.success ? "Complete" : "Failed";
               }
             },
             () => {
@@ -170,6 +181,7 @@ export async function startLocalUi(
                   reports: { json: false, html: false },
                 };
                 runningJob.state = "failed";
+                runningJob.stage = "Failed";
               }
             }
           )
@@ -178,6 +190,7 @@ export async function startLocalUi(
           });
       } catch {
         job.state = "failed";
+        job.stage = "Failed";
         busy = false;
         job.result = {
           success: false,
@@ -272,7 +285,7 @@ export async function startLocalUi(
         await job.worker!.stop();
         await job.finished;
         job.state = "cancelled";
-        job.stage = "Annulé";
+        job.stage = "Cancelled";
       } finally {
         busy = false;
       }
@@ -288,6 +301,7 @@ export async function startLocalUi(
     )
       throw new HttpError(409, "notAvailable");
     const file = action === "download" ? "optimized.epub" : `report.${action}`;
+    const stem = job.name.replace(/\.epub$/i, "");
     job.downloads++;
     let input;
     try {
@@ -306,7 +320,9 @@ export async function startLocalUi(
             : action === "json"
               ? "application/json"
               : "text/html; charset=utf-8",
-        "Content-Disposition": `attachment; filename="${file}"`,
+        "Content-Disposition": attachment(
+          action === "download" ? `${stem}-optimized.epub` : `${stem}-report.${action}`
+        ),
         "Content-Length": stat.size,
       });
       await pipeline(input.createReadStream({ autoClose: false }), res);
@@ -323,7 +339,7 @@ export async function startLocalUi(
       }
       res.setHeader("Connection", "close");
       json(res, error instanceof HttpError ? error.status : 500, {
-        error: error instanceof HttpError ? error.message : uiMessages.fr.localError,
+        error: error instanceof HttpError ? error.message : uiMessages.en.localError,
         code: error instanceof HttpError ? error.code : "localError",
       });
       res.once("finish", () => {
