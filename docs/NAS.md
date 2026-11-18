@@ -27,8 +27,9 @@ any older `EPUB_OPTIMIZER_DOCKER_IMAGE` line rather than adding a duplicate:
 EPUB_OPTIMIZER_DOCKER_IMAGE=docker.io/boopykiki/epub-optimizer:3.19.0@sha256:8818070446c02c6f3951782e6266969213389369d46461857aba466911c77509
 ```
 
-The setup helper and Compose defaults deliberately retain older pinned images.
-The explicit setting above selects 3.19.0 from [Docker Hub](https://hub.docker.com/r/boopykiki/epub-optimizer) and its tested multi-platform digest.
+The setup helper and the Compose default pin release 3.19.0 from GHCR. An env file
+created by an older helper keeps the image it names, so check this line after an upgrade.
+The explicit setting above selects the same release from [Docker Hub](https://hub.docker.com/r/boopykiki/epub-optimizer) and its tested multi-platform digest.
 GHCR is also available: replace `docker.io/boopykiki/epub-optimizer` with
 `ghcr.io/kiki-le-singe/epub-optimizer`, keeping the same version and digest.
 Do not change ownership broadly or run the watcher as root to work around NAS ACLs;
