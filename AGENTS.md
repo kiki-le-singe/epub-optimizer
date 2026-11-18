@@ -3,8 +3,8 @@
 ## Project context
 
 This is a TypeScript ESM CLI that optimizes EPUB archives and validates the result
-with EPUBCheck. Start with `README.md` for public commands and options, and
-`docs/RELEASING.md` for CI and release operations.
+with EPUBCheck. Start with `README.md` for an overview, `docs/CLI.md` for public
+commands and options, and `docs/RELEASING.md` for CI and release operations.
 
 - `src/`: application code, processors, utilities and colocated unit tests.
 - `scripts/`: build tools, E2E fixtures and release automation.
