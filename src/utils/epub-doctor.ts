@@ -11,6 +11,7 @@ import { extractEPUB } from "../processors/archive-processor.js";
 import { collectEpubContentMetrics, type EpubContentMetrics } from "./epub-integrity.js";
 import { getContentPath, getOPFPath, getTOCFiles, parseOPF } from "./epub-utils.js";
 import { resolvePathInside } from "./path-safety.js";
+import { collectEpubAccessibility, type EpubAccessibilityReport } from "./epub-accessibility.js";
 
 export interface DoctorImage {
   href: string;
@@ -70,6 +71,8 @@ export interface EpubDoctorReport extends DoctorReportBase {
     opaquePngCandidates: DoctorImage[];
   };
   content: EpubContentMetrics;
+  /** Heuristic accessibility findings; not a conformance audit. */
+  accessibility: EpubAccessibilityReport;
   risks: DoctorRisk[];
 }
 
@@ -230,7 +233,7 @@ function summarizeImages(
   };
 }
 
-function buildRisks(report: Omit<EpubDoctorReport, "risks">): DoctorRisk[] {
+function buildRisks(report: Omit<EpubDoctorReport, "risks" | "accessibility">): DoctorRisk[] {
   const risks: DoctorRisk[] = [];
 
   if (report.references.missing > 0) {
@@ -365,6 +368,7 @@ export async function inspectExtractedEpub(
     },
     images,
     content,
+    accessibility: await collectEpubAccessibility(epubDir, opfPath, $opf),
   };
 
   return {
@@ -426,6 +430,28 @@ export function printDoctorReport(report: DoctorReport): void {
       reportInfo(`- [${risk.level}] ${risk.message}`);
     }
   }
+
+  const { language, images, metadata, pageNavigation, issues } = report.accessibility;
+  const list = (values: string[]) => (values.length > 0 ? values.join(", ") : "none");
+  reportInfo("Accessibility (heuristic checks, not a conformance audit):");
+  reportInfo(
+    `Language: package ${list(language.package)}; ${language.documentsWithoutLanguage.length} of ${language.documents} document(s) without lang`
+  );
+  reportInfo(
+    `Image text alternatives: ${images.total} <img>, ${images.withoutTextAlternative} missing, ${images.emptyAlt} empty (decorative)`
+  );
+  reportInfo(
+    `Metadata: accessMode ${list(metadata.accessMode)}; features ${list(metadata.accessibilityFeature)}; hazards ${list(metadata.accessibilityHazard)}; summary ${metadata.hasAccessibilitySummary ? "yes" : "no"}; conformsTo ${list(metadata.conformsTo)}`
+  );
+  reportInfo(
+    `Page navigation: ${pageNavigation.pageBreaks} page break(s), page list ${pageNavigation.hasPageList ? "yes" : "no"}`
+  );
+  for (const image of images.withoutTextAlternativeImages.slice(0, 10))
+    reportInfo(`- no text alternative: ${image.document} -> ${image.src || "(no src)"}`);
+  if (images.withoutTextAlternative > 10)
+    reportInfo(`- ... ${images.withoutTextAlternative - 10} more`);
+  if (issues.length === 0) reportInfo("- No accessibility issue found by these checks.");
+  for (const issue of issues) reportInfo(`- [${issue.level}] ${issue.message}`);
   reportInfo("");
 }
 
