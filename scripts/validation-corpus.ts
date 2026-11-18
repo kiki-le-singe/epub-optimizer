@@ -86,7 +86,20 @@ export async function runValidationCorpus(
     if (!item.success) await fs.writeFile(output, "previous validated output placeholder");
     const result = spawnSync(
       process.execPath,
-      [cli, "-i", item.input, "-o", output, "--clean", "--report-json", reportPath, ...item.flags],
+      [
+        cli,
+        "-i",
+        item.input,
+        "-o",
+        output,
+        // Failed runs keep their temp directory for inspection; keep it out of the repo.
+        "--temp",
+        path.join(root, item.name + "-temp"),
+        "--clean",
+        "--report-json",
+        reportPath,
+        ...item.flags,
+      ],
       { env, encoding: "utf8", timeout: 120000, maxBuffer: 16 * 1024 * 1024 }
     );
     if (result.error || (item.success ? result.status !== 0 : result.status !== 1))

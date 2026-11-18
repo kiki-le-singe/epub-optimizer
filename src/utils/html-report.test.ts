@@ -33,6 +33,37 @@ describe("HTML optimization reports", () => {
     expect(html).toContain("not run");
     expect(html).toContain("not completed");
   });
+  it("lists escaped image quality scores and their outcomes", () => {
+    const report = createPipelineReport({
+      input: "book.epub",
+      output: "out.epub",
+      preset: "balanced",
+      strict: false,
+    });
+    report.imageQuality = {
+      minSsim: 0.85,
+      images: [
+        {
+          path: "OPS/<b>.png",
+          operation: "png-to-jpeg",
+          convertedTo: "OPS/<b>.jpg",
+          ssim: 0.91234,
+          outcome: "accepted",
+        },
+        { path: "OPS/art.png", operation: "recompress", ssim: 0.8, outcome: "kept-original" },
+      ],
+    };
+    const html = renderHtmlReport(report);
+    expect(html).toContain("<h2>Image quality</h2>");
+    expect(html).toContain("SSIM 0.85");
+    expect(html).toContain("Lowest kept or rejected score: 0.800.");
+    expect(html).toContain("OPS/&lt;b&gt;.png<br>→ OPS/&lt;b&gt;.jpg");
+    expect(html).toContain("<td>0.912</td><td>kept configured encode</td>");
+    expect(html).toContain("<td>0.800</td><td>original kept</td>");
+    delete report.imageQuality;
+    expect(renderHtmlReport(report)).not.toContain("Image quality");
+  });
+
   it("distinguishes a validated published output from later cleanup failure", () => {
     const report = createPipelineReport({
       input: "book.epub",

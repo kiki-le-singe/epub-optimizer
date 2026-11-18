@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { readUiReport, runUiWorker } from "./worker.js";
+import { readUiDiagnosis, readUiReport, runUiWorker } from "./worker.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -98,4 +98,115 @@ it("supports explicit cancellation without accepting an existing output", async 
   });
   await worker.stop();
   expect(await worker.done).toMatchObject({ success: false, errorCode: "cancelled" });
+});
+
+const doctorReport = {
+  analysisComplete: true,
+  input: "input.epub",
+  archiveBytes: 5000,
+  optimization: { blocked: false, blockers: [] },
+  opf: { version: "<script>alert(1)</script>" },
+  content: { contentDocuments: 3 },
+  references: { missing: 2, missingTargets: ["OPS/<b>.xhtml -> x.png"] },
+  images: {
+    count: 4,
+    archivePercent: 72.5,
+    largeRasterImages: [{}, {}],
+    opaquePngCandidates: [{}],
+    largest: [{ href: "<img src=x onerror=alert(1)>" }],
+  },
+  risks: [
+    { level: "warning", code: "missing-references", message: "<b>untrusted</b>" },
+    { level: "info", code: "image-heavy", message: "text" },
+    { level: "info", code: "<script>", message: "unknown code" },
+    { level: "info", code: "duplicate-image-basenames", message: "not shown" },
+  ],
+  accessibility: {
+    language: { package: ["fr"], documents: 3, documentsWithoutLanguage: ["a", "b"] },
+    images: { total: 4, withoutTextAlternative: 1, emptyAlt: 2 },
+    metadata: { accessMode: ["textual"], accessibilityFeature: [], accessibilityHazard: [] },
+    pageNavigation: { pageBreaks: 7 },
+    issues: [
+      { level: "warning", code: "a11y-images-without-text-alternative", message: "<i>x</i>" },
+      { level: "info", code: "a11y-no-conformance-claim", message: "not shown" },
+    ],
+  },
+};
+it("reduces a doctor report to numbers and known codes, without book-derived text", async () => {
+  const { dir } = await fixture();
+  await fs.writeFile(path.join(dir, "report.json"), JSON.stringify(doctorReport));
+  const result = await readUiDiagnosis(dir, 0);
+  expect(result).toEqual({
+    success: true,
+    reports: { json: true, html: false },
+    diagnosis: {
+      blocked: false,
+      codes: ["missing-references", "image-heavy", "a11y-images-without-text-alternative"],
+      archiveBytes: 5000,
+      documents: 3,
+      missingReferences: 2,
+      images: { count: 4, archivePercent: 72.5, large: 2, pngCandidates: 1 },
+      accessibility: {
+        documents: 3,
+        documentsWithoutLanguage: 2,
+        images: 4,
+        imagesWithoutTextAlternative: 1,
+        emptyAlt: 2,
+        missingMetadata: ["accessibilityFeature", "accessibilityHazard"],
+        pageBreaks: 7,
+      },
+    },
+  });
+  expect(JSON.stringify(result)).not.toMatch(/[<>]/);
+});
+it("reports a blocked book and refuses failed, malformed or linked diagnoses", async () => {
+  const { dir } = await fixture();
+  const report = path.join(dir, "report.json");
+  const blocked = {
+    analysisComplete: false,
+    archiveBytes: 900,
+    optimization: { blocked: true },
+    risks: [{ level: "error", code: "drm", message: "blocked" }],
+  };
+  await fs.writeFile(report, JSON.stringify(blocked));
+  expect((await readUiDiagnosis(dir, 0)).diagnosis).toMatchObject({
+    blocked: true,
+    codes: ["drm"],
+    documents: 0,
+    images: { count: 0, archivePercent: null },
+  });
+  const failed = { success: false, errorCode: "analysisFailed" };
+  expect(await readUiDiagnosis(dir, 1)).toMatchObject(failed);
+  await fs.writeFile(report, JSON.stringify({ ...blocked, archiveBytes: -1 }));
+  expect(await readUiDiagnosis(dir, 0)).toMatchObject(failed);
+  await fs.writeFile(report, "invalid");
+  expect(await readUiDiagnosis(dir, 0)).toMatchObject(failed);
+  await fs.writeFile(path.join(dir, "real.json"), JSON.stringify(blocked));
+  await fs.unlink(report);
+  await fs.symlink(path.join(dir, "real.json"), report);
+  expect(await readUiDiagnosis(dir, 0)).toMatchObject(failed);
+});
+it("runs the read-only doctor in inspect mode", async () => {
+  const { dir } = await fixture();
+  await fs.unlink(path.join(dir, "optimized.epub"));
+  const script = path.join(dir, "fixture.cjs");
+  await fs.writeFile(
+    script,
+    `const fs=require('node:fs');fs.writeFileSync('args.json',JSON.stringify(process.argv.slice(2)));fs.writeFileSync('report.json',${JSON.stringify(JSON.stringify(doctorReport))});`
+  );
+  const worker = runUiWorker({
+    directory: dir,
+    preset: "balanced",
+    mode: "inspect",
+    onStage: () => {},
+    pipelinePath: script,
+  });
+  expect((await worker.done).diagnosis?.documents).toBe(3);
+  expect(JSON.parse(await fs.readFile(path.join(dir, "args.json"), "utf8"))).toEqual([
+    "--doctor",
+    "-i",
+    "input.epub",
+    "--report-json",
+    "report.json",
+  ]);
 });

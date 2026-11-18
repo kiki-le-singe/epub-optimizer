@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import http from "node:http";
-import { startLocalUi } from "./server.js";
+import { attachment, startLocalUi } from "./server.js";
 import type { UiResult, runUiWorker } from "./worker.js";
 
 const apps: Awaited<ReturnType<typeof startLocalUi>>[] = [];
@@ -70,7 +70,17 @@ async function setup(maxUploadBytes = 1024) {
       expect((await (await request("/api/job")).json()).state).toBe(success ? "success" : "failed")
     );
   };
-  return { app, request, upload, complete, worker, stop, headers, work: () => work };
+  return {
+    app,
+    request,
+    upload,
+    complete,
+    worker,
+    stop,
+    headers,
+    work: () => work,
+    finish: (value: UiResult) => finish(value),
+  };
 }
 it("serves a self-contained local page with a private session and restrictive browser headers", async () => {
   const { app } = await setup();
@@ -110,7 +120,9 @@ it("rejects rebinding hosts, missing sessions, cross-origin submissions and unkn
       })
     ).status
   ).toBe(403);
-  expect((await request("/api/jobs?preset=unknown", { method: "POST" })).status).toBe(400);
+  const unknown = await request("/api/jobs?preset=unknown", { method: "POST" });
+  expect(unknown.status).toBe(400);
+  expect(await unknown.json()).toEqual({ error: "Unknown preset.", code: "unknownPreset" });
   expect(worker).not.toHaveBeenCalled();
 });
 it("uses fixed owned paths, exposes progress, runs only one book, and streams validated results", async () => {
@@ -120,6 +132,8 @@ it("uses fixed owned paths, exposes progress, runs only one book, and streams va
   const job = await response.json();
   expect(job.name).toBe("<book>.epub");
   expect(work().preset).toBe("lossless");
+  expect(work().mode).toBe("optimize");
+  expect(job.mode).toBe("optimize");
   expect(await fs.readFile(path.join(work().directory, "input.epub"), "utf8")).toBe(
     "original bytes"
   );
@@ -131,14 +145,79 @@ it("uses fixed owned paths, exposes progress, runs only one book, and streams va
   await complete();
   const download = await request(`/api/jobs/${job.id}/download`);
   expect(download.status).toBe(200);
-  expect(download.headers.get("content-disposition")).toContain("attachment");
+  expect(download.headers.get("content-disposition")).toBe(
+    `attachment; filename="<book>-optimized.epub"; filename*=UTF-8''%3Cbook%3E-optimized.epub`
+  );
   expect(await download.text()).toBe("validated epub");
-  for (const report of ["html", "json"])
-    expect((await request(`/api/jobs/${job.id}/${report}`)).status).toBe(200);
+  expect((await (await request("/api/job")).json()).stage).toBe("Complete");
+  for (const report of ["html", "json"]) {
+    const response = await request(`/api/jobs/${job.id}/${report}`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-disposition")).toContain(
+      `filename="<book>-report.${report}"`
+    );
+    expect(await response.text()).toBe(report === "html" ? "<p>report</p>" : "{}");
+  }
   expect((await request("/api/jobs/../../etc/passwd/download")).status).toBe(404);
   const previous = work().directory;
-  expect((await upload()).status).toBe(202);
+  // A finished response can reach the client just before the server releases the download.
+  await vi.waitFor(async () => expect((await upload()).status).toBe(202));
   await expect(fs.stat(previous)).rejects.toMatchObject({ code: "ENOENT" });
+});
+it("runs a read-only analysis job that exposes a diagnosis but never an EPUB download", async () => {
+  const { request, work, worker, finish: finishWork } = await setup();
+  const post = (query: string) =>
+    request("/api/jobs?" + query, {
+      method: "POST",
+      headers: { "Content-Type": "application/epub+zip", "X-Epub-Name": "book.epub" },
+      body: "epub bytes",
+    });
+  for (const query of [
+    "preset=balanced&mode=repair",
+    "preset=balanced&mode=inspect&mode=optimize",
+  ]) {
+    const refused = await post(query);
+    expect(refused.status).toBe(400);
+    expect((await refused.json()).code).toBe("unknownMode");
+  }
+  expect(worker).not.toHaveBeenCalled();
+
+  const job = await (await post("preset=lossless&mode=inspect")).json();
+  expect(job).toMatchObject({ mode: "inspect", preset: "lossless", state: "running" });
+  expect(work().mode).toBe("inspect");
+  const diagnosis = {
+    blocked: false,
+    codes: ["image-heavy" as const],
+    archiveBytes: 10,
+    documents: 1,
+    missingReferences: 0,
+    images: { count: 1, archivePercent: 80, large: 0, pngCandidates: 0 },
+    accessibility: {
+      documents: 1,
+      documentsWithoutLanguage: 0,
+      images: 1,
+      imagesWithoutTextAlternative: 0,
+      emptyAlt: 0,
+      missingMetadata: [],
+      pageBreaks: 0,
+    },
+  };
+  // A leftover output must not become downloadable through an analysis job.
+  await fs.writeFile(path.join(work().directory, "optimized.epub"), "not validated");
+  await fs.writeFile(path.join(work().directory, "report.json"), '{"analysisComplete":true}');
+  finishWork({ success: true, diagnosis, reports: { json: true, html: false } });
+  await vi.waitFor(async () =>
+    expect(await (await request("/api/job")).json()).toMatchObject({
+      state: "success",
+      mode: "inspect",
+      diagnosis,
+    })
+  );
+  expect((await request(`/api/jobs/${job.id}/download`)).status).toBe(409);
+  expect((await request(`/api/jobs/${job.id}/html`)).status).toBe(409);
+  const report = await request(`/api/jobs/${job.id}/json`);
+  expect(report.headers.get("content-disposition")).toContain('filename="book-diagnosis.json"');
+  expect(await report.text()).toBe('{"analysisComplete":true}');
 });
 it("never downloads a failed output, but preserves available diagnostic reports", async () => {
   const { upload, request, complete } = await setup();
@@ -198,7 +277,10 @@ it("cancels workers, hides incomplete results, and cleans owned files on shutdow
   expect((await request(`/api/jobs/${job.id}/cancel`, { method: "POST" })).status).toBe(200);
   expect(stop).toHaveBeenCalledOnce();
   expect((await request(`/api/jobs/${job.id}/download`)).status).toBe(409);
-  expect((await (await request("/api/job")).json()).state).toBe("cancelled");
+  expect(await (await request("/api/job")).json()).toMatchObject({
+    state: "cancelled",
+    stage: "Cancelled",
+  });
   await app.close();
   await expect(fs.stat(app.directory)).rejects.toMatchObject({ code: "ENOENT" });
 });
@@ -213,4 +295,13 @@ it("refuses to remove an owned root that was replaced with a symlink", async () 
   await fs.symlink(foreign, app.directory);
   await expect(app.close()).rejects.toThrow("replaced");
   expect(await fs.readFile(path.join(foreign, "keep"), "utf8")).toBe("preserve");
+});
+
+it("names attachments after the book while keeping the header safe for any title", () => {
+  expect(attachment("Les Misérables.epub")).toBe(
+    `attachment; filename="Les Mis_rables.epub"; filename*=UTF-8''Les%20Mis%C3%A9rables.epub`
+  );
+  expect(attachment(`a "quoted"; 100% (draft)'s.epub`)).toBe(
+    `attachment; filename="a _quoted__ 100_ (draft)'s.epub"; filename*=UTF-8''a%20%22quoted%22%3B%20100%25%20%28draft%29%27s.epub`
+  );
 });

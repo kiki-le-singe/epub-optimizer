@@ -11,6 +11,7 @@ export type { BatchItem } from "./batch.js";
 export type { Args, Preset } from "./types.js";
 export type { ContentProcessingOptions } from "./processors/epub-processor.js";
 export type { PipelineReport, StepReport, StepStatus } from "./utils/run-report.js";
+export type { ImageQualityOutcome, ImageQualityRecord } from "./utils/image-quality-record.js";
 export type { EpubCheckReport } from "./utils/epubcheck-report.js";
 export { reportWarning, reportError } from "./utils/diagnostics.js";
 

@@ -8,6 +8,19 @@ import { getOPFPath, getContentPath } from "../utils/epub-utils.js";
 import { DEFAULT_FILE_CONCURRENCY } from "../utils/files.js";
 import { isAnimatedPng } from "../utils/png-animation.js";
 import { resolvePngBackground } from "../utils/pipeline-options.js";
+import {
+  DEFAULT_MIN_IMAGE_SSIM,
+  imageSsim,
+  type ImageQualityRecord,
+} from "../utils/image-quality.js";
+
+/** Quality guard settings for PNG-to-JPEG conversion. */
+export interface ConversionQuality {
+  /** Minimum SSIM for a converted JPEG; 0 disables the guard. Default 0.85. */
+  minSsim?: number;
+  /** Receives the measured quality of each conversion that was kept or rejected. */
+  onQuality?: (record: ImageQualityRecord) => void;
+}
 
 interface Conversion {
   pngFile: string;
@@ -16,6 +29,8 @@ interface Conversion {
   jpegRel: string;
   originalSize: number;
   newSize: number;
+  ssim?: number;
+  fallback?: boolean;
 }
 
 interface RewriteEdit {
@@ -44,7 +59,11 @@ async function maybeConvertOne(
   contentDir: string,
   quality: number,
   maxDim?: number,
-  background?: string
+  background?: string,
+  guard: { minSsim: number; reject: (pngFile: string, ssim: number) => void } = {
+    minSsim: 0,
+    reject: () => {},
+  }
 ): Promise<Conversion | null> {
   try {
     const originalSize = (await fs.stat(pngFile)).size;
@@ -88,13 +107,41 @@ async function maybeConvertOne(
         withoutEnlargement: true,
       });
     }
-    await pipeline.jpeg({ quality, mozjpeg: true }).toFile(jpegFile);
-    const newSize = (await fs.stat(jpegFile)).size;
+    await pipeline.clone().jpeg({ quality, mozjpeg: true }).toFile(jpegFile);
+    let newSize = (await fs.stat(jpegFile)).size;
 
     if (newSize >= originalSize) {
       reportInfo(`Keeping PNG ${path.basename(pngFile)}: JPEG conversion would increase size`);
       await fs.remove(jpegFile);
       return null;
+    }
+
+    let ssim: number | undefined;
+    let fallback = false;
+    if (guard.minSsim > 0) {
+      // Flattening onto the requested background is intended, so the reference includes it.
+      const reference = () => {
+        const image = sharp(pngFile);
+        return metadata.hasAlpha && background !== undefined
+          ? image.flatten({ background })
+          : image;
+      };
+      ssim = await imageSsim(reference, jpegFile);
+      if (ssim < guard.minSsim) {
+        const rejected = ssim;
+        await pipeline.clone().jpeg({ quality: 92, mozjpeg: true }).toFile(jpegFile);
+        newSize = (await fs.stat(jpegFile)).size;
+        ssim = newSize < originalSize ? await imageSsim(reference, jpegFile) : rejected;
+        if (newSize >= originalSize || ssim < guard.minSsim) {
+          reportInfo(
+            `Keeping PNG ${path.basename(pngFile)}: JPEG conversion fell below SSIM ${guard.minSsim} (${Math.max(rejected, ssim).toFixed(3)})`
+          );
+          guard.reject(pngFile, Math.max(rejected, ssim));
+          await fs.remove(jpegFile);
+          return null;
+        }
+        fallback = true;
+      }
     }
 
     reportInfo(
@@ -109,6 +156,7 @@ async function maybeConvertOne(
       jpegRel: toContentRel(contentDir, jpegFile),
       originalSize,
       newSize,
+      ...(ssim === undefined ? {} : { ssim, fallback }),
     };
   } catch (error) {
     reportWarning(
@@ -664,9 +712,21 @@ async function convertPngToJpeg(
   quality = 85,
   concurrency = DEFAULT_FILE_CONCURRENCY,
   maxDim?: number,
-  background?: string
+  background?: string,
+  qualityGuard: ConversionQuality = {}
 ): Promise<Set<string>> {
   const pngBackground = resolvePngBackground({ pngBackground: background });
+  const toRootRel = (file: string) => toPosixPath(path.relative(epubDir, file));
+  const guard = {
+    minSsim: qualityGuard.minSsim ?? DEFAULT_MIN_IMAGE_SSIM,
+    reject: (pngFile: string, ssim: number) =>
+      qualityGuard.onQuality?.({
+        path: toRootRel(pngFile),
+        operation: "png-to-jpeg",
+        ssim,
+        outcome: "kept-original",
+      }),
+  };
   try {
     reportInfo("Converting large PNG files to JPEG for better compression...");
 
@@ -688,7 +748,7 @@ async function convertPngToJpeg(
     const limit = pLimit(concurrency);
     const results = await Promise.all(
       pngFiles.map((png) =>
-        limit(() => maybeConvertOne(png, contentDir, quality, maxDim, pngBackground))
+        limit(() => maybeConvertOne(png, contentDir, quality, maxDim, pngBackground, guard))
       )
     );
     const conversions = results.filter((r): r is Conversion => r !== null);
@@ -740,6 +800,15 @@ async function convertPngToJpeg(
     const committedConversions = conversions.filter((conversion) =>
       committedPngs.has(conversion.pngRel)
     );
+    for (const conversion of committedConversions)
+      if (conversion.ssim !== undefined)
+        qualityGuard.onQuality?.({
+          path: toRootRel(conversion.pngFile),
+          operation: "png-to-jpeg",
+          convertedTo: toRootRel(conversion.jpegFile),
+          ssim: conversion.ssim,
+          outcome: conversion.fallback ? "fallback" : "accepted",
+        });
     if (committedConversions.length === 0) {
       reportInfo("No PNG files were committed to JPEG conversion");
       return new Set();

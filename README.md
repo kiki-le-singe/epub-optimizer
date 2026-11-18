@@ -57,7 +57,9 @@ Memory was observed, not bounded by design. In local v3.8.0 runs of the `balance
   - [Modes and Presets](#modes-and-presets)
   - [Safe Temporary Directories and Validation Deadlines](#safe-temporary-directories-and-validation-deadlines)
   - [Image Concurrency](#image-concurrency)
+  - [Image Quality Guard](#image-quality-guard)
   - [Doctor / Inspect Mode](#doctor--inspect-mode)
+    - [Accessibility Checks](#accessibility-checks)
   - [Structured Reports and Profiling](#structured-reports-and-profiling)
   - [Batch Optimization](#batch-optimization)
   - [Safety Model](#safety-model)
@@ -83,7 +85,8 @@ Memory was observed, not bounded by design. In local v3.8.0 runs of the `balance
 ## Local Graphical Interface
 
 The local browser interface supports one EPUB at a time, three presets, progress,
-cancellation, strict EPUBCheck validation, and EPUB/HTML/JSON downloads. It offers
+cancellation, strict EPUBCheck validation, and EPUB/HTML/JSON downloads. It can also
+analyze a book without changing it, with optimization hints and accessibility checks. It offers
 French, English, Italian, Spanish and German, with light, dark and system themes.
 Language and theme choices are remembered by your browser; they do not change the
 book's language.
@@ -158,14 +161,14 @@ This depends on whether preserving your book's design and typography is importan
 
 ```bash
 docker run --rm --network none --user "$(id -u):$(id -g)" -v "$PWD:/epub-files" \
-  boopykiki/epub-optimizer:3.16.1 \
+  boopykiki/epub-optimizer:3.17.0 \
   -i YourBook.epub -o YourBook-optimized.epub --strict --clean
 ```
 
 This command uses a macOS/Linux shell and runs with your host UID/GID so the output folder stays writable.
 The image ships Node.js, Java, and EPUBCheck pre-installed and supports amd64 and arm64 (Apple Silicon).
 It is published on [Docker Hub](https://hub.docker.com/r/boopykiki/epub-optimizer)
-and GHCR (`ghcr.io/kiki-le-singe/epub-optimizer:3.16.1`). Both registries serve the
+and GHCR (`ghcr.io/kiki-le-singe/epub-optimizer:3.17.0`). Both registries serve the
 same tested release digest. No npm, Java or EPUBCheck installation is needed on
 the host when using Docker. For a background drop folder, see [Docker / NAS setup](docs/NAS.md).
 
@@ -214,6 +217,7 @@ Version 3 makes the default command safer and less specific to this project's or
 - HTML/XHTML minification (removes comments and minifies embedded code while preserving text and significant whitespace)
 - CSS optimization (minifies and combines rules)
 - Image compression (JPEG, PNG, WebP, GIF, AVIF, and SVG according to the selected preset and quality settings)
+- **Image quality guard**: every lossy re-encode is compared with its source (SSIM). Encodes below `--min-image-ssim` are redone at higher quality or the original is kept, and scores appear in JSON/HTML reports. See [Image Quality Guard](#image-quality-guard).
 - JPEG recompression applies EXIF orientation to the pixels before encoding, preserving the displayed rotation and mirroring.
 - PNG to JPEG conversion for non-transparent images (significantly reduces file size)
 - JavaScript minification (reduces script size)
@@ -222,7 +226,10 @@ Version 3 makes the default command safer and less specific to this project's or
 - **Image downscaling** (optionally resizes large images to a max dimension for e-reader compatibility)
 - **Lazy loading for images** (adds `loading="lazy"` to all `<img>` tags in XHTML for EPUB3 readers)
 - **Cross-platform archive processing** (pure JavaScript implementation with no external ZIP binaries)
-- Archive recompression (EPUB-compliant ZIP packaging with proper compression settings)
+- Archive recompression (EPUB-compliant ZIP packaging): each file is deflated at level 9 or
+  stored when that is smaller, and an unchanged file keeps the source EPUB's compressed bytes
+  when they are smaller, after verifying that they decompress to the same content. Repackaging
+  therefore never makes untouched resources larger.
 - EPUB validation against the EPUB specification, with optional structured success and failure reports
 - Transactional output publication after successful EPUBCheck validation
 - **Optional XHTML repair mode** via `--repair`
@@ -230,6 +237,7 @@ Version 3 makes the default command safer and less specific to this project's or
 - **Balanced, lossless, and author presets**
 - Strict failure mode, per-step profiling, and JSON run reports
 - Non-destructive doctor/inspect mode for OPF, navigation, internal reference, image weight, and optimization-risk summaries
+- **Accessibility checks in doctor mode**: missing image text alternatives, document languages, EPUB Accessibility metadata and page navigation. See [Accessibility Checks](#accessibility-checks).
 - Archive extraction limits, zip-slip and symlink rejection, and safe OPF/manifest/navigation path resolution
 - **Graceful handling of special EPUBs**: detects `META-INF/encryption.xml` and refuses DRM-encrypted books instead of silently corrupting them, while still optimizing books whose only encrypted resources are fonts (the fonts are left byte-for-byte intact)
 - **Fixed-layout aware**: automatically disables image downscaling for pre-paginated (`rendition:layout`) EPUBs so page images stay aligned with the declared viewport
@@ -493,6 +501,7 @@ Options:
   -t, --temp        Temporary directory for processing      [string] [default: unique temp_epub-<id>]
   --jpg-quality     JPEG compression quality (0-100)        [number] [default: 70]
   --png-quality     PNG compression quality (0-1 scale)     [number] [default: 0.6]
+  --min-image-ssim  Minimum SSIM (0-1) for lossy image re-encodes; 0 disables [number] [default: 0.85]
   --lang            UI language for labels (e.g. fr, en)    [string] [default: "fr"]
   --fonts           Enable experimental font subsetting      [boolean] [default: false]
   --preset          Optimization preset: balanced, lossless, author
@@ -734,6 +743,35 @@ A local Node 24 measurement on the 60 MB example, for the image stage alone, gav
 These are single measurements on one Mac, not cross-platform guarantees. All four
 runs produced identical raster bytes (SHA-256 comparison). Java memory is excluded.
 
+### Image Quality Guard
+
+Size options such as `--jpg-quality` and `--png-quality` apply to every image, but
+some images tolerate them worse than others. After each lossy encode (recompression
+or PNG-to-JPEG conversion), the optimizer measures its structural similarity (SSIM)
+with the source:
+
+- The source is first resized to the encode's dimensions, so an intended
+  `--max-image-dim` downscale is not counted as loss. Flattening onto an explicit
+  `--png-background` is also part of the reference.
+- The score is the lowest per-channel SSIM (1 = identical). Transparent images are
+  compared on white and on black. Animated images compare their first frame.
+- An encode below `--min-image-ssim` (default `0.85`) is redone at a higher-fidelity
+  setting: lossless PNG, or quality 92 for JPEG and WebP (80 for AVIF). If that is
+  still below the threshold or no smaller, the original image is kept
+  byte-for-byte, and a PNG is not converted to JPEG.
+- `--min-image-ssim 0` disables measurement and restores the previous behavior.
+
+On the 60 MB example book, all 13 lossy encodes of the default `balanced` preset
+scored between 0.895 and 0.959. The guard therefore changed no image, and the
+output content was identical to a run with the guard disabled. Measuring added
+about 1 s to the 6.6 s run (single local run, macOS ARM64, Node 25). Lower
+thresholds tolerate more loss; raise the threshold to protect detailed artwork at
+the cost of larger images.
+
+SSIM is a structural measure, not a guarantee of how an image looks in every
+reader. Open the optimized book to check important artwork. Guard decisions are
+informational, not warnings, so `--strict` does not fail on them.
+
 ### Doctor / Inspect Mode
 
 Use `--doctor` or `--inspect` to analyze an EPUB without publishing a candidate output and without modifying the input archive:
@@ -747,11 +785,37 @@ Doctor mode extracts the EPUB to a system temporary directory, reads `container.
 
 For supported books, the report includes OPF path/version, manifest and spine counts, EPUB3/NCX navigation presence, internal reference counts and missing targets, image byte totals and largest images, duplicate image basenames, large raster images, opaque PNG conversion candidates, and other optimization-risk hints.
 
-Doctor checks internal DTD subsets and content DRM before interpreting package or content XML. When either blocks optimization, it prints the reason and writes `analysisComplete: false`, `optimization.blocked: true`, and structured blockers in `optimization.blockers` and `risks`. Detailed `opf`, `navigation`, `references`, `images`, and `content` fields are omitted rather than reporting misleading metrics. Font obfuscation alone remains inspectable. Exit code 0 means the diagnosis completed, including a diagnosis that finds a blocker; optimizing a blocked book still fails.
+Doctor checks internal DTD subsets and content DRM before interpreting package or content XML. When either blocks optimization, it prints the reason and writes `analysisComplete: false`, `optimization.blocked: true`, and structured blockers in `optimization.blockers` and `risks`. Detailed `opf`, `navigation`, `references`, `images`, `content`, and `accessibility` fields are omitted rather than reporting misleading metrics. Font obfuscation alone remains inspectable. Exit code 0 means the diagnosis completed, including a diagnosis that finds a blocker; optimizing a blocked book still fails.
 
 For a complete diagnosis, `analysisComplete` is true and `optimization.blocked` is false. These fields do not certify EPUB validity or replace EPUBCheck. Consumers of doctor JSON must check `analysisComplete` before reading detailed metrics.
 
 Image reporting distinguishes `images.totalBytes` (uncompressed manifest image file bytes) from `images.compressedBytes` (the compressed ZIP payload of unique image resources). `images.archivePercent` uses compressed image bytes divided by the EPUB archive size, including ZIP overhead. Multiple manifest references to the same resource count once in the compressed share. When inspecting only an extracted directory without ZIP metadata, `compressedBytes` and `archivePercent` are `null`; uncompressed bytes are never presented as a percentage of compressed archive size.
+
+#### Accessibility Checks
+
+A complete diagnosis also includes an `accessibility` object and a console section.
+EPUBCheck validates the EPUB format, not accessibility; these checks cover a few
+frequent, machine-detectable problems:
+
+| Field            | What is checked                                                                                                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `language`       | `dc:language` values of the package, and XHTML documents whose root element has no `lang` or `xml:lang`.                                                                                                           |
+| `images`         | `<img>` elements without a text alternative. An image passes with an `alt` attribute (even empty), an ARIA label, a `title`, or `role="presentation"`/`"none"`. Images with an empty `alt` are counted separately. |
+| `metadata`       | `schema:accessMode`, `accessModeSufficient`, `accessibilityFeature`, `accessibilityHazard`, `accessibilitySummary` and `dcterms:conformsTo`, in EPUB 3 or EPUB 2 (`name`/`content`) form.                          |
+| `pageNavigation` | Page break markers, a page list (EPUB 3 `nav` or NCX `pageList`) and a paginated source (`dc:source` or `pageBreakSource`).                                                                                        |
+| `issues`         | Findings as `{ level, code, message }`, with `a11y-` codes. Warnings are requirements of EPUB Accessibility 1.1 or WCAG; infos are recommendations or items to review.                                             |
+
+`images.withoutTextAlternativeImages` lists at most 1,000 images as
+`{ document, src }`; `images.withoutTextAlternative` is always the exact count.
+Accessibility findings stay in `accessibility.issues` and are not added to the
+optimization `risks`. They never change the exit code.
+
+These are heuristics, not a conformance audit. They do not judge whether an
+alternative text is meaningful, and they do not check contrast, heading order,
+reading order, tables, link text, inline SVG or media overlays. Use a dedicated
+checker such as [Ace by DAISY](https://daisy.github.io/ace/) and a manual review
+before claiming conformance. The optimizer itself does not add or change
+accessibility metadata or alternative text.
 
 #### Optional Author Workflow Configuration
 
@@ -789,6 +853,8 @@ The configuration is validated before structure updates. Unknown keys, unsafe pa
 - The report directory is created automatically. Local reports under `reports/` are ignored by Git.
 
 Processing diagnostics are emitted explicitly and collected within each asynchronous step; the optimizer does not replace global `console` methods or infer severity from message text. Step `messages` and strict warning/error handling retain their existing format. Custom API processing hooks should use the exported `reportWarning(...args)` and `reportError(...args)` helpers to participate in reports and strict checks. Ordinary `console` output remains display-only; thrown exceptions still fail the operation. Nested step diagnostics also reach the enclosing operation, while concurrent operations have separate collectors and completed steps stop collecting late callbacks. Batch concurrency is bounded by `--jobs` (one by default).
+
+Unless `--min-image-ssim 0` is set, optimization reports include `imageQuality`: the configured `minSsim` and, sorted by path, one entry per lossy image encode that was kept or rejected. Each entry has the root-relative `path`, its `operation` (`recompress` or `png-to-jpeg`), `convertedTo` for a kept conversion, the `ssim` score and the `outcome`: `accepted` (configured settings kept), `fallback` (higher-quality encode kept) or `kept-original`. HTML reports show the same table. Images that were skipped, or not reduced in size, have no entry.
 
 Once EPUBCheck runs, optimization reports include an optional `validation` object with its native `exitCode`, diagnostic `source` (`json`, `text`, or `unavailable`), version when available, `totals` (`fatals`, `errors`, `warnings`, `infos`), and detailed `messages`. Each message contains a `code`, uppercase `severity`, `message`, `locations` (path and available line/column/context), `additionalLocations`, and an optional suggestion. The same details appear in HTML reports and per-book batch reports, including failed runs. These fields are additive; existing step statuses and messages are retained, and doctor mode is unchanged.
 
@@ -875,7 +941,7 @@ The exported `runBatch(args)` API returns the structured summary without setting
 
 ### Background Docker watcher
 
-For a step-by-step installation using the published 3.16.1 image, see
+For a step-by-step installation using the published 3.17.0 image, see
 [Docker / NAS setup](docs/NAS.md). The instructions below also describe older pinned
 defaults; set the image explicitly when choosing a newer release.
 
@@ -1208,6 +1274,7 @@ epub-optimizer/
     ├── processors/         # Content-processing modules
     │   ├── epub-processor.ts       # Extraction and content processing without publication
     │   ├── archive-processor.ts    # EPUB extraction/compression (zip-slip safe)
+    │   ├── zip-writer.ts           # EPUB ZIP writer with verified source passthrough
     │   ├── html-processor.ts       # HTML/CSS processing
     │   ├── js-processor.ts         # JavaScript minification
     │   ├── svg-optimizer.ts        # SVG optimization

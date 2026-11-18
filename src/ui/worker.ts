@@ -15,9 +15,51 @@ export interface UiSummary {
   errors: number;
   warnings: number;
 }
+export type UiMode = "optimize" | "inspect";
+/** Finding codes the interface can explain; other doctor codes stay in the JSON report. */
+export const UI_FINDING_CODES = [
+  "internal-dtd",
+  "drm",
+  "missing-references",
+  "missing-epub3-nav",
+  "image-heavy",
+  "large-raster-images",
+  "png-conversion-candidates",
+  "a11y-missing-package-language",
+  "a11y-documents-without-language",
+  "a11y-images-without-text-alternative",
+  "a11y-empty-alt",
+  "a11y-missing-metadata",
+  "a11y-page-breaks-without-page-list",
+] as const;
+export type UiFindingCode = (typeof UI_FINDING_CODES)[number];
+/** Numbers and known codes only: no book-derived text reaches the page. */
+export interface UiDiagnosis {
+  blocked: boolean;
+  codes: UiFindingCode[];
+  archiveBytes: number;
+  documents: number;
+  missingReferences: number;
+  images: {
+    count: number;
+    archivePercent: number | null;
+    large: number;
+    pngCandidates: number;
+  };
+  accessibility: {
+    documents: number;
+    documentsWithoutLanguage: number;
+    images: number;
+    imagesWithoutTextAlternative: number;
+    emptyAlt: number;
+    missingMetadata: string[];
+    pageBreaks: number;
+  };
+}
 export interface UiResult {
   success: boolean;
   summary?: UiSummary;
+  diagnosis?: UiDiagnosis;
   error?: string;
   errorCode?: UiKey;
   reports: { json: boolean; html: boolean };
@@ -27,7 +69,7 @@ export interface UiWorker {
   stop: () => Promise<void>;
 }
 
-export async function readUiReport(directory: string, exitCode: number | null): Promise<UiResult> {
+async function availableReports(directory: string): Promise<{ json: boolean; html: boolean }> {
   const reports = { json: false, html: false };
   for (const [kind, file] of [
     ["json", "report.json"],
@@ -36,21 +78,87 @@ export async function readUiReport(directory: string, exitCode: number | null): 
     const stat = await fs.lstat(path.join(directory, file)).catch(() => undefined);
     reports[kind] = !!stat?.isFile() && stat.nlink === 1 && stat.size <= 16 * 1024 * 1024;
   }
+  return reports;
+}
+
+// The report is written by the worker inside the job directory: refuse links and oversized files.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function readJsonReport(directory: string): Promise<any> {
+  const handle = await fs.open(
+    path.join(directory, "report.json"),
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+  );
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size > 16 * 1024 * 1024)
+      throw new Error("Unsafe report");
+    return JSON.parse(await handle.readFile("utf8"));
+  } finally {
+    await handle.close();
+  }
+}
+
+/** Reduces a doctor report to the numbers and known codes shown by the interface. */
+export async function readUiDiagnosis(
+  directory: string,
+  exitCode: number | null
+): Promise<UiResult> {
+  const reports = { json: (await availableReports(directory)).json, html: false };
+  try {
+    if (exitCode !== 0 || !reports.json) throw new Error("Missing diagnosis");
+    const report = await readJsonReport(directory);
+    const count = (value: unknown): number =>
+      typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+    const length = (value: unknown): number => (Array.isArray(value) ? value.length : 0);
+    if (typeof report?.analysisComplete !== "boolean" || count(report.archiveBytes) <= 0)
+      throw new Error("Invalid diagnosis");
+    const known = new Set<string>(UI_FINDING_CODES);
+    const a11y = report.accessibility ?? {};
+    const percent = report.images?.archivePercent;
+    return {
+      success: true,
+      reports,
+      diagnosis: {
+        blocked: report.optimization?.blocked === true || !report.analysisComplete,
+        codes: [
+          ...(Array.isArray(report.risks) ? report.risks : []),
+          ...(Array.isArray(a11y.issues) ? a11y.issues : []),
+        ]
+          .map((finding: { code?: unknown }) => finding?.code)
+          .filter((code): code is UiFindingCode => typeof code === "string" && known.has(code)),
+        archiveBytes: count(report.archiveBytes),
+        documents: count(report.content?.contentDocuments),
+        missingReferences: count(report.references?.missing),
+        images: {
+          count: count(report.images?.count),
+          archivePercent:
+            typeof percent === "number" && percent >= 0 && percent <= 100 ? percent : null,
+          large: length(report.images?.largeRasterImages),
+          pngCandidates: length(report.images?.opaquePngCandidates),
+        },
+        accessibility: {
+          documents: count(a11y.language?.documents),
+          documentsWithoutLanguage: length(a11y.language?.documentsWithoutLanguage),
+          images: count(a11y.images?.total),
+          imagesWithoutTextAlternative: count(a11y.images?.withoutTextAlternative),
+          emptyAlt: count(a11y.images?.emptyAlt),
+          missingMetadata: (
+            ["accessMode", "accessibilityFeature", "accessibilityHazard"] as const
+          ).filter((name) => length(a11y.metadata?.[name]) === 0),
+          pageBreaks: count(a11y.pageNavigation?.pageBreaks),
+        },
+      },
+    };
+  } catch {
+    return { success: false, errorCode: "analysisFailed", reports };
+  }
+}
+
+export async function readUiReport(directory: string, exitCode: number | null): Promise<UiResult> {
+  const reports = await availableReports(directory);
   try {
     if (!reports.json) throw new Error("Missing report");
-    const handle = await fs.open(
-      path.join(directory, "report.json"),
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
-    );
-    let report;
-    try {
-      const stat = await handle.stat();
-      if (!stat.isFile() || stat.nlink !== 1 || stat.size > 16 * 1024 * 1024)
-        throw new Error("Unsafe report");
-      report = JSON.parse(await handle.readFile("utf8"));
-    } finally {
-      await handle.close();
-    }
+    const report = await readJsonReport(directory);
     const output = await fs.lstat(path.join(directory, "optimized.epub")).catch(() => undefined);
     const totals = report.validation?.totals;
     const sizes = report.sizes;
@@ -98,6 +206,8 @@ export async function readUiReport(directory: string, exitCode: number | null): 
 export function runUiWorker(options: {
   directory: string;
   preset: Preset;
+  /** "inspect" runs the read-only doctor instead of optimizing. */
+  mode?: UiMode;
   onStage: (name: string) => void;
   pipelinePath?: string;
   timeoutMs?: number;
@@ -120,25 +230,30 @@ export function runUiWorker(options: {
     TMP: options.directory,
     TEMP: options.directory,
   });
+  const pipeline =
+    options.pipelinePath ?? fileURLToPath(new URL("../pipeline.js", import.meta.url));
+  const inspect = options.mode === "inspect";
   const child = spawn(
     process.execPath,
-    [
-      options.pipelinePath ?? fileURLToPath(new URL("../pipeline.js", import.meta.url)),
-      "-i",
-      "input.epub",
-      "-o",
-      "optimized.epub",
-      "--preset",
-      options.preset,
-      "--strict",
-      "--clean",
-      "--image-concurrency",
-      "1",
-      "--report-json",
-      "report.json",
-      "--report-html",
-      "report.html",
-    ],
+    inspect
+      ? [pipeline, "--doctor", "-i", "input.epub", "--report-json", "report.json"]
+      : [
+          pipeline,
+          "-i",
+          "input.epub",
+          "-o",
+          "optimized.epub",
+          "--preset",
+          options.preset,
+          "--strict",
+          "--clean",
+          "--image-concurrency",
+          "1",
+          "--report-json",
+          "report.json",
+          "--report-html",
+          "report.html",
+        ],
     {
       cwd: options.directory,
       env,
@@ -206,7 +321,9 @@ export function runUiWorker(options: {
     clearTimeout(timer);
     if (stopping) await stopping;
     if (reason) return { success: false, errorCode: reason, reports: { json: false, html: false } };
-    return readUiReport(options.directory, code);
+    return inspect
+      ? readUiDiagnosis(options.directory, code)
+      : readUiReport(options.directory, code);
   });
   return { done, stop: () => stop("cancelled") };
 }

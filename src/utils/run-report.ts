@@ -5,6 +5,7 @@ import type { ResourceChange } from "./html-report.js";
 import type { EpubCheckReport } from "./epubcheck-report.js";
 import type { Preset } from "../types.js";
 import type { EpubContentMetrics, EpubIntegrityComparison } from "./epub-integrity.js";
+import type { ImageQualityRecord } from "./image-quality-record.js";
 
 export type StepStatus = "success" | "skipped" | "failed";
 
@@ -39,6 +40,8 @@ export interface PipelineReport {
     integrity?: EpubIntegrityComparison;
   };
   resources?: ResourceChange[];
+  /** SSIM of lossy image re-encodes, sorted by path; absent when the guard is disabled. */
+  imageQuality?: { minSsim: number; images: ImageQualityRecord[] };
   validation?: EpubCheckReport;
   steps: StepReport[];
 }

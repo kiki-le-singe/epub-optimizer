@@ -109,6 +109,42 @@ describe("EPUB doctor", () => {
       expect.arrayContaining(["large-raster-images", "duplicate-image-basenames"])
     );
   });
+  it("adds accessibility findings without mixing them into optimization risks", async () => {
+    const lines: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      lines.push(args.join(" "));
+    });
+    const root = await createExtractedFixture();
+    const archiveDir = await fs.mkdtemp(path.join(os.tmpdir(), "epub-doctor-a11y-"));
+    tempDirs.push(archiveDir);
+    const archive = path.join(archiveDir, "book.epub");
+    const reportJson = path.join(archiveDir, "report.json");
+    await compressEPUB(archive, root);
+
+    const report = await runDoctor({ input: archive, reportJson });
+
+    if (!report.analysisComplete) throw new Error("Expected a complete diagnosis");
+    expect(report.accessibility.images).toEqual({
+      total: 1,
+      withoutTextAlternative: 1,
+      emptyAlt: 0,
+      withoutTextAlternativeImages: [{ document: "OPS/chapter.xhtml", src: "images/a/photo.png" }],
+    });
+    expect(report.accessibility.language.documentsWithoutLanguage).toEqual([
+      "OPS/nav.xhtml",
+      "OPS/chapter.xhtml",
+    ]);
+    expect(report.risks.some((risk) => risk.code.startsWith("a11y-"))).toBe(false);
+    expect((await fs.readJson(reportJson)).accessibility).toEqual(report.accessibility);
+    const output = lines.join("\n");
+    expect(output).toContain("Accessibility (heuristic checks, not a conformance audit):");
+    expect(output).toContain("Image text alternatives: 1 <img>, 1 missing, 0 empty (decorative)");
+    expect(output).toContain("- no text alternative: OPS/chapter.xhtml -> images/a/photo.png");
+    expect(output).toContain(
+      "- [warning] 1 of 1 image(s) have no text alternative (alt attribute)."
+    );
+  });
+
   it.each(["OPS/chapter.xhtml", "OPS/content.opf", "OPS/resource.custom"])(
     "reports DTD blockers without interpreting XML metrics: %s",
     async (file) => {

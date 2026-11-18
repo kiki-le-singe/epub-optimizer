@@ -10,14 +10,14 @@ import type { Stats } from "node:fs";
 import type { Preset } from "../types.js";
 import { uiHtml } from "./page.js";
 import { uiMessages, type UiKey } from "./translations.js";
-import { runUiWorker, type UiResult, type UiWorker } from "./worker.js";
+import { runUiWorker, type UiMode, type UiResult, type UiWorker } from "./worker.js";
 
 const MAX_UPLOAD = 256 * 1024 * 1024;
 class HttpError extends Error {
   readonly status: number;
   readonly code: UiKey;
   constructor(status: number, code: UiKey) {
-    super(uiMessages.fr[code]);
+    super(uiMessages.en[code]);
     this.code = code;
     this.status = status;
   }
@@ -26,6 +26,7 @@ interface Job {
   id: string;
   name: string;
   preset: Preset;
+  mode: UiMode;
   directory: string;
   owner: Stats;
   state: "uploading" | "running" | "cancelling" | "cancelled" | "success" | "failed";
@@ -47,6 +48,17 @@ function equal(value: string | string[] | undefined, token: string): boolean {
     Buffer.byteLength(value) === Buffer.byteLength(token) &&
     timingSafeEqual(Buffer.from(value), Buffer.from(token))
   );
+}
+
+// Names the download after the uploaded book, like batch output ("book-optimized.epub").
+// The quoted ASCII fallback serves old clients; filename* carries the exact UTF-8 name.
+export function attachment(filename: string): string {
+  const fallback = filename.replace(/[^\x20-\x7e]|["\\%;]/g, "_");
+  const encoded = encodeURIComponent(filename).replace(
+    /['()*]/g,
+    (char) => "%" + char.charCodeAt(0).toString(16).toUpperCase()
+  );
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }
 
 export async function startLocalUi(
@@ -82,9 +94,11 @@ export async function startLocalUi(
           id: job.id,
           name: job.name,
           preset: job.preset,
+          mode: job.mode,
           state: job.state,
           stage: job.stage,
           summary: job.result?.summary,
+          diagnosis: job.result?.diagnosis,
           error: job.result?.error,
           errorCode: job.result?.errorCode,
           reports: job.result?.reports,
@@ -94,7 +108,12 @@ export async function startLocalUi(
     res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify(body));
   };
-  const upload = async (req: IncomingMessage, res: ServerResponse, preset: Preset) => {
+  const upload = async (
+    req: IncomingMessage,
+    res: ServerResponse,
+    preset: Preset,
+    mode: UiMode
+  ) => {
     if (busy || current?.downloads) throw new HttpError(409, "busy");
     if (req.headers["content-type"] !== "application/epub+zip")
       throw new HttpError(415, "uploadType");
@@ -118,10 +137,11 @@ export async function startLocalUi(
         id: randomUUID(),
         name,
         preset,
+        mode,
         directory: next,
         owner: await fs.lstat(next),
         state: "uploading",
-        stage: "Envoi du fichier",
+        stage: "Upload",
         downloads: 0,
       };
       if (current) await removeJob(current);
@@ -143,12 +163,13 @@ export async function startLocalUi(
       if (!size) throw new HttpError(400, "emptyFile");
       if (closing) throw new HttpError(503, "shutdown");
       job.state = "running";
-      job.stage = "Préparation";
+      job.stage = "Prepare";
       const runningJob = job;
       try {
         job.worker = (options.worker ?? runUiWorker)({
           directory: next,
           preset,
+          mode,
           onStage: (stage) => {
             if (runningJob.state === "running") runningJob.stage = stage;
           },
@@ -159,7 +180,7 @@ export async function startLocalUi(
               if (runningJob.state === "running") {
                 runningJob.result = result;
                 runningJob.state = result.success ? "success" : "failed";
-                runningJob.stage = result.success ? "Terminé" : "Échec";
+                runningJob.stage = result.success ? "Complete" : "Failed";
               }
             },
             () => {
@@ -170,6 +191,7 @@ export async function startLocalUi(
                   reports: { json: false, html: false },
                 };
                 runningJob.state = "failed";
+                runningJob.stage = "Failed";
               }
             }
           )
@@ -178,6 +200,7 @@ export async function startLocalUi(
           });
       } catch {
         job.state = "failed";
+        job.stage = "Failed";
         busy = false;
         job.result = {
           success: false,
@@ -258,7 +281,10 @@ export async function startLocalUi(
         url.searchParams.getAll("preset").length !== 1
       )
         throw new HttpError(400, "unknownPreset");
-      await upload(req, res, preset as Preset);
+      const mode = url.searchParams.get("mode") ?? "optimize";
+      if (!["optimize", "inspect"].includes(mode) || url.searchParams.getAll("mode").length > 1)
+        throw new HttpError(400, "unknownMode");
+      await upload(req, res, preset as Preset, mode as UiMode);
       return;
     }
     const match = /^\/api\/jobs\/([a-f0-9-]{36})\/(download|json|html|cancel)$/.exec(url.pathname);
@@ -272,7 +298,7 @@ export async function startLocalUi(
         await job.worker!.stop();
         await job.finished;
         job.state = "cancelled";
-        job.stage = "Annulé";
+        job.stage = "Cancelled";
       } finally {
         busy = false;
       }
@@ -283,11 +309,12 @@ export async function startLocalUi(
     if (
       busy ||
       (action === "download"
-        ? job.state !== "success"
+        ? job.state !== "success" || job.mode !== "optimize"
         : !job.result?.reports[action as "json" | "html"])
     )
       throw new HttpError(409, "notAvailable");
     const file = action === "download" ? "optimized.epub" : `report.${action}`;
+    const stem = job.name.replace(/\.epub$/i, "");
     job.downloads++;
     let input;
     try {
@@ -306,7 +333,11 @@ export async function startLocalUi(
             : action === "json"
               ? "application/json"
               : "text/html; charset=utf-8",
-        "Content-Disposition": `attachment; filename="${file}"`,
+        "Content-Disposition": attachment(
+          action === "download"
+            ? `${stem}-optimized.epub`
+            : `${stem}-${job.mode === "inspect" ? "diagnosis" : "report"}.${action}`
+        ),
         "Content-Length": stat.size,
       });
       await pipeline(input.createReadStream({ autoClose: false }), res);
@@ -323,7 +354,7 @@ export async function startLocalUi(
       }
       res.setHeader("Connection", "close");
       json(res, error instanceof HttpError ? error.status : 500, {
-        error: error instanceof HttpError ? error.message : uiMessages.fr.localError,
+        error: error instanceof HttpError ? error.message : uiMessages.en.localError,
         code: error instanceof HttpError ? error.code : "localError",
       });
       res.once("finish", () => {
