@@ -222,7 +222,10 @@ Version 3 makes the default command safer and less specific to this project's or
 - **Image downscaling** (optionally resizes large images to a max dimension for e-reader compatibility)
 - **Lazy loading for images** (adds `loading="lazy"` to all `<img>` tags in XHTML for EPUB3 readers)
 - **Cross-platform archive processing** (pure JavaScript implementation with no external ZIP binaries)
-- Archive recompression (EPUB-compliant ZIP packaging with proper compression settings)
+- Archive recompression (EPUB-compliant ZIP packaging): each file is deflated at level 9 or
+  stored when that is smaller, and an unchanged file keeps the source EPUB's compressed bytes
+  when they are smaller, after verifying that they decompress to the same content. Repackaging
+  therefore never makes untouched resources larger.
 - EPUB validation against the EPUB specification, with optional structured success and failure reports
 - Transactional output publication after successful EPUBCheck validation
 - **Optional XHTML repair mode** via `--repair`
@@ -1208,6 +1211,7 @@ epub-optimizer/
     ├── processors/         # Content-processing modules
     │   ├── epub-processor.ts       # Extraction and content processing without publication
     │   ├── archive-processor.ts    # EPUB extraction/compression (zip-slip safe)
+    │   ├── zip-writer.ts           # EPUB ZIP writer with verified source passthrough
     │   ├── html-processor.ts       # HTML/CSS processing
     │   ├── js-processor.ts         # JavaScript minification
     │   ├── svg-optimizer.ts        # SVG optimization
