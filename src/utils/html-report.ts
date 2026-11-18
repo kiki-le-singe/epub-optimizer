@@ -94,6 +94,25 @@ function renderValidationDiagnostics(validation: PipelineReport["validation"]): 
   return `<h2>EPUBCheck diagnostics</h2><p>Version: ${e(validation.checkerVersion ?? "unavailable")} · Diagnostic source: ${e(validation.source)} · Exit code: ${e(validation.exitCode ?? "unavailable")}</p><p>${summary}</p>${validation.diagnosticsError ? `<p class="failed">${e(validation.diagnosticsError)}</p>` : ""}${rows ? `<div class="table"><table class="validation-diagnostics"><thead><tr><th>Severity / code</th><th>Message / suggestion</th><th>Locations / context</th></tr></thead><tbody>${rows}</tbody></table></div>` : "<p>No detailed messages returned.</p>"}<p>EPUBCheck groups repeated diagnostics and limits reported locations. Totals may exceed the detailed entries shown.</p>`;
 }
 
+const IMAGE_OUTCOMES = {
+  accepted: "kept configured encode",
+  fallback: "re-encoded at higher quality",
+  "kept-original": "original kept",
+} as const;
+
+function renderImageQuality(quality: PipelineReport["imageQuality"]): string {
+  if (!quality) return "";
+  const e = escapeHtml;
+  const lowest = quality.images.reduce((min, image) => Math.min(min, image.ssim), 1);
+  const rows = quality.images
+    .map(
+      (image) =>
+        `<tr><td>${e(image.path)}${image.convertedTo ? `<br>→ ${e(image.convertedTo)}` : ""}</td><td>${e(image.operation === "png-to-jpeg" ? "PNG → JPEG" : "recompression")}</td><td>${image.ssim.toFixed(3)}</td><td>${e(IMAGE_OUTCOMES[image.outcome])}</td></tr>`
+    )
+    .join("");
+  return `<h2>Image quality</h2><p>Lossy image encodes must reach SSIM ${quality.minSsim} against the source (1 = identical; intended resizing is not counted). ${quality.images.length ? `Lowest kept or rejected score: ${lowest.toFixed(3)}.` : "No lossy image encode was kept or rejected."} SSIM is a structural measure, not a guarantee of how an image looks in every reader.</p>${rows ? `<div class="table"><table><thead><tr><th>Image</th><th>Operation</th><th>SSIM</th><th>Result</th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}`;
+}
+
 export function renderHtmlReport(report: PipelineReport): string {
   const e = escapeHtml;
   const validation = report.steps.find((step) => step.name === "Validate candidate EPUB");
@@ -117,9 +136,10 @@ export function renderHtmlReport(report: PipelineReport): string {
     : "";
   const integrity = report.content?.integrity;
   const diagnostics = renderValidationDiagnostics(report.validation);
+  const imageQuality = renderImageQuality(report.imageQuality);
   return htmlDocument(
     "EPUB optimization report",
-    `<header><p>EPUB Optimizer · ${e(report.preset)}</p><h1>Optimization report</h1><p>${e(path.basename(report.input))}</p></header><div class="cards"><div class="card">Run result<strong class="${report.success ? "success" : "failed"}">${report.success ? "Completed" : "Failed"}</strong></div><div class="card">Archive size<strong>${bytes(report.sizes?.inputBytes)} → ${bytes(report.sizes?.outputBytes)}</strong></div><div class="card">Size reduction<strong>${report.sizes ? `${report.sizes.reductionPercent.toFixed(1)}%` : "Unavailable"}</strong></div></div><h2>Validation and output</h2><p>EPUBCheck: <strong>${e(validation?.status ?? "not run")}</strong> · Output publication: <strong>${published ? "completed" : "not completed"}</strong> · Content integrity: <strong>${integrity ? (integrity.valid ? "passed" : "failed") : "not checked"}</strong></p>${diagnostics}${report.error ? `<p class="failed">${e(report.error)}</p>` : ""}<p>Input: <code>${e(report.input)}</code><br>Output: <code>${e(report.output)}</code></p><p>Started: ${e(report.startedAt)} · Duration: ${((report.durationMs ?? 0) / 1000).toFixed(2)} s · Strict mode: ${report.strict ? "yes" : "no"}</p><h2>Transformations and diagnostics</h2><div class="table"><table><thead><tr><th>Step</th><th>Result</th><th>Time</th><th>Messages / skipped reasons</th></tr></thead><tbody>${rows}</tbody></table></div><h2>Resources before and after</h2><p>${e(counts)}</p><p>Byte changes describe extracted resources. PNG-to-JPEG conversion may appear as a removed resource and an added resource. Unchanged bytes do not certify rendering quality.</p>${resourceTable}<footer><p>Generated locally. This report contains paths and diagnostics from this run.</p></footer>`
+    `<header><p>EPUB Optimizer · ${e(report.preset)}</p><h1>Optimization report</h1><p>${e(path.basename(report.input))}</p></header><div class="cards"><div class="card">Run result<strong class="${report.success ? "success" : "failed"}">${report.success ? "Completed" : "Failed"}</strong></div><div class="card">Archive size<strong>${bytes(report.sizes?.inputBytes)} → ${bytes(report.sizes?.outputBytes)}</strong></div><div class="card">Size reduction<strong>${report.sizes ? `${report.sizes.reductionPercent.toFixed(1)}%` : "Unavailable"}</strong></div></div><h2>Validation and output</h2><p>EPUBCheck: <strong>${e(validation?.status ?? "not run")}</strong> · Output publication: <strong>${published ? "completed" : "not completed"}</strong> · Content integrity: <strong>${integrity ? (integrity.valid ? "passed" : "failed") : "not checked"}</strong></p>${diagnostics}${report.error ? `<p class="failed">${e(report.error)}</p>` : ""}<p>Input: <code>${e(report.input)}</code><br>Output: <code>${e(report.output)}</code></p><p>Started: ${e(report.startedAt)} · Duration: ${((report.durationMs ?? 0) / 1000).toFixed(2)} s · Strict mode: ${report.strict ? "yes" : "no"}</p><h2>Transformations and diagnostics</h2><div class="table"><table><thead><tr><th>Step</th><th>Result</th><th>Time</th><th>Messages / skipped reasons</th></tr></thead><tbody>${rows}</tbody></table></div><h2>Resources before and after</h2><p>${e(counts)}</p><p>Byte changes describe extracted resources. PNG-to-JPEG conversion may appear as a removed resource and an added resource. Unchanged bytes do not certify rendering quality.</p>${resourceTable}${imageQuality}<footer><p>Generated locally. This report contains paths and diagnostics from this run.</p></footer>`
   );
 }
 

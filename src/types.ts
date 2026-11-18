@@ -19,6 +19,9 @@ export interface Args {
   jpgQuality: number;
   "png-quality": number;
   pngQuality: number;
+  /** Minimum SSIM for lossy image re-encodes; 0 disables. Defaults to 0.85 when omitted. */
+  "min-image-ssim"?: number;
+  minImageSsim?: number;
   /** Optional opaque #RRGGBB background for eligible PNG-to-JPEG conversion. */
   pngBackground?: string;
   "png-background"?: string;

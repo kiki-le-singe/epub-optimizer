@@ -2,11 +2,12 @@ import fs from "fs-extra";
 import path from "node:path";
 import unzipper from "unzipper";
 import type { File as ZipFileEntry } from "unzipper";
-import yazl from "yazl";
+import fsp, { type FileHandle } from "node:fs/promises";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import config from "../utils/config.js";
 import { createManagedTempDir, TEMP_DIR_MARKER } from "../utils/temp-dir.js";
+import { EpubZipWriter, readOriginalEntries } from "./zip-writer.js";
 
 export interface ArchiveLimits {
   maxEntries: number;
@@ -127,15 +128,8 @@ async function extractEPUB(
   }
 }
 
-/**
- * Helper function to recursively add directory contents to zip file
- * @param zipFile The yazl ZipFile instance
- * @param dirPath Full path to directory to add
- * @param zipPath Relative path within zip file
- * @param exclude Array of file/directory names to exclude
- */
 async function addDirectoryRecursive(
-  zipFile: yazl.ZipFile,
+  zipFile: EpubZipWriter,
   dirPath: string,
   zipPath: string,
   exclude: string[] = []
@@ -147,16 +141,12 @@ async function addDirectoryRecursive(
 
     const fullPath = path.join(dirPath, item);
     const zipItemPath = zipPath ? `${zipPath}/${item}` : item;
-    const stats = await fs.stat(fullPath);
+    const stats = await fs.lstat(fullPath);
 
     if (stats.isDirectory()) {
       await addDirectoryRecursive(zipFile, fullPath, zipItemPath, exclude);
     } else {
-      // Add file with compression (equivalent to zip -r9)
-      zipFile.addFile(fullPath, zipItemPath, {
-        compress: true,
-        compressionLevel: 9,
-      });
+      await zipFile.addFile(fullPath, zipItemPath);
     }
   }
 }
@@ -165,16 +155,28 @@ async function addDirectoryRecursive(
  * Recompress directory contents into an EPUB file (Apple Books compatible)
  * EPUB requires specific compression:
  * 1. mimetype file must be first, uncompressed, with no extra fields
- * 2. All other files should be compressed normally
+ * 2. All other files are deflated at level 9, or stored when that is smaller
+ *
+ * When `sourceEpub` is given, a file whose content is unchanged keeps the source
+ * archive's deflate stream if it is smaller than a fresh one, so repackaging
+ * never makes untouched resources larger.
  *
  * @param outputPath Path for output EPUB file
  * @param sourceDir Directory containing EPUB contents
+ * @param sourceEpub Optional EPUB the directory was extracted from
  * @returns True if compression succeeded
  * @throws Error if compression fails
  */
-async function compressEPUB(outputPath: string, sourceDir: string): Promise<boolean> {
+async function compressEPUB(
+  outputPath: string,
+  sourceDir: string,
+  sourceEpub?: string
+): Promise<boolean> {
+  const absOutput = path.resolve(outputPath);
+  let output: FileHandle | undefined;
+  let source: FileHandle | undefined;
+  let created = false;
   try {
-    const absOutput = path.resolve(outputPath);
     const absSource = path.resolve(sourceDir);
 
     // Ensure mimetype exists and is correct
@@ -184,33 +186,38 @@ async function compressEPUB(outputPath: string, sourceDir: string): Promise<bool
     // Remove output if exists
     if (await fs.pathExists(absOutput)) await fs.unlink(absOutput);
 
-    return new Promise((resolve, reject) => {
-      const zipFile = new yazl.ZipFile();
+    let original: ConstructorParameters<typeof EpubZipWriter>[1];
+    if (sourceEpub) {
+      try {
+        source = await fsp.open(sourceEpub, "r");
+        original = { handle: source, entries: await readOriginalEntries(sourceEpub) };
+      } catch {
+        // Without a readable source archive every file is simply recompressed.
+        await source?.close();
+        source = undefined;
+      }
+    }
 
-      // Step 1: Add mimetype first, uncompressed, no extra fields
-      zipFile.addFile(mimetypePath, "mimetype", {
-        compress: false, // No compression (store only)
-        forceZip64Format: false,
-      });
-
-      // Step 2: Add everything else, compressed, excluding mimetype
-      addDirectoryRecursive(zipFile, absSource, "", ["mimetype", TEMP_DIR_MARKER])
-        .then(() => {
-          // Write the zip file to disk
-          zipFile.outputStream
-            .pipe(fs.createWriteStream(absOutput))
-            .on("close", () => resolve(true))
-            .on("error", reject);
-
-          zipFile.end();
-        })
-        .catch(reject);
-    });
+    output = await fsp.open(absOutput, "wx");
+    created = true;
+    const zipFile = new EpubZipWriter(output, original);
+    // Step 1: Add mimetype first, uncompressed, no extra fields
+    await zipFile.addFile(mimetypePath, "mimetype", { store: true });
+    // Step 2: Add everything else, excluding mimetype
+    await addDirectoryRecursive(zipFile, absSource, "", ["mimetype", TEMP_DIR_MARKER]);
+    await zipFile.finish();
+    await output.close();
+    output = undefined;
+    return true;
   } catch (error) {
+    await output?.close().catch(() => {});
+    if (created) await fs.remove(absOutput).catch(() => {});
     throw new Error(
       `Failed to compress EPUB: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error }
     );
+  } finally {
+    await source?.close().catch(() => {});
   }
 }
 

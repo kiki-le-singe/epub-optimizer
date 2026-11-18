@@ -41,6 +41,7 @@ import type { PipelineReport } from "./utils/run-report.js";
 import { loadAuthorWorkflowConfig } from "./utils/author-workflow-config.js";
 import { runDoctor } from "./utils/epub-doctor.js";
 import { resolvePngBackground } from "./utils/pipeline-options.js";
+import { resolveMinImageSsim } from "./utils/image-quality.js";
 
 export async function runOptimization(
   args: Args,
@@ -72,6 +73,8 @@ export async function runOptimization(
     preset: args.preset,
     strict: args.strict,
   });
+  const minImageSsim = resolveMinImageSsim(args.minImageSsim);
+  if (minImageSsim > 0) report.imageQuality = { minSsim: minImageSsim, images: [] };
   let candidateOutput: string | undefined;
   let reportWriteError: unknown;
   let textBefore: EpubTextSnapshot | undefined;
@@ -93,6 +96,10 @@ export async function runOptimization(
         recordSkippedStep(report, name, reason);
         processingOptions.skipStep?.(name, reason);
       },
+      onImageQuality: (record) => {
+        report.imageQuality?.images.push(record);
+        processingOptions.onImageQuality?.(record);
+      },
       afterExtract: async (tempDir) => {
         report.content = {
           before: await collectEpubContentMetrics(tempDir),
@@ -102,6 +109,11 @@ export async function runOptimization(
         await processingOptions.afterExtract?.(tempDir);
       },
     });
+
+    // Images finish concurrently; sort records so reports are deterministic.
+    report.imageQuality?.images.sort((a, b) =>
+      a.path === b.path ? a.operation.localeCompare(b.operation) : a.path < b.path ? -1 : 1
+    );
 
     // Step 2: Explicit XHTML repair passes. The author workflow implies repair,
     // while the generic optimizer remains conservative by default.
@@ -166,7 +178,7 @@ export async function runOptimization(
     // touched until EPUBCheck has accepted the candidate.
     reportInfo("\n=== Create Candidate EPUB ===");
     await runReportedStep(report, "Create candidate EPUB", args.strict, () =>
-      createEPUBFile({ tempDir: args.temp, output: candidateOutput })
+      createEPUBFile({ tempDir: args.temp, output: candidateOutput, sourceEpub: args.input })
     );
 
     reportInfo("\n=== Validate Candidate EPUB ===");
