@@ -87,7 +87,8 @@ Memory was observed, not bounded by design. In local v3.8.0 runs of the `balance
 
 The local browser interface supports one EPUB at a time, three presets, progress,
 cancellation, strict EPUBCheck validation, and EPUB/HTML/JSON downloads. It can also
-analyze a book without changing it, with optimization hints and accessibility checks. It offers
+analyze a book without changing it, with optimization hints and accessibility checks,
+and optionally convert images to WebP. It offers
 French, English, Italian, Spanish and German, with light, dark and system themes.
 Language and theme choices are remembered by your browser; they do not change the
 book's language.
@@ -824,7 +825,7 @@ pnpm optimize --inspect -i book.epub --report-json reports/book-doctor.json
 
 Doctor mode extracts the EPUB to a system temporary directory, reads `container.xml` and the OPF manifest, prints a console summary, writes JSON when `--report-json` is provided, and removes its temporary extraction directory. It does not run the optimizing processors and it does not replace EPUBCheck.
 
-For supported books, the report includes OPF path/version, manifest and spine counts, EPUB3/NCX navigation presence, internal reference counts and missing targets, image byte totals and largest images, duplicate image basenames, large raster images, opaque PNG conversion candidates, and other optimization-risk hints.
+For supported books, the report includes OPF path/version, manifest and spine counts, EPUB3/NCX navigation presence, internal reference counts and missing targets, image byte totals and largest images, duplicate image basenames, large raster images, opaque PNG conversion candidates, WebP images that older reading systems may not display, and other optimization-risk hints.
 
 Doctor checks internal DTD subsets and content DRM before interpreting package or content XML. When either blocks optimization, it prints the reason and writes `analysisComplete: false`, `optimization.blocked: true`, and structured blockers in `optimization.blockers` and `risks`. Detailed `opf`, `navigation`, `references`, `images`, `content`, and `accessibility` fields are omitted rather than reporting misleading metrics. Font obfuscation alone remains inspectable. Exit code 0 means the diagnosis completed, including a diagnosis that finds a blocker; optimizing a blocked book still fails.
 

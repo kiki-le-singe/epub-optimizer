@@ -98,7 +98,8 @@ it("uploads the selected preset once, shows real progress, then exposes validate
     file,
     "lossless",
     expect.any(Function),
-    "optimize"
+    "optimize",
+    false
   );
   expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("42");
   requestMock.mockResolvedValue(success);
@@ -137,7 +138,7 @@ it("analyzes without optimizing and explains the diagnosis in the selected langu
       archiveBytes: 2097152,
       documents: 14,
       missingReferences: 0,
-      images: { count: 13, archivePercent: 99.9, large: 11, pngCandidates: 0 },
+      images: { count: 13, archivePercent: 99.9, large: 11, pngCandidates: 0, webp: 0 },
       accessibility: {
         documents: 14,
         documentsWithoutLanguage: 0,
@@ -157,7 +158,8 @@ it("analyzes without optimizing and explains the diagnosis in the selected langu
     file,
     "balanced",
     expect.any(Function),
-    "inspect"
+    "inspect",
+    false
   );
   expect(await screen.findByRole("heading", { name: "Analysis complete" })).toBeTruthy();
   expect(screen.getByText("Your book was not modified.")).toBeTruthy();
@@ -192,7 +194,7 @@ it("says when an analyzed book cannot be optimized and when nothing was found", 
     archiveBytes: 4096,
     documents: 1,
     missingReferences: 0,
-    images: { count: 0, archivePercent: null, large: 0, pngCandidates: 0 },
+    images: { count: 0, archivePercent: null, large: 0, pngCandidates: 0, webp: 0 },
     accessibility: {
       documents: 1,
       documentsWithoutLanguage: 0,
@@ -217,6 +219,48 @@ it("says when an analyzed book cannot be optimized and when nothing was found", 
     await screen.findByText("This book cannot be optimized: its content is DRM-protected.")
   ).toBeTruthy();
   expect(screen.queryByText("Nothing to report.")).toBeNull();
+});
+it("offers WebP conversion except with lossless images, and reports image fidelity", async () => {
+  const user = userEvent.setup();
+  show();
+  const file = await choose(user);
+  const webp = screen.getByRole("checkbox", { name: "Convert images to WebP" });
+  expect(screen.getByText(/Older e-readers may not display these images/)).toBeTruthy();
+  await user.click(webp);
+  expect((webp as HTMLInputElement).checked).toBe(true);
+
+  await user.click(screen.getByRole("radio", { name: /Lossless/ }));
+  expect((webp as HTMLInputElement).checked).toBe(false);
+  expect((webp as HTMLInputElement).disabled).toBe(true);
+  expect(screen.getByText("Not available with the Lossless images preset.")).toBeTruthy();
+
+  await user.click(screen.getByRole("radio", { name: /Balanced/ }));
+  expect((webp as HTMLInputElement).checked).toBe(true);
+  const done: Job = {
+    ...success,
+    webp: true,
+    summary: {
+      ...success.summary!,
+      images: { checked: 13, lowestSsim: 0.9159, toWebp: 12, fallback: 2, keptOriginal: 1 },
+    },
+  };
+  uploadMock.mockResolvedValue(done);
+  requestMock.mockResolvedValue(done);
+  await user.click(screen.getByRole("button", { name: "Optimize my EPUB" }));
+  expect(uploadMock).toHaveBeenCalledWith(
+    "private-session",
+    file,
+    "balanced",
+    expect.any(Function),
+    "optimize",
+    true
+  );
+  expect(
+    await screen.findByText("Image fidelity checked: 13. Lowest score: 0.91 (1 = identical).")
+  ).toBeTruthy();
+  expect(screen.getByText("Converted to WebP: 12.")).toBeTruthy();
+  expect(screen.getByText("Re-encoded at higher quality to stay faithful: 2.")).toBeTruthy();
+  expect(screen.getByText("Kept unchanged because no result was faithful enough: 1.")).toBeTruthy();
 });
 it("restores an active job and cancels it without offering an EPUB download", async () => {
   const user = userEvent.setup();

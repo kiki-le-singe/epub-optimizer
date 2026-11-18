@@ -8,12 +8,53 @@ import { StringDecoder } from "node:string_decoder";
 import type { Preset } from "../types.js";
 import type { UiKey } from "./translations.js";
 
+/** What the image quality guard measured, without any book-derived text. */
+export interface UiImageQuality {
+  /** Lossy encodes that were measured. */
+  checked: number;
+  /** Lowest SSIM among the encodes that were kept; null when none was kept. */
+  lowestSsim: number | null;
+  /** Images converted to WebP. */
+  toWebp: number;
+  /** Images re-encoded at higher quality after falling below the threshold. */
+  fallback: number;
+  /** Images left byte-for-byte unchanged because no encode was faithful enough. */
+  keptOriginal: number;
+}
 export interface UiSummary {
   inputBytes: number;
   outputBytes: number;
   reductionPercent: number;
   errors: number;
   warnings: number;
+  images?: UiImageQuality;
+}
+
+/** Counts guard outcomes from a pipeline report; undefined when the guard recorded nothing usable. */
+export function summarizeImageQuality(imageQuality: unknown): UiImageQuality | undefined {
+  const records = (imageQuality as { images?: unknown } | undefined)?.images;
+  if (!Array.isArray(records)) return undefined;
+  const summary: UiImageQuality = {
+    checked: 0,
+    lowestSsim: null,
+    toWebp: 0,
+    fallback: 0,
+    keptOriginal: 0,
+  };
+  for (const record of records as Array<Record<string, unknown>>) {
+    const { ssim, outcome, operation } = record ?? {};
+    if (typeof ssim !== "number" || !(ssim >= 0 && ssim <= 1)) continue;
+    if (outcome !== "accepted" && outcome !== "fallback" && outcome !== "kept-original") continue;
+    summary.checked++;
+    if (outcome === "kept-original") {
+      summary.keptOriginal++;
+      continue;
+    }
+    if (outcome === "fallback") summary.fallback++;
+    if (operation === "to-webp") summary.toWebp++;
+    summary.lowestSsim = Math.min(summary.lowestSsim ?? 1, ssim);
+  }
+  return summary.checked > 0 ? summary : undefined;
 }
 export type UiMode = "optimize" | "inspect";
 /** Finding codes the interface can explain; other doctor codes stay in the JSON report. */
@@ -25,6 +66,7 @@ export const UI_FINDING_CODES = [
   "image-heavy",
   "large-raster-images",
   "png-conversion-candidates",
+  "webp-images",
   "a11y-missing-package-language",
   "a11y-documents-without-language",
   "a11y-images-without-text-alternative",
@@ -45,6 +87,7 @@ export interface UiDiagnosis {
     archivePercent: number | null;
     large: number;
     pngCandidates: number;
+    webp: number;
   };
   accessibility: {
     documents: number;
@@ -135,6 +178,7 @@ export async function readUiDiagnosis(
             typeof percent === "number" && percent >= 0 && percent <= 100 ? percent : null,
           large: length(report.images?.largeRasterImages),
           pngCandidates: length(report.images?.opaquePngCandidates),
+          webp: count(report.images?.byMediaType?.["image/webp"]?.count),
         },
         accessibility: {
           documents: count(a11y.language?.documents),
@@ -195,6 +239,7 @@ export async function readUiReport(directory: string, exitCode: number | null): 
         reductionPercent: sizes.reductionPercent,
         errors: totals.errors,
         warnings: totals.warnings,
+        images: summarizeImageQuality(report.imageQuality),
       },
     };
   } catch {
@@ -208,6 +253,8 @@ export function runUiWorker(options: {
   preset: Preset;
   /** "inspect" runs the read-only doctor instead of optimizing. */
   mode?: UiMode;
+  /** Opt-in WebP conversion; ignored by "inspect". */
+  webp?: boolean;
   onStage: (name: string) => void;
   pipelinePath?: string;
   timeoutMs?: number;
@@ -253,6 +300,7 @@ export function runUiWorker(options: {
           "report.json",
           "--report-html",
           "report.html",
+          ...(options.webp ? ["--convert-webp"] : []),
         ],
     {
       cwd: options.directory,
