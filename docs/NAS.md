@@ -24,11 +24,11 @@ owns the data folders (`id -u` and `id -g`). Set this exact published image, rep
 any older `EPUB_OPTIMIZER_DOCKER_IMAGE` line rather than adding a duplicate:
 
 ```dotenv
-EPUB_OPTIMIZER_DOCKER_IMAGE=docker.io/boopykiki/epub-optimizer:3.17.0@sha256:677ca24ef1421f359bfa678973ce88d72b2cddf09f9dd3537b9a3669ebb23206
+EPUB_OPTIMIZER_DOCKER_IMAGE=docker.io/boopykiki/epub-optimizer:3.18.0@sha256:82cf6f22fa067de02a3d683e68fed8e591b08e082ec9f801569681732962e4ed
 ```
 
 The setup helper and Compose defaults deliberately retain older pinned images.
-The explicit setting above selects 3.17.0 from [Docker Hub](https://hub.docker.com/r/boopykiki/epub-optimizer) and its tested multi-platform digest.
+The explicit setting above selects 3.18.0 from [Docker Hub](https://hub.docker.com/r/boopykiki/epub-optimizer) and its tested multi-platform digest.
 GHCR is also available: replace `docker.io/boopykiki/epub-optimizer` with
 `ghcr.io/kiki-le-singe/epub-optimizer`, keeping the same version and digest.
 Do not change ownership broadly or run the watcher as root to work around NAS ACLs;

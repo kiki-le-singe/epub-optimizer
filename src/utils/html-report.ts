@@ -94,6 +94,11 @@ function renderValidationDiagnostics(validation: PipelineReport["validation"]): 
   return `<h2>EPUBCheck diagnostics</h2><p>Version: ${e(validation.checkerVersion ?? "unavailable")} · Diagnostic source: ${e(validation.source)} · Exit code: ${e(validation.exitCode ?? "unavailable")}</p><p>${summary}</p>${validation.diagnosticsError ? `<p class="failed">${e(validation.diagnosticsError)}</p>` : ""}${rows ? `<div class="table"><table class="validation-diagnostics"><thead><tr><th>Severity / code</th><th>Message / suggestion</th><th>Locations / context</th></tr></thead><tbody>${rows}</tbody></table></div>` : "<p>No detailed messages returned.</p>"}<p>EPUBCheck groups repeated diagnostics and limits reported locations. Totals may exceed the detailed entries shown.</p>`;
 }
 
+const IMAGE_OPERATIONS = {
+  recompress: "recompression",
+  "png-to-jpeg": "PNG → JPEG",
+  "to-webp": "→ WebP",
+} as const;
 const IMAGE_OUTCOMES = {
   accepted: "kept configured encode",
   fallback: "re-encoded at higher quality",
@@ -107,7 +112,7 @@ function renderImageQuality(quality: PipelineReport["imageQuality"]): string {
   const rows = quality.images
     .map(
       (image) =>
-        `<tr><td>${e(image.path)}${image.convertedTo ? `<br>→ ${e(image.convertedTo)}` : ""}</td><td>${e(image.operation === "png-to-jpeg" ? "PNG → JPEG" : "recompression")}</td><td>${image.ssim.toFixed(3)}</td><td>${e(IMAGE_OUTCOMES[image.outcome])}</td></tr>`
+        `<tr><td>${e(image.path)}${image.convertedTo ? `<br>→ ${e(image.convertedTo)}` : ""}</td><td>${e(IMAGE_OPERATIONS[image.operation])}</td><td>${image.ssim.toFixed(3)}</td><td>${e(IMAGE_OUTCOMES[image.outcome])}</td></tr>`
     )
     .join("");
   return `<h2>Image quality</h2><p>Lossy image encodes must reach SSIM ${quality.minSsim} against the source (1 = identical; intended resizing is not counted). ${quality.images.length ? `Lowest kept or rejected score: ${lowest.toFixed(3)}.` : "No lossy image encode was kept or rejected."} SSIM is a structural measure, not a guarantee of how an image looks in every reader.</p>${rows ? `<div class="table"><table><thead><tr><th>Image</th><th>Operation</th><th>SSIM</th><th>Result</th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}`;

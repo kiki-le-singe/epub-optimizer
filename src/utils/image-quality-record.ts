@@ -6,8 +6,8 @@ export type ImageQualityOutcome = "accepted" | "fallback" | "kept-original";
 export interface ImageQualityRecord {
   /** Path relative to the extracted EPUB root, with forward slashes. */
   path: string;
-  /** Lossy step that produced the encode: in-place recompression or PNG-to-JPEG conversion. */
-  operation: "recompress" | "png-to-jpeg";
+  /** Lossy step that produced the encode: in-place recompression or a format conversion. */
+  operation: "recompress" | "png-to-jpeg" | "to-webp";
   /** Output path when the image was converted to another format. */
   convertedTo?: string;
   /** SSIM of the encode that was kept, or of the best rejected encode. */

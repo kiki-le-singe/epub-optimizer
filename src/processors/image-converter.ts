@@ -22,11 +22,12 @@ export interface ConversionQuality {
   onQuality?: (record: ImageQualityRecord) => void;
 }
 
-interface Conversion {
-  pngFile: string;
-  jpegFile: string;
-  pngRel: string;
-  jpegRel: string;
+/** One image re-encoded next to its source, pending a safe reference rewrite. */
+export interface Conversion {
+  sourceFile: string;
+  targetFile: string;
+  sourceRel: string;
+  targetRel: string;
   originalSize: number;
   newSize: number;
   ssim?: number;
@@ -34,7 +35,7 @@ interface Conversion {
 }
 
 interface RewriteEdit {
-  pngRel: string;
+  sourceRel: string;
   start: number;
   end: number;
   replacement: string;
@@ -55,47 +56,47 @@ const CONTENT_FILE_EXTENSIONS = new Set([".xhtml", ".html", ".css", ".svg"]);
 const PNG_EXT_RE = /\.png$/i;
 
 async function maybeConvertOne(
-  pngFile: string,
+  sourceFile: string,
   contentDir: string,
   quality: number,
   maxDim?: number,
   background?: string,
-  guard: { minSsim: number; reject: (pngFile: string, ssim: number) => void } = {
+  guard: { minSsim: number; reject: (sourceFile: string, ssim: number) => void } = {
     minSsim: 0,
     reject: () => {},
   }
 ): Promise<Conversion | null> {
   try {
-    const originalSize = (await fs.stat(pngFile)).size;
+    const originalSize = (await fs.stat(sourceFile)).size;
     if (originalSize < 200 * 1024) {
-      reportInfo(`Skipping small PNG: ${path.basename(pngFile)} (${formatBytes(originalSize)})`);
+      reportInfo(`Skipping small PNG: ${path.basename(sourceFile)} (${formatBytes(originalSize)})`);
       return null;
     }
 
-    if (await isAnimatedPng(pngFile)) {
-      reportInfo(`Keeping animated PNG unchanged: ${path.basename(pngFile)}`);
+    if (await isAnimatedPng(sourceFile)) {
+      reportInfo(`Keeping animated PNG unchanged: ${path.basename(sourceFile)}`);
       return null;
     }
 
-    const metadata = await sharp(pngFile).metadata();
+    const metadata = await sharp(sourceFile).metadata();
     if (metadata.hasAlpha && background === undefined) {
-      reportInfo(`Skipping PNG with transparency: ${path.basename(pngFile)}`);
+      reportInfo(`Skipping PNG with transparency: ${path.basename(sourceFile)}`);
       return null;
     }
 
-    const jpegFile = pngFile.replace(/\.png$/i, ".jpg");
-    if (await fs.pathExists(jpegFile)) {
-      reportWarning(`Skipping ${path.basename(pngFile)}: target JPEG already exists`);
+    const targetFile = sourceFile.replace(/\.png$/i, ".jpg");
+    if (await fs.pathExists(targetFile)) {
+      reportWarning(`Skipping ${path.basename(sourceFile)}: target JPEG already exists`);
       return null;
     }
 
     // Chain resize + encode into the single sharp pass — avoids a follow-up
     // downscale step on the freshly-written JPEG (which would otherwise be
     // skipped by optimizeImages and stay at its original dimensions).
-    let pipeline = sharp(pngFile);
+    let pipeline = sharp(sourceFile);
     if (metadata.hasAlpha && background !== undefined) {
       reportInfo(
-        `Flattening PNG onto ${background} before JPEG conversion: ${path.basename(pngFile)}`
+        `Flattening PNG onto ${background} before JPEG conversion: ${path.basename(sourceFile)}`
       );
       pipeline = pipeline.flatten({ background });
     }
@@ -107,12 +108,12 @@ async function maybeConvertOne(
         withoutEnlargement: true,
       });
     }
-    await pipeline.clone().jpeg({ quality, mozjpeg: true }).toFile(jpegFile);
-    let newSize = (await fs.stat(jpegFile)).size;
+    await pipeline.clone().jpeg({ quality, mozjpeg: true }).toFile(targetFile);
+    let newSize = (await fs.stat(targetFile)).size;
 
     if (newSize >= originalSize) {
-      reportInfo(`Keeping PNG ${path.basename(pngFile)}: JPEG conversion would increase size`);
-      await fs.remove(jpegFile);
+      reportInfo(`Keeping PNG ${path.basename(sourceFile)}: JPEG conversion would increase size`);
+      await fs.remove(targetFile);
       return null;
     }
 
@@ -121,23 +122,23 @@ async function maybeConvertOne(
     if (guard.minSsim > 0) {
       // Flattening onto the requested background is intended, so the reference includes it.
       const reference = () => {
-        const image = sharp(pngFile);
+        const image = sharp(sourceFile);
         return metadata.hasAlpha && background !== undefined
           ? image.flatten({ background })
           : image;
       };
-      ssim = await imageSsim(reference, jpegFile);
+      ssim = await imageSsim(reference, targetFile);
       if (ssim < guard.minSsim) {
         const rejected = ssim;
-        await pipeline.clone().jpeg({ quality: 92, mozjpeg: true }).toFile(jpegFile);
-        newSize = (await fs.stat(jpegFile)).size;
-        ssim = newSize < originalSize ? await imageSsim(reference, jpegFile) : rejected;
+        await pipeline.clone().jpeg({ quality: 92, mozjpeg: true }).toFile(targetFile);
+        newSize = (await fs.stat(targetFile)).size;
+        ssim = newSize < originalSize ? await imageSsim(reference, targetFile) : rejected;
         if (newSize >= originalSize || ssim < guard.minSsim) {
           reportInfo(
-            `Keeping PNG ${path.basename(pngFile)}: JPEG conversion fell below SSIM ${guard.minSsim} (${Math.max(rejected, ssim).toFixed(3)})`
+            `Keeping PNG ${path.basename(sourceFile)}: JPEG conversion fell below SSIM ${guard.minSsim} (${Math.max(rejected, ssim).toFixed(3)})`
           );
-          guard.reject(pngFile, Math.max(rejected, ssim));
-          await fs.remove(jpegFile);
+          guard.reject(sourceFile, Math.max(rejected, ssim));
+          await fs.remove(targetFile);
           return null;
         }
         fallback = true;
@@ -145,22 +146,22 @@ async function maybeConvertOne(
     }
 
     reportInfo(
-      `Converted ${path.basename(pngFile)}: ${formatBytes(originalSize)} → ${formatBytes(
+      `Converted ${path.basename(sourceFile)}: ${formatBytes(originalSize)} → ${formatBytes(
         newSize
       )} (${Math.round(((originalSize - newSize) / originalSize) * 100)}% smaller)`
     );
     return {
-      pngFile,
-      jpegFile,
-      pngRel: toContentRel(contentDir, pngFile),
-      jpegRel: toContentRel(contentDir, jpegFile),
+      sourceFile,
+      targetFile,
+      sourceRel: toContentRel(contentDir, sourceFile),
+      targetRel: toContentRel(contentDir, targetFile),
       originalSize,
       newSize,
       ...(ssim === undefined ? {} : { ssim, fallback }),
     };
   } catch (error) {
     reportWarning(
-      `Skipping conversion for ${path.basename(pngFile)}: ${
+      `Skipping conversion for ${path.basename(sourceFile)}: ${
         error instanceof Error ? error.message : String(error)
       }`
     );
@@ -250,29 +251,26 @@ function resolveReference(
     return null;
   }
 
-  const posixRelPath = toPosixPath(relPath);
-  if (!PNG_EXT_RE.test(posixRelPath)) return null;
-
-  return { relPath: posixRelPath, suffix };
+  return { relPath: toPosixPath(relPath), suffix };
 }
 
 function replacementReference(
   ownerFile: string,
   contentDir: string,
-  jpegRel: string,
+  targetRel: string,
   suffix: string
 ): string {
   const ownerRel = toContentRel(contentDir, ownerFile);
   const ownerDir = path.posix.dirname(ownerRel);
-  const relativeReference = path.posix.relative(ownerDir === "." ? "" : ownerDir, jpegRel);
+  const relativeReference = path.posix.relative(ownerDir === "." ? "" : ownerDir, targetRel);
   return encodeURI(relativeReference) + suffix;
 }
 
-function getStats(statsByPng: Map<string, RewriteStats>, pngRel: string): RewriteStats {
-  let stats = statsByPng.get(pngRel);
+function getStats(statsBySource: Map<string, RewriteStats>, sourceRel: string): RewriteStats {
+  let stats = statsBySource.get(sourceRel);
   if (!stats) {
     stats = { found: 0, planned: 0 };
-    statsByPng.set(pngRel, stats);
+    statsBySource.set(sourceRel, stats);
   }
   return stats;
 }
@@ -318,28 +316,28 @@ function addReferenceEdit(
   rawReference: string,
   start: number,
   end: number,
-  conversionsByPngRel: Map<string, Conversion>,
+  conversionsBySourceRel: Map<string, Conversion>,
   editsByFile: Map<string, RewriteEdit[]>,
-  statsByPng: Map<string, RewriteStats>
+  statsBySource: Map<string, RewriteStats>
 ): void {
   const resolved = resolveReference(filePath, contentDir, rawReference);
   if (!resolved) return;
 
-  const conversion = conversionsByPngRel.get(resolved.relPath);
+  const conversion = conversionsBySourceRel.get(resolved.relPath);
   if (!conversion) return;
 
-  const stats = getStats(statsByPng, conversion.pngRel);
+  const stats = getStats(statsBySource, conversion.sourceRel);
   stats.found++;
 
   const replacement = replacementReference(
     filePath,
     contentDir,
-    conversion.jpegRel,
+    conversion.targetRel,
     resolved.suffix
   );
   const edits = editsByFile.get(filePath) ?? [];
   edits.push({
-    pngRel: conversion.pngRel,
+    sourceRel: conversion.sourceRel,
     start,
     end,
     replacement,
@@ -353,9 +351,9 @@ function scanSrcsetReferences(
   filePath: string,
   contentDir: string,
   valueOffset: number,
-  conversionsByPngRel: Map<string, Conversion>,
+  conversionsBySourceRel: Map<string, Conversion>,
   editsByFile: Map<string, RewriteEdit[]>,
-  statsByPng: Map<string, RewriteStats>
+  statsBySource: Map<string, RewriteStats>
 ): void {
   let cursor = 0;
 
@@ -376,9 +374,9 @@ function scanSrcsetReferences(
         rawReference,
         start,
         start + rawReference.length,
-        conversionsByPngRel,
+        conversionsBySourceRel,
         editsByFile,
-        statsByPng
+        statsBySource
       );
     }
 
@@ -392,9 +390,9 @@ function scanCssReferences(
   filePath: string,
   contentDir: string,
   valueOffset: number,
-  conversionsByPngRel: Map<string, Conversion>,
+  conversionsBySourceRel: Map<string, Conversion>,
   editsByFile: Map<string, RewriteEdit[]>,
-  statsByPng: Map<string, RewriteStats>
+  statsBySource: Map<string, RewriteStats>
 ): void {
   const urlRegex = /url\(\s*(?:(["'])(.*?)\1|([^'")]*?))\s*\)/gis;
   let urlMatch: RegExpExecArray | null;
@@ -412,9 +410,9 @@ function scanCssReferences(
       token.rawReference,
       start,
       start + token.rawReference.length,
-      conversionsByPngRel,
+      conversionsBySourceRel,
       editsByFile,
-      statsByPng
+      statsBySource
     );
   }
 
@@ -423,9 +421,9 @@ function scanCssReferences(
     filePath,
     contentDir,
     valueOffset,
-    conversionsByPngRel,
+    conversionsBySourceRel,
     editsByFile,
-    statsByPng
+    statsBySource
   );
 }
 
@@ -464,9 +462,9 @@ function scanImageSetReferences(
   filePath: string,
   contentDir: string,
   valueOffset: number,
-  conversionsByPngRel: Map<string, Conversion>,
+  conversionsBySourceRel: Map<string, Conversion>,
   editsByFile: Map<string, RewriteEdit[]>,
-  statsByPng: Map<string, RewriteStats>
+  statsBySource: Map<string, RewriteStats>
 ): void {
   const imageSetStartRegex = /\b(?:-webkit-)?image-set\s*\(/gis;
 
@@ -494,9 +492,9 @@ function scanImageSetReferences(
         rawReference,
         start,
         start + rawReference.length,
-        conversionsByPngRel,
+        conversionsBySourceRel,
         editsByFile,
-        statsByPng
+        statsBySource
       );
     }
 
@@ -508,9 +506,9 @@ function scanMarkupReferences(
   content: string,
   filePath: string,
   contentDir: string,
-  conversionsByPngRel: Map<string, Conversion>,
+  conversionsBySourceRel: Map<string, Conversion>,
   editsByFile: Map<string, RewriteEdit[]>,
-  statsByPng: Map<string, RewriteStats>
+  statsBySource: Map<string, RewriteStats>
 ): void {
   const attributeRegex = /\b(src|href|xlink:href|style|srcset)\s*=\s*(["'])(.*?)\2/gis;
   let attrMatch: RegExpExecArray | null;
@@ -527,9 +525,9 @@ function scanMarkupReferences(
         filePath,
         contentDir,
         valueOffset,
-        conversionsByPngRel,
+        conversionsBySourceRel,
         editsByFile,
-        statsByPng
+        statsBySource
       );
     } else if (attrName === "srcset") {
       scanSrcsetReferences(
@@ -537,9 +535,9 @@ function scanMarkupReferences(
         filePath,
         contentDir,
         valueOffset,
-        conversionsByPngRel,
+        conversionsBySourceRel,
         editsByFile,
-        statsByPng
+        statsBySource
       );
     } else {
       addReferenceEdit(
@@ -548,9 +546,9 @@ function scanMarkupReferences(
         value,
         valueOffset,
         valueOffset + value.length,
-        conversionsByPngRel,
+        conversionsBySourceRel,
         editsByFile,
-        statsByPng
+        statsBySource
       );
     }
   }
@@ -561,21 +559,25 @@ async function buildRewritePlan(
   conversions: Conversion[]
 ): Promise<{
   editsByFile: Map<string, RewriteEdit[]>;
-  statsByPng: Map<string, RewriteStats>;
+  statsBySource: Map<string, RewriteStats>;
 }> {
-  const conversionsByPngRel = new Map(
-    conversions.map((conversion) => [conversion.pngRel, conversion])
+  const conversionsBySourceRel = new Map(
+    conversions.map((conversion) => [conversion.sourceRel, conversion])
   );
   const editsByFile = new Map<string, RewriteEdit[]>();
-  const statsByPng = new Map<string, RewriteStats>();
+  const statsBySource = new Map<string, RewriteStats>();
   const contentFiles = await collectFiles(contentDir, (filePath) =>
     CONTENT_FILE_EXTENSIONS.has(path.extname(filePath).toLowerCase())
   );
+  const sourceExtensions = [
+    ...new Set(conversions.map((conversion) => path.extname(conversion.sourceFile).toLowerCase())),
+  ];
 
   await Promise.all(
     contentFiles.map(async (filePath) => {
       const content = await fs.readFile(filePath, "utf8");
-      if (!content.toLowerCase().includes(".png")) return;
+      const lowered = content.toLowerCase();
+      if (!sourceExtensions.some((extension) => lowered.includes(extension))) return;
 
       if (path.extname(filePath).toLowerCase() === ".css") {
         scanCssReferences(
@@ -583,24 +585,24 @@ async function buildRewritePlan(
           filePath,
           contentDir,
           0,
-          conversionsByPngRel,
+          conversionsBySourceRel,
           editsByFile,
-          statsByPng
+          statsBySource
         );
       } else {
         scanMarkupReferences(
           content,
           filePath,
           contentDir,
-          conversionsByPngRel,
+          conversionsBySourceRel,
           editsByFile,
-          statsByPng
+          statsBySource
         );
       }
     })
   );
 
-  return { editsByFile, statsByPng };
+  return { editsByFile, statsBySource };
 }
 
 async function buildOpfUpdatePlan(
@@ -612,8 +614,8 @@ async function buildOpfUpdatePlan(
     const opfFile = await getOPFPath(epubDir);
     const opfContent = await fs.readFile(opfFile, "utf8");
     const $opf = cheerio.load(opfContent, { xmlMode: true });
-    const conversionByPngRel = new Map(
-      conversions.map((conversion) => [conversion.pngRel, conversion])
+    const conversionBySourceRel = new Map(
+      conversions.map((conversion) => [conversion.sourceRel, conversion])
     );
     const updates = new Map<string, string>();
     const opfDir = path.dirname(opfFile);
@@ -625,11 +627,11 @@ async function buildOpfUpdatePlan(
       const resolved = resolveReference(opfFile, contentDir, href);
       if (!resolved) return;
 
-      const conversion = conversionByPngRel.get(resolved.relPath);
+      const conversion = conversionBySourceRel.get(resolved.relPath);
       if (!conversion) return;
 
-      const nextHref = encodeURI(toPosixPath(path.relative(opfDir, conversion.jpegFile)));
-      updates.set(conversion.pngRel, nextHref);
+      const nextHref = encodeURI(toPosixPath(path.relative(opfDir, conversion.targetFile)));
+      updates.set(conversion.sourceRel, nextHref);
     });
 
     return { opfFile, contentDir, updates };
@@ -643,12 +645,12 @@ async function buildOpfUpdatePlan(
 
 async function applyCommittedEdits(
   editsByFile: Map<string, RewriteEdit[]>,
-  committedPngs: ReadonlySet<string>
+  committedSources: ReadonlySet<string>
 ): Promise<void> {
   await Promise.all(
     Array.from(editsByFile.entries()).map(async ([filePath, edits]) => {
       const committedEdits = edits
-        .filter((edit) => committedPngs.has(edit.pngRel))
+        .filter((edit) => committedSources.has(edit.sourceRel))
         .sort((a, b) => b.start - a.start);
 
       if (committedEdits.length === 0) return;
@@ -665,9 +667,10 @@ async function applyCommittedEdits(
 
 async function applyOpfUpdates(
   opfPlan: OpfUpdatePlan,
-  committedPngs: ReadonlySet<string>
+  committedSources: ReadonlySet<string>,
+  target: { mediaType: string; label: string }
 ): Promise<void> {
-  if (committedPngs.size === 0) return;
+  if (committedSources.size === 0) return;
 
   const opfContent = await fs.readFile(opfPlan.opfFile, "utf8");
   const $opf = cheerio.load(opfContent, { xmlMode: true });
@@ -682,17 +685,70 @@ async function applyOpfUpdates(
 
     const updateHref = opfPlan.updates.get(resolved.relPath);
 
-    if (updateHref && committedPngs.has(resolved.relPath)) {
+    if (updateHref && committedSources.has(resolved.relPath)) {
       $opf(item).attr("href", updateHref);
-      $opf(item).attr("media-type", "image/jpeg");
+      $opf(item).attr("media-type", target.mediaType);
       changed++;
     }
   });
 
   if (changed > 0) {
     await fs.writeFile(opfPlan.opfFile, $opf.xml());
-    reportInfo(`Updated OPF file with ${changed} new JPEG reference(s)`);
+    reportInfo(`Updated OPF file with ${changed} new ${target.label} reference(s)`);
   }
+}
+
+/**
+ * Replaces converted sources by their targets as one transaction per image.
+ * Nothing is rewritten until an image is proven safe to commit: referenced in
+ * supported content, every found reference planned, and its OPF manifest item
+ * updatable. Otherwise its source is kept and its target removed.
+ * @returns The conversions that were committed.
+ */
+export async function commitConversions(
+  epubDir: string,
+  contentDir: string,
+  conversions: Conversion[],
+  target: { mediaType: string; label: string; sourceLabel: string }
+): Promise<Conversion[]> {
+  const [{ editsByFile, statsBySource }, opfPlan] = await Promise.all([
+    buildRewritePlan(contentDir, conversions),
+    buildOpfUpdatePlan(epubDir, contentDir, conversions),
+  ]);
+  const committedSources = new Set<string>();
+  const keeping = `Keeping ${target.sourceLabel}`;
+
+  for (const conversion of conversions) {
+    const stats = statsBySource.get(conversion.sourceRel) ?? { found: 0, planned: 0 };
+    const hasOpfUpdate = opfPlan?.updates.has(conversion.sourceRel) ?? false;
+
+    if (!hasOpfUpdate) {
+      reportWarning(`${keeping} ${conversion.sourceRel}: no matching OPF manifest item found`);
+    } else if (stats.found === 0) {
+      reportWarning(`${keeping} ${conversion.sourceRel}: no supported content references found`);
+    } else if (stats.found !== stats.planned) {
+      reportWarning(
+        `${keeping} ${conversion.sourceRel}: planned ${stats.planned} rewrite(s) for ${stats.found} reference(s)`
+      );
+    } else {
+      committedSources.add(conversion.sourceRel);
+    }
+  }
+
+  await applyCommittedEdits(editsByFile, committedSources);
+  if (opfPlan) {
+    await applyOpfUpdates(opfPlan, committedSources, target);
+  }
+
+  await Promise.all(
+    conversions.map((conversion) =>
+      committedSources.has(conversion.sourceRel)
+        ? fs.remove(conversion.sourceFile)
+        : fs.remove(conversion.targetFile)
+    )
+  );
+
+  return conversions.filter((conversion) => committedSources.has(conversion.sourceRel));
 }
 
 /**
@@ -719,9 +775,9 @@ async function convertPngToJpeg(
   const toRootRel = (file: string) => toPosixPath(path.relative(epubDir, file));
   const guard = {
     minSsim: qualityGuard.minSsim ?? DEFAULT_MIN_IMAGE_SSIM,
-    reject: (pngFile: string, ssim: number) =>
+    reject: (sourceFile: string, ssim: number) =>
       qualityGuard.onQuality?.({
-        path: toRootRel(pngFile),
+        path: toRootRel(sourceFile),
         operation: "png-to-jpeg",
         ssim,
         outcome: "kept-original",
@@ -758,54 +814,17 @@ async function convertPngToJpeg(
       return new Set();
     }
 
-    // Phase 2: build a transaction plan. Nothing is rewritten until a PNG is
-    // proven safe to commit: referenced in supported content, all found
-    // references are planned, and the OPF manifest can be updated.
-    const [{ editsByFile, statsByPng }, opfPlan] = await Promise.all([
-      buildRewritePlan(contentDir, conversions),
-      buildOpfUpdatePlan(epubDir, contentDir, conversions),
-    ]);
-    const committedPngs = new Set<string>();
-
-    for (const conversion of conversions) {
-      const stats = statsByPng.get(conversion.pngRel) ?? { found: 0, planned: 0 };
-      const hasOpfUpdate = opfPlan?.updates.has(conversion.pngRel) ?? false;
-
-      if (!hasOpfUpdate) {
-        reportWarning(`Keeping PNG ${conversion.pngRel}: no matching OPF manifest item found`);
-      } else if (stats.found === 0) {
-        reportWarning(`Keeping PNG ${conversion.pngRel}: no supported content references found`);
-      } else if (stats.found !== stats.planned) {
-        reportWarning(
-          `Keeping PNG ${conversion.pngRel}: planned ${stats.planned} rewrite(s) for ${stats.found} reference(s)`
-        );
-      } else {
-        committedPngs.add(conversion.pngRel);
-      }
-    }
-
-    await applyCommittedEdits(editsByFile, committedPngs);
-    if (opfPlan) {
-      await applyOpfUpdates(opfPlan, committedPngs);
-    }
-
-    await Promise.all(
-      conversions.map((conversion) =>
-        committedPngs.has(conversion.pngRel)
-          ? fs.remove(conversion.pngFile)
-          : fs.remove(conversion.jpegFile)
-      )
-    );
-
-    const committedConversions = conversions.filter((conversion) =>
-      committedPngs.has(conversion.pngRel)
-    );
+    const committedConversions = await commitConversions(epubDir, contentDir, conversions, {
+      mediaType: "image/jpeg",
+      label: "JPEG",
+      sourceLabel: "PNG",
+    });
     for (const conversion of committedConversions)
       if (conversion.ssim !== undefined)
         qualityGuard.onQuality?.({
-          path: toRootRel(conversion.pngFile),
+          path: toRootRel(conversion.sourceFile),
           operation: "png-to-jpeg",
-          convertedTo: toRootRel(conversion.jpegFile),
+          convertedTo: toRootRel(conversion.targetFile),
           ssim: conversion.ssim,
           outcome: conversion.fallback ? "fallback" : "accepted",
         });
@@ -821,7 +840,7 @@ async function convertPngToJpeg(
     reportInfo(
       `Converted ${committedConversions.length} PNG files to JPEG, saving ${formatBytes(totalSaved)}`
     );
-    return new Set(committedConversions.map((c) => c.jpegFile));
+    return new Set(committedConversions.map((c) => c.targetFile));
   } catch (error) {
     throw new Error(
       `Failed to convert PNG to JPEG: ${error instanceof Error ? error.message : String(error)}`,
@@ -839,4 +858,4 @@ function formatBytes(bytes: number, decimals = 2): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
 }
 
-export { convertPngToJpeg };
+export { convertPngToJpeg, collectFiles, toPosixPath, toContentRel, formatBytes };

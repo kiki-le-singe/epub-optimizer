@@ -1727,6 +1727,27 @@ async function main(): Promise<void> {
     }
     await assertLosslessOutput(lossless.outputEpub, runDir);
 
+    // EPUBCheck must accept WebP resources in an EPUB 3 package; the cover keeps its format.
+    const webp = await runPnpmWorkflowCase(runDir, inputEpub, "webp", "optimize", true, [
+      "--strict",
+      "--clean",
+      "--convert-webp",
+    ]);
+    assertStepStatus(webp.report, "Convert images to WebP", "success");
+    const webpArchive = await unzipper.Open.file(webp.outputEpub);
+    const webpEntries = webpArchive.files.map((entry) => entry.path);
+    const webpOpf = (
+      await webpArchive.files.find((entry) => entry.path.endsWith(".opf"))!.buffer()
+    ).toString("utf8");
+    if (
+      !webpEntries.some((entry) => entry.endsWith(".webp")) ||
+      !webpOpf.includes('media-type="image/webp"') ||
+      !/properties="cover-image"/.test(webpOpf) ||
+      /<item[^>]*\.webp"[^>]*properties="cover-image"/.test(webpOpf)
+    )
+      throw new Error("WebP conversion E2E: expected WebP resources and an unconverted cover.");
+    assertStepStatus(balanced.report, "Convert images to WebP", "skipped");
+
     const repair = await runPnpmWorkflowCase(runDir, inputEpub, "repair", "optimize:repair", true, [
       "--clean",
     ]);
