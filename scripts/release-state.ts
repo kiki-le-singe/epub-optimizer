@@ -91,6 +91,31 @@ export async function waitForDevelopCI(
   );
 }
 
+/**
+ * Reads an index that was just pushed. A registry can accept an index and still
+ * answer "not found" for a moment; only that answer is retried. Authentication,
+ * network and other errors fail at once.
+ */
+export async function waitForRegistryIndex<T>(
+  reference: string,
+  inspect: () => T,
+  timing: Timing = { ...defaultTiming, timeoutMs: 60_000, intervalMs: 2_000 }
+): Promise<T> {
+  return waitForState(
+    `registry index ${reference}`,
+    () => {
+      try {
+        return { value: inspect(), state: "visible" };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/ERROR: \S+: not found\s*$/.test(message)) throw error;
+        return { state: "not visible in the registry yet" };
+      }
+    },
+    timing
+  );
+}
+
 interface Publication {
   id: number;
   tag_name: string;

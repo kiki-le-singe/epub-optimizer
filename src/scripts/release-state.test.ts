@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { waitForDevelopCI, waitForPublishedRelease } from "../../scripts/release-state.js";
+import {
+  waitForDevelopCI,
+  waitForPublishedRelease,
+  waitForRegistryIndex,
+} from "../../scripts/release-state.js";
 
 const sha = "a".repeat(40);
 const run = {
@@ -156,5 +160,55 @@ describe("release state propagation", () => {
     ).rejects.toThrow("HTTP 403");
     expect(read).toHaveBeenCalledTimes(2);
     expect(timing.pause).not.toHaveBeenCalled();
+  });
+
+  it("retries only a registry 'not found' for an index that was just pushed", async () => {
+    const reference = "ghcr.io/example/epub:candidate-index";
+    const notFound = new Error(
+      `docker buildx imagetools inspect ${reference} failed: ERROR: ${reference}: not found\n`
+    );
+    const manifest = { digest: "sha256:" + "b".repeat(64) };
+    const inspect = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw notFound;
+      })
+      .mockImplementationOnce(() => {
+        throw notFound;
+      })
+      .mockReturnValue(manifest);
+    const timing = clock(40);
+    await expect(waitForRegistryIndex(reference, inspect, timing)).resolves.toBe(manifest);
+    expect(inspect).toHaveBeenCalledTimes(3);
+    expect(timing.pause).toHaveBeenCalledTimes(2);
+
+    for (const message of [
+      `docker buildx imagetools inspect ${reference} failed: ERROR: unauthorized`,
+      `docker buildx imagetools inspect ${reference} failed: ERROR: dial tcp: i/o timeout`,
+      "manifest not found in an unexpected place",
+    ]) {
+      const failing = clock();
+      await expect(
+        waitForRegistryIndex(
+          reference,
+          () => {
+            throw new Error(message);
+          },
+          failing
+        )
+      ).rejects.toThrow(message);
+      expect(failing.pause).not.toHaveBeenCalled();
+    }
+
+    const absent = clock(25);
+    await expect(
+      waitForRegistryIndex(
+        reference,
+        () => {
+          throw notFound;
+        },
+        absent
+      )
+    ).rejects.toThrow(/Timed out after 0\.025s waiting for registry index .*not visible/);
   });
 });

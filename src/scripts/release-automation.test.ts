@@ -93,7 +93,11 @@ if(cmd === 'git') {
   else throw new Error('Unexpected API request: '+endpoint);
  }
 } else if(cmd === 'docker') {
- if(args.includes('inspect')) { const ref = args[3]; const current = ref.endsWith('@'+s.amd64) ? s.amd64 : ref.endsWith('@'+s.arm64) ? s.arm64 : s.digest;
+ if(args.includes('inspect')) { const ref = args[3];
+ const seen = path.join(path.dirname(process.env.RELEASE_TEST_STATE), 'index-seen');
+ if(s.indexDelay && ref.includes(':candidate-') && !fs.existsSync(seen)) { fs.writeFileSync(seen, ''); process.stderr.write('ERROR: '+ref+': not found\\n'); process.exit(1); }
+ if(s.indexDenied && ref.includes(':candidate-')) { process.stderr.write('ERROR: denied: permission_denied\\n'); process.exit(1); }
+ const current = ref.endsWith('@'+s.amd64) ? s.amd64 : ref.endsWith('@'+s.arm64) ? s.arm64 : s.digest;
  write({digest:current,manifests:(current===s.digest?[s.amd64,s.tampered?'sha256:'+'f'.repeat(64):s.arm64]:[current]).map(digest=>({digest}))}); }
 }
 `;
@@ -187,6 +191,22 @@ describe("release safety", { timeout: 20_000 }, () => {
     expect(result.calls).toContain('"release","upload","v3.7.0"');
     expect(result.calls).not.toContain(image + ":latest");
     expect(result.calls).not.toContain(image + ":3.7.0");
+  });
+  it("waits for a freshly pushed index the registry does not show yet, then drafts", () => {
+    const result = fixture({ noRelease: true, tag: null, indexDelay: true })("draft");
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("not visible in the registry yet");
+    expect(result.calls.match(/"inspect","ghcr\.io\/example\/epub:candidate-/g)).toHaveLength(2);
+    expect(result.calls).toContain('"tag","-a","v3.7.0"');
+    expect(result.calls).toContain('"release","upload","v3.7.0"');
+  });
+  it("fails at once, before tagging, when the registry refuses the index read", () => {
+    const result = fixture({ noRelease: true, tag: null, indexDenied: true })("draft");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("permission_denied");
+    expect(result.calls.match(/"inspect","ghcr\.io\/example\/epub:candidate-/g)).toHaveLength(1);
+    expect(result.calls).not.toContain('"tag","-a"');
+    expect(result.calls).not.toContain('"POST","repos/example/epub/releases"');
   });
   it("rejects an index whose contents differ from the tested platform digests", () => {
     const result = fixture({ draft: false, tampered: true })("finalize");
