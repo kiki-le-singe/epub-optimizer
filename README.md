@@ -58,6 +58,7 @@ Memory was observed, not bounded by design. In local v3.8.0 runs of the `balance
   - [Safe Temporary Directories and Validation Deadlines](#safe-temporary-directories-and-validation-deadlines)
   - [Image Concurrency](#image-concurrency)
   - [Image Quality Guard](#image-quality-guard)
+  - [WebP Conversion](#webp-conversion)
   - [Doctor / Inspect Mode](#doctor--inspect-mode)
     - [Accessibility Checks](#accessibility-checks)
   - [Structured Reports and Profiling](#structured-reports-and-profiling)
@@ -220,6 +221,7 @@ Version 3 makes the default command safer and less specific to this project's or
 - **Image quality guard**: every lossy re-encode is compared with its source (SSIM). Encodes below `--min-image-ssim` are redone at higher quality or the original is kept, and scores appear in JSON/HTML reports. See [Image Quality Guard](#image-quality-guard).
 - JPEG recompression applies EXIF orientation to the pixels before encoding, preserving the displayed rotation and mirroring.
 - PNG to JPEG conversion for non-transparent images (significantly reduces file size)
+- **Optional WebP conversion** via `--convert-webp` for EPUB 3 books: much smaller images, transparency preserved, for reading systems that support WebP. See [WebP Conversion](#webp-conversion).
 - JavaScript minification (reduces script size)
 - **Optional font subsetting** via `--fonts`, using the included HarfBuzz WebAssembly engine with conservative content and font checks
 - **SVG optimization** (minifies SVG files using SVGO)
@@ -509,6 +511,7 @@ Options:
   --author-workflow Enable the complete author workflow, including repairs
   --author-config   JSON overrides for the author workflow's summary, cover, and CSS class mapping
   --convert-png     Convert large opaque PNG files to JPEG when safe
+  --convert-webp    Convert PNG and JPEG images to WebP when smaller (EPUB 3 only) [boolean] [default: false]
   --png-background  Opt in to flattening eligible transparent PNGs onto #RRGGBB before JPEG conversion
   --no-convert-png  Disable PNG-to-JPEG conversion
   --lazy-loading    Add loading="lazy" to XHTML images
@@ -772,6 +775,43 @@ SSIM is a structural measure, not a guarantee of how an image looks in every
 reader. Open the optimized book to check important artwork. Guard decisions are
 informational, not warnings, so `--strict` does not fail on them.
 
+### WebP Conversion
+
+`--convert-webp` converts PNG and JPEG images to WebP when the result is smaller.
+It is **off by default** because of reader compatibility:
+
+- WebP is a core image type only since EPUB 3.3. EPUBCheck accepts it in EPUB 3
+  books; EPUB 2 packages are left unchanged.
+- Older reading systems, including some e-ink devices and conversion services,
+  do not display WebP. Test the result on the readers you target before
+  distributing it, and keep the original book.
+
+What it does:
+
+- Lossy WebP at `--jpg-quality`, with transparency preserved, so transparent
+  PNGs no longer need palette quantization or `--png-background`.
+- The [image quality guard](#image-quality-guard) applies. Below the threshold,
+  a PNG falls back to lossless WebP and a JPEG to quality 92; if that is not
+  smaller or still below the threshold, the original image is kept.
+- `--max-image-dim` and JPEG EXIF orientation are applied in the same encode.
+- References in XHTML, CSS, SVG and `srcset`, and the OPF manifest item
+  (`media-type="image/webp"`), are rewritten as one transaction per image. An
+  image without a rewritable reference keeps its original file.
+- Kept in their original format: the cover image (`cover-image` property or
+  `<meta name="cover">`), animated PNGs, images under 10 KB, and images whose
+  `.webp` name is already taken. They continue through the normal PNG-to-JPEG
+  and recompression steps.
+- It cannot be combined with the lossless preset, which preserves image bytes.
+
+On the 60 MB example book (12 PNGs with transparency and 1 JPEG, `balanced`,
+single local run on macOS ARM64 with Node 25), the output was 1.96 MB with
+`--convert-webp` against 8.69 MB without, with SSIM scores of 0.91 to 0.97 and an
+EPUBCheck-clean result. Savings depend on the images; this is one book, not a
+general figure.
+
+A `type="image/png"` hint on a `<source>` element or in a CSS `image-set()` is not
+rewritten; the image still loads, but remove such hints if your book uses them.
+
 ### Doctor / Inspect Mode
 
 Use `--doctor` or `--inspect` to analyze an EPUB without publishing a candidate output and without modifying the input archive:
@@ -854,7 +894,7 @@ The configuration is validated before structure updates. Unknown keys, unsafe pa
 
 Processing diagnostics are emitted explicitly and collected within each asynchronous step; the optimizer does not replace global `console` methods or infer severity from message text. Step `messages` and strict warning/error handling retain their existing format. Custom API processing hooks should use the exported `reportWarning(...args)` and `reportError(...args)` helpers to participate in reports and strict checks. Ordinary `console` output remains display-only; thrown exceptions still fail the operation. Nested step diagnostics also reach the enclosing operation, while concurrent operations have separate collectors and completed steps stop collecting late callbacks. Batch concurrency is bounded by `--jobs` (one by default).
 
-Unless `--min-image-ssim 0` is set, optimization reports include `imageQuality`: the configured `minSsim` and, sorted by path, one entry per lossy image encode that was kept or rejected. Each entry has the root-relative `path`, its `operation` (`recompress` or `png-to-jpeg`), `convertedTo` for a kept conversion, the `ssim` score and the `outcome`: `accepted` (configured settings kept), `fallback` (higher-quality encode kept) or `kept-original`. HTML reports show the same table. Images that were skipped, or not reduced in size, have no entry.
+Unless `--min-image-ssim 0` is set, optimization reports include `imageQuality`: the configured `minSsim` and, sorted by path, one entry per lossy image encode that was kept or rejected. Each entry has the root-relative `path`, its `operation` (`recompress`, `png-to-jpeg` or `to-webp`), `convertedTo` for a kept conversion, the `ssim` score and the `outcome`: `accepted` (configured settings kept), `fallback` (higher-quality encode kept) or `kept-original`. HTML reports show the same table. Images that were skipped, or not reduced in size, have no entry.
 
 Once EPUBCheck runs, optimization reports include an optional `validation` object with its native `exitCode`, diagnostic `source` (`json`, `text`, or `unavailable`), version when available, `totals` (`fatals`, `errors`, `warnings`, `infos`), and detailed `messages`. Each message contains a `code`, uppercase `severity`, `message`, `locations` (path and available line/column/context), `additionalLocations`, and an optional suggestion. The same details appear in HTML reports and per-book batch reports, including failed runs. These fields are additive; existing step statuses and messages are retained, and doctor mode is unchanged.
 

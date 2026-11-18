@@ -68,6 +68,18 @@ describe("CLI options", () => {
     ).toHaveLength(3);
   });
 
+  it("keeps WebP conversion opt-in and refuses it with the lossless preset", async () => {
+    process.argv = ["node", "epub-optimizer"];
+    expect((await parseArguments()).convertWebp).toBe(false);
+    process.argv = ["node", "epub-optimizer", "--convert-webp"];
+    const enabled = await parseArguments();
+    expect([enabled.convertWebp, enabled["convert-webp"]]).toEqual([true, true]);
+    process.argv = ["node", "epub-optimizer", "--convert-webp", "--preset", "lossless"];
+    await expect(parseArguments()).rejects.toThrow(
+      "--convert-webp cannot be combined with the lossless preset."
+    );
+  });
+
   it("preserves an explicit destination and resolves the validation deadline", async () => {
     process.argv = [
       "node",
