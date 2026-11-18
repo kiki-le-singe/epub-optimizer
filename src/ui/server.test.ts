@@ -70,7 +70,17 @@ async function setup(maxUploadBytes = 1024) {
       expect((await (await request("/api/job")).json()).state).toBe(success ? "success" : "failed")
     );
   };
-  return { app, request, upload, complete, worker, stop, headers, work: () => work };
+  return {
+    app,
+    request,
+    upload,
+    complete,
+    worker,
+    stop,
+    headers,
+    work: () => work,
+    finish: (value: UiResult) => finish(value),
+  };
 }
 it("serves a self-contained local page with a private session and restrictive browser headers", async () => {
   const { app } = await setup();
@@ -122,6 +132,8 @@ it("uses fixed owned paths, exposes progress, runs only one book, and streams va
   const job = await response.json();
   expect(job.name).toBe("<book>.epub");
   expect(work().preset).toBe("lossless");
+  expect(work().mode).toBe("optimize");
+  expect(job.mode).toBe("optimize");
   expect(await fs.readFile(path.join(work().directory, "input.epub"), "utf8")).toBe(
     "original bytes"
   );
@@ -151,6 +163,61 @@ it("uses fixed owned paths, exposes progress, runs only one book, and streams va
   // A finished response can reach the client just before the server releases the download.
   await vi.waitFor(async () => expect((await upload()).status).toBe(202));
   await expect(fs.stat(previous)).rejects.toMatchObject({ code: "ENOENT" });
+});
+it("runs a read-only analysis job that exposes a diagnosis but never an EPUB download", async () => {
+  const { request, work, worker, finish: finishWork } = await setup();
+  const post = (query: string) =>
+    request("/api/jobs?" + query, {
+      method: "POST",
+      headers: { "Content-Type": "application/epub+zip", "X-Epub-Name": "book.epub" },
+      body: "epub bytes",
+    });
+  for (const query of [
+    "preset=balanced&mode=repair",
+    "preset=balanced&mode=inspect&mode=optimize",
+  ]) {
+    const refused = await post(query);
+    expect(refused.status).toBe(400);
+    expect((await refused.json()).code).toBe("unknownMode");
+  }
+  expect(worker).not.toHaveBeenCalled();
+
+  const job = await (await post("preset=lossless&mode=inspect")).json();
+  expect(job).toMatchObject({ mode: "inspect", preset: "lossless", state: "running" });
+  expect(work().mode).toBe("inspect");
+  const diagnosis = {
+    blocked: false,
+    codes: ["image-heavy" as const],
+    archiveBytes: 10,
+    documents: 1,
+    missingReferences: 0,
+    images: { count: 1, archivePercent: 80, large: 0, pngCandidates: 0 },
+    accessibility: {
+      documents: 1,
+      documentsWithoutLanguage: 0,
+      images: 1,
+      imagesWithoutTextAlternative: 0,
+      emptyAlt: 0,
+      missingMetadata: [],
+      pageBreaks: 0,
+    },
+  };
+  // A leftover output must not become downloadable through an analysis job.
+  await fs.writeFile(path.join(work().directory, "optimized.epub"), "not validated");
+  await fs.writeFile(path.join(work().directory, "report.json"), '{"analysisComplete":true}');
+  finishWork({ success: true, diagnosis, reports: { json: true, html: false } });
+  await vi.waitFor(async () =>
+    expect(await (await request("/api/job")).json()).toMatchObject({
+      state: "success",
+      mode: "inspect",
+      diagnosis,
+    })
+  );
+  expect((await request(`/api/jobs/${job.id}/download`)).status).toBe(409);
+  expect((await request(`/api/jobs/${job.id}/html`)).status).toBe(409);
+  const report = await request(`/api/jobs/${job.id}/json`);
+  expect(report.headers.get("content-disposition")).toContain('filename="book-diagnosis.json"');
+  expect(await report.text()).toBe('{"analysisComplete":true}');
 });
 it("never downloads a failed output, but preserves available diagnostic reports", async () => {
   const { upload, request, complete } = await setup();

@@ -85,7 +85,8 @@ Memory was observed, not bounded by design. In local v3.8.0 runs of the `balance
 ## Local Graphical Interface
 
 The local browser interface supports one EPUB at a time, three presets, progress,
-cancellation, strict EPUBCheck validation, and EPUB/HTML/JSON downloads. It offers
+cancellation, strict EPUBCheck validation, and EPUB/HTML/JSON downloads. It can also
+analyze a book without changing it, with optimization hints and accessibility checks. It offers
 French, English, Italian, Spanish and German, with light, dark and system themes.
 Language and theme choices are remembered by your browser; they do not change the
 book's language.

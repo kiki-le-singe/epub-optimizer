@@ -31,8 +31,8 @@ async function exerciseUi(url: string, input: string, output: string): Promise<v
     if (!(await response.text()).length) throw new Error("Empty UI asset: " + asset);
   }
   const headers = { Cookie: cookie, "X-Epub-Token": token, Origin: url };
-  const upload = (body: Uint8Array | string) =>
-    fetch(url + "/api/jobs?preset=balanced", {
+  const upload = (body: Uint8Array | string, mode = "") =>
+    fetch(url + "/api/jobs?preset=balanced" + mode, {
       method: "POST",
       headers: {
         ...headers,
@@ -44,7 +44,11 @@ async function exerciseUi(url: string, input: string, output: string): Promise<v
   const settle = () =>
     waitFor(async () => {
       const response = await fetch(url + "/api/job", { headers });
-      const job = (await response.json()) as { id: string; state: string };
+      const job = (await response.json()) as {
+        id: string;
+        state: string;
+        diagnosis?: { blocked: boolean; documents: number };
+      };
       return ["failed", "success", "cancelled"].includes(job.state) ? job : undefined;
     }, "UI optimization timed out.");
   if ((await upload("invalid ZIP")).status !== 202) throw new Error("UI rejected test job.");
@@ -55,7 +59,23 @@ async function exerciseUi(url: string, input: string, output: string): Promise<v
   )
     throw new Error("UI exposed failed output.");
   const original = await fs.readFile(input);
-  if ((await upload(original)).status !== 202) throw new Error("UI valid upload failed.");
+  if ((await upload(original, "&mode=inspect")).status !== 202)
+    throw new Error("UI analysis upload failed.");
+  const analysis = await settle();
+  if (
+    analysis.state !== "success" ||
+    analysis.diagnosis?.blocked !== false ||
+    !(analysis.diagnosis.documents > 0) ||
+    (await fetch(url + `/api/jobs/${analysis.id}/download`, { headers })).status !== 409 ||
+    !(await (await fetch(url + `/api/jobs/${analysis.id}/json`, { headers })).json()).accessibility
+  )
+    throw new Error("UI analysis did not return a read-only diagnosis.");
+  // The diagnosis download above is released just after its response ends: retry while busy.
+  await waitFor(async () => {
+    const status = (await upload(original)).status;
+    if (status !== 202 && status !== 409) throw new Error("UI valid upload failed.");
+    return status === 202 ? true : undefined;
+  }, "UI stayed busy after the analysis.");
   const job = await settle();
   if (job.state !== "success") throw new Error("UI pipeline did not succeed.");
   const download = await fetch(url + `/api/jobs/${job.id}/download`, { headers });
@@ -114,7 +134,7 @@ export async function assertNativeUi(
     const output = path.join(runDir, "ui-native-output.epub");
     await exerciseUi(url, input, output);
     console.log(
-      "Local UI E2E passed: private session, failed-upload recovery, strict validation, reports and download."
+      "Local UI E2E passed: private session, failed-upload recovery, read-only analysis, strict validation, reports and download."
     );
     return output;
   } finally {

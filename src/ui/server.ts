@@ -10,7 +10,7 @@ import type { Stats } from "node:fs";
 import type { Preset } from "../types.js";
 import { uiHtml } from "./page.js";
 import { uiMessages, type UiKey } from "./translations.js";
-import { runUiWorker, type UiResult, type UiWorker } from "./worker.js";
+import { runUiWorker, type UiMode, type UiResult, type UiWorker } from "./worker.js";
 
 const MAX_UPLOAD = 256 * 1024 * 1024;
 class HttpError extends Error {
@@ -26,6 +26,7 @@ interface Job {
   id: string;
   name: string;
   preset: Preset;
+  mode: UiMode;
   directory: string;
   owner: Stats;
   state: "uploading" | "running" | "cancelling" | "cancelled" | "success" | "failed";
@@ -93,9 +94,11 @@ export async function startLocalUi(
           id: job.id,
           name: job.name,
           preset: job.preset,
+          mode: job.mode,
           state: job.state,
           stage: job.stage,
           summary: job.result?.summary,
+          diagnosis: job.result?.diagnosis,
           error: job.result?.error,
           errorCode: job.result?.errorCode,
           reports: job.result?.reports,
@@ -105,7 +108,12 @@ export async function startLocalUi(
     res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify(body));
   };
-  const upload = async (req: IncomingMessage, res: ServerResponse, preset: Preset) => {
+  const upload = async (
+    req: IncomingMessage,
+    res: ServerResponse,
+    preset: Preset,
+    mode: UiMode
+  ) => {
     if (busy || current?.downloads) throw new HttpError(409, "busy");
     if (req.headers["content-type"] !== "application/epub+zip")
       throw new HttpError(415, "uploadType");
@@ -129,6 +137,7 @@ export async function startLocalUi(
         id: randomUUID(),
         name,
         preset,
+        mode,
         directory: next,
         owner: await fs.lstat(next),
         state: "uploading",
@@ -160,6 +169,7 @@ export async function startLocalUi(
         job.worker = (options.worker ?? runUiWorker)({
           directory: next,
           preset,
+          mode,
           onStage: (stage) => {
             if (runningJob.state === "running") runningJob.stage = stage;
           },
@@ -271,7 +281,10 @@ export async function startLocalUi(
         url.searchParams.getAll("preset").length !== 1
       )
         throw new HttpError(400, "unknownPreset");
-      await upload(req, res, preset as Preset);
+      const mode = url.searchParams.get("mode") ?? "optimize";
+      if (!["optimize", "inspect"].includes(mode) || url.searchParams.getAll("mode").length > 1)
+        throw new HttpError(400, "unknownMode");
+      await upload(req, res, preset as Preset, mode as UiMode);
       return;
     }
     const match = /^\/api\/jobs\/([a-f0-9-]{36})\/(download|json|html|cancel)$/.exec(url.pathname);
@@ -296,7 +309,7 @@ export async function startLocalUi(
     if (
       busy ||
       (action === "download"
-        ? job.state !== "success"
+        ? job.state !== "success" || job.mode !== "optimize"
         : !job.result?.reports[action as "json" | "html"])
     )
       throw new HttpError(409, "notAvailable");
@@ -321,7 +334,9 @@ export async function startLocalUi(
               ? "application/json"
               : "text/html; charset=utf-8",
         "Content-Disposition": attachment(
-          action === "download" ? `${stem}-optimized.epub` : `${stem}-report.${action}`
+          action === "download"
+            ? `${stem}-optimized.epub`
+            : `${stem}-${job.mode === "inspect" ? "diagnosis" : "report"}.${action}`
         ),
         "Content-Length": stat.size,
       });
