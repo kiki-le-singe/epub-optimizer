@@ -22,138 +22,50 @@ A Node.js utility to optimize EPUB files by compressing HTML, CSS, images and re
 
 ### Results
 
-Measured on an image-heavy EPUB with 12 full-page PNGs, with EPUBCheck-clean output. The input is 57 MB as printed by the CLI, which uses 1024-based units (60.0 MB on disk):
+Measured on one image-heavy EPUB exported from Apple Pages: 12 full-page PNGs (11 with
+transparency) and 1 JPEG, 57.26 MiB on disk. Every output is EPUBCheck-clean.
 
-| Preset               | Output     | Reduction                          | EPUBCheck             |
-| -------------------- | ---------- | ---------------------------------- | --------------------- |
-| `balanced` (default) | 8.3 MB     | **−85.5%**                         | 0 errors / 0 warnings |
-| `author`             | 8.3 MB     | **−85.5%**                         | 0 errors / 0 warnings |
-| `repair`             | 8.3 MB     | **−85.5%**                         | 0 errors / 0 warnings |
-| `lossless`           | ~unchanged | by design (no lossy image changes) | 0 errors / 0 warnings |
+| Run                       | Output    | Change     | EPUBCheck             |
+| ------------------------- | --------- | ---------- | --------------------- |
+| `balanced` (default)      | 8.29 MiB  | **−85.5%** | 0 errors / 0 warnings |
+| `balanced --convert-webp` | 1.87 MiB  | **−96.7%** | 0 errors / 0 warnings |
+| `author`                  | 8.29 MiB  | **−85.5%** | 0 errors / 0 warnings |
+| `balanced --repair`       | 8.29 MiB  | **−85.5%** | 0 errors / 0 warnings |
+| `lossless`                | 57.26 MiB | −559 bytes | 0 errors / 0 warnings |
 
-The `balanced` row was remeasured with v3.8.0. The `author` and `repair` rows are earlier measurements and were not rerun for v3.8.0; the `lossless` row describes the preset's behavior.
+These are single local runs of version 3.19.0 on one machine (macOS arm64, Node.js 24), on
+one book: they show what the presets do, not what every book will gain. Nearly all of the
+savings come from raster images, so results scale with how image-heavy a book is.
 
-Nearly all of the savings come from raster image optimization, so results scale with how image-heavy your book is. In this book, 11 of the 12 PNGs contain transparency: they stay PNG and shrink through palette quantization (`--png-quality`) and downscaling to the default 1600 px maximum dimension. Only the opaque cover is converted to JPEG, because PNG-to-JPEG conversion applies by default only to large PNGs without an alpha channel.
+- `balanced` keeps the transparent PNGs as PNG (palette quantization and a 1600 px limit) and
+  converts only the opaque cover to JPEG. The [image quality guard](docs/CLI.md#image-quality-guard)
+  scored every changed image between 0.895 and 0.959 (1 = identical).
+- `--convert-webp` is optional and off by default: older e-readers may not display WebP. See
+  [WebP Conversion](docs/CLI.md#webp-conversion).
+- `lossless` keeps image bytes unchanged, so the file barely changes: it only saves on text,
+  CSS and packaging.
 
-Memory was observed, not bounded by design. In local v3.8.0 runs of the `balanced` preset on this book (macOS arm64, Node.js 25, Java 25, default image concurrency), the Node.js process peaked at about 548 MiB (0.53 GiB) of resident memory. EPUBCheck then runs in a separate Java process, about 0.3 GiB here, which that figure excludes. These are single-machine observations, not limits: memory depends mainly on image dimensions and [`--image-concurrency`](#image-concurrency).
+Memory was observed, not bounded by design. In earlier local runs of the `balanced` preset on
+this book (v3.8.0, Node.js 25, Java 25, default image concurrency), the Node.js process peaked
+at about 548 MiB of resident memory, and EPUBCheck used about 0.3 GiB in a separate Java
+process. Memory depends mainly on image dimensions and
+[`--image-concurrency`](docs/CLI.md#image-concurrency).
 
 ## Table of Contents
 
 - [Quick Start](#quick-start)
 - [Local Graphical Interface](#local-graphical-interface)
-- [Migrating to v3](#migrating-to-v3)
 - [Features](#features)
 - [About This Project](#about-this-project)
-  - [Important Note for Apple Pages Users](#️-important-note-for-apple-pages-users)
 - [Requirements](#requirements)
 - [Installation](#installation)
-- [Local Package and Typed Node API](#local-package-and-typed-node-api)
-- [EPUBCheck Setup](#epubcheck-setup)
-- [Docker Alternative](#docker-alternative)
+- [Docker](#docker)
 - [Usage](#usage)
-  - [Available Scripts](#available-scripts)
-  - [Modern Workflow](#modern-workflow)
-  - [Command Line Options](#command-line-options)
-  - [Modes and Presets](#modes-and-presets)
-  - [Safe Temporary Directories and Validation Deadlines](#safe-temporary-directories-and-validation-deadlines)
-  - [Image Concurrency](#image-concurrency)
-  - [Image Quality Guard](#image-quality-guard)
-  - [WebP Conversion](#webp-conversion)
-  - [Doctor / Inspect Mode](#doctor--inspect-mode)
-    - [Accessibility Checks](#accessibility-checks)
-  - [Structured Reports and Profiling](#structured-reports-and-profiling)
-  - [Batch Optimization](#batch-optimization)
-  - [Safety Model](#safety-model)
-  - [Docker Usage](#docker-usage)
-  - [Debugging with Temporary Files](#debugging-with-temporary-files)
-- [Project Structure](#project-structure)
-- [Development Information](#development-information)
-  - [Source and Build Separation](#source-and-build-separation)
-  - [Import Structure](#import-structure)
-  - [Testing](#testing)
-  - [Production Validation](#production-validation)
-  - [Release Validation](#release-validation)
-  - [Development and Production](#development-and-production)
-- [Linting and Formatting](#linting-and-formatting)
-- [Minification](#minification)
-- [Modular Fix Scripts](#modular-fix-scripts)
-  - [Customizing the Optimization Process](#customizing-the-optimization-process)
+- [Guides](#guides)
+- [Safety Model](#safety-model)
 - [Common Issues](#common-issues)
-- [Troubleshooting](#troubleshooting)
-- [Dependencies](#dependencies)
+- [Development](#development)
 - [License](#license)
-
-## Local Graphical Interface
-
-The local browser interface supports one EPUB at a time, three presets, progress,
-cancellation, strict EPUBCheck validation, and EPUB/HTML/JSON downloads. It can also
-analyze a book without changing it, with optimization hints and accessibility checks,
-and optionally convert images to WebP. It offers
-French, English, Italian, Spanish and German, with light, dark and system themes.
-Language and theme choices are remembered by your browser; they do not change the
-book's language.
-
-This interface is included from version 3.17.0. Published npm packages and Docker
-images for **3.16.1 and earlier do not include it**.
-
-With Docker installed, build and start it from this checkout:
-
-```bash
-docker compose -f compose.ui.yaml up -d --build
-```
-
-Open <http://127.0.0.1:8787>, choose an EPUB, select a preset and download the result.
-See [the local interface guide](docs/LOCAL-UI.md) for requirements, limits and shutdown.
-
-## About This Project
-
-I use this project to optimize EPUB files that I create using Pages on Mac. My workflow is:
-
-- Write (text and images) in Pages.
-- Create a manual summary page with bookmark links to chapters and sections. The author workflow preset can synchronize these subsections from the manual summary page to the system navigation files - both EPUB3 toc.xhtml and EPUB2 NCX - so they appear in e-reader navigation menus.
-- Export my work as an EPUB file.
-- Fill in the required information.
-- For "Cover": check the option "Use the first page as the book cover image".
-- For "Layout": check the reflowable option and "Use table of contents". For "Embed fonts", see the [Important Note for Apple Pages Users](#️-important-note-for-apple-pages-users) section below to decide based on whether preserving your typography/design is important to you.
-
-After exporting, my original EPUB file is about 24.4MB. I use the author workflow preset to optimize it (resulting in about 7.3MB). Then I test the result in Apple Books, Kindle Previewer, etc.
-
-This project started with this workflow (I don't use any other tools), but anyone who wants to optimize their EPUB file is welcome to try it! The default `pnpm optimize` path is generic. My complete Pages/manual-summary workflow is available through `pnpm optimize:author`, `--preset author`, or `--author-workflow`. If you have any questions or issues, let me know. Enjoy! :)
-
-### ⚠️ Important Note for Apple Pages Users
-
-**Apple Pages applies DRM encryption to embedded fonts** for copyright protection. This means:
-
-- ✅ **Optional font optimization can work** on eligible unencrypted TTF, OTF, WOFF and WOFF2 fonts when `--fonts` is enabled
-- ❌ **Font optimization WILL NOT work** on Pages EPUBs if you check "Embed fonts"
-- 🔒 **Why?** Apple encrypts fonts to protect font vendors from piracy (this is intentional and legal)
-
-**Your Decision: To Embed Fonts or Not?**
-
-This depends on whether preserving your book's design and typography is important to you.
-
-**Option 1: Keep "Embed fonts" checked** (Preserve design - recommended if typography matters)
-
-- ✅ Your embedded typography and intended design are preserved more consistently
-- ✅ Consistent appearance across all e-readers
-- ✅ Full control over typography
-- ❌ Fonts remain at their original size (typically 1-3 MB total, can't be optimized due to DRM encryption)
-- 📊 My image-heavy workflow still achieves about 85-90% total reduction from image/HTML/CSS optimization
-
-**Option 2: Uncheck "Embed fonts"** (Maximum optimization - recommended if design is not critical)
-
-- ✅ **Maximum file size reduction potential** - optimize images/HTML/CSS and optionally subset compatible fonts with `--fonts`
-- ✅ **Better performance** - smaller files load faster
-- ✅ **More compatible** - readers' preferred fonts are used (better accessibility)
-- ✅ **Cleaner output** - no encrypted font files that can't be processed
-- ❌ You lose control over typography - readers will see their default fonts
-- ❌ Your book's appearance becomes unpredictable across devices
-- ❌ Design integrity may be compromised
-
-**Choose based on your priority:**
-
-- **Professional publications where typography matters** → Embed fonts (accept 1-3 MB overhead)
-- **Maximum file size and performance** → Don't embed fonts (lose design control)
 
 ## Quick Start
 
@@ -203,15 +115,27 @@ docker compose run --rm optimizer \
   -i YourBook.epub -o YourBook-optimized.epub --preset author
 ```
 
-## Migrating to v3
+## Local Graphical Interface
 
-Version 3 makes the default command safer and less specific to this project's original author workflow:
+The local browser interface supports one EPUB at a time, three presets, progress,
+cancellation, strict EPUBCheck validation, and EPUB/HTML/JSON downloads. It can also
+analyze a book without changing it, with optimization hints and accessibility checks,
+and optionally convert images to WebP. It offers
+French, English, Italian, Spanish and German, with light, dark and system themes.
+Language and theme choices are remembered by your browser; they do not change the
+book's language.
 
-- `pnpm optimize` now uses the generic `balanced` preset. It does not apply XHTML repairs, lazy loading, or author structure changes unless explicitly requested.
-- `pnpm optimize:author`, `--preset author`, and `--author-workflow` run the complete Pages/manual-summary workflow, including repairs, lazy loading, cover navigation, summary synchronization, and chapter sections.
-- For behavior close to the old generic v2 pipeline without the author structure changes, use `pnpm optimize ... --repair --lazy-loading`.
-- Input, output, and JSON report paths must be different. The output is created as a candidate and replaces the requested output only after EPUBCheck succeeds.
-- Use `--strict` to reject warnings, `--profile` to inspect step durations, and `--report-json` for a machine-readable result.
+This interface is included from version 3.17.0. Published npm packages and Docker
+images for **3.16.1 and earlier do not include it**.
+
+With Docker installed, build and start it from this checkout:
+
+```bash
+docker compose -f compose.ui.yaml up -d --build
+```
+
+Open <http://127.0.0.1:8787>, choose an EPUB, select a preset and download the result.
+See [the local interface guide](docs/LOCAL-UI.md) for requirements, limits and shutdown.
 
 ## Features
 
@@ -219,10 +143,10 @@ Version 3 makes the default command safer and less specific to this project's or
 - HTML/XHTML minification (removes comments and minifies embedded code while preserving text and significant whitespace)
 - CSS optimization (minifies and combines rules)
 - Image compression (JPEG, PNG, WebP, GIF, AVIF, and SVG according to the selected preset and quality settings)
-- **Image quality guard**: every lossy re-encode is compared with its source (SSIM). Encodes below `--min-image-ssim` are redone at higher quality or the original is kept, and scores appear in JSON/HTML reports. See [Image Quality Guard](#image-quality-guard).
+- **Image quality guard**: every lossy re-encode is compared with its source (SSIM). Encodes below `--min-image-ssim` are redone at higher quality or the original is kept, and scores appear in JSON/HTML reports. See [Image Quality Guard](docs/CLI.md#image-quality-guard).
 - JPEG recompression applies EXIF orientation to the pixels before encoding, preserving the displayed rotation and mirroring.
 - PNG to JPEG conversion for non-transparent images (significantly reduces file size)
-- **Optional WebP conversion** via `--convert-webp` for EPUB 3 books: much smaller images, transparency preserved, for reading systems that support WebP. See [WebP Conversion](#webp-conversion).
+- **Optional WebP conversion** via `--convert-webp` for EPUB 3 books: much smaller images, transparency preserved, for reading systems that support WebP. See [WebP Conversion](docs/CLI.md#webp-conversion).
 - JavaScript minification (reduces script size)
 - **Optional font subsetting** via `--fonts`, using the included HarfBuzz WebAssembly engine with conservative content and font checks
 - **SVG optimization** (minifies SVG files using SVGO)
@@ -240,7 +164,7 @@ Version 3 makes the default command safer and less specific to this project's or
 - **Balanced, lossless, and author presets**
 - Strict failure mode, per-step profiling, and JSON run reports
 - Non-destructive doctor/inspect mode for OPF, navigation, internal reference, image weight, and optimization-risk summaries
-- **Accessibility checks in doctor mode**: missing image text alternatives, document languages, EPUB Accessibility metadata and page navigation. See [Accessibility Checks](#accessibility-checks).
+- **Accessibility checks in doctor mode**: missing image text alternatives, document languages, EPUB Accessibility metadata and page navigation. See [Accessibility Checks](docs/REPORTS.md#accessibility-checks).
 - Archive extraction limits, zip-slip and symlink rejection, and safe OPF/manifest/navigation path resolution
 - **Graceful handling of special EPUBs**: detects `META-INF/encryption.xml` and refuses DRM-encrypted books instead of silently corrupting them, while still optimizing books whose only encrypted resources are fonts (the fonts are left byte-for-byte intact)
 - **Fixed-layout aware**: automatically disables image downscaling for pre-paginated (`rendition:layout`) EPUBs so page images stay aligned with the declared viewport
@@ -252,8 +176,58 @@ Version 3 makes the default command safer and less specific to this project's or
 
 > **Note:**
 >
-> - **Font subsetting limitation:** fonts listed in encryption metadata remain byte-for-byte intact. `--fonts` is opt-in and uses the included HarfBuzz engine; no separate font package installation is needed. Dynamic CSS/JavaScript text and unsupported font features are conservatively skipped. See [Font subsetting](#font-subsetting) for limits.
+> - **Font subsetting limitation:** fonts listed in encryption metadata remain byte-for-byte intact. `--fonts` is opt-in and uses the included HarfBuzz engine; no separate font package installation is needed. Dynamic CSS/JavaScript text and unsupported font features are conservatively skipped. See [Font subsetting](docs/CLI.md#font-subsetting) for limits.
 > - Lazy loading is enabled by the author preset or explicitly with `--lazy-loading`.
+
+## About This Project
+
+I use this project to optimize EPUB files that I create using Pages on Mac. My workflow is:
+
+- Write (text and images) in Pages.
+- Create a manual summary page with bookmark links to chapters and sections. The author workflow preset can synchronize these subsections from the manual summary page to the system navigation files - both EPUB3 toc.xhtml and EPUB2 NCX - so they appear in e-reader navigation menus.
+- Export my work as an EPUB file.
+- Fill in the required information.
+- For "Cover": check the option "Use the first page as the book cover image".
+- For "Layout": check the reflowable option and "Use table of contents". For "Embed fonts", see the [Important Note for Apple Pages Users](#important-note-for-apple-pages-users) section below to decide based on whether preserving your typography/design is important to you.
+
+After exporting, my original EPUB file is about 24.4MB. I use the author workflow preset to optimize it (resulting in about 7.3MB). Then I test the result in Apple Books, Kindle Previewer, etc.
+
+This project started with this workflow (I don't use any other tools), but anyone who wants to optimize their EPUB file is welcome to try it! The default `pnpm optimize` path is generic. My complete Pages/manual-summary workflow is available through `pnpm optimize:author`, `--preset author`, or `--author-workflow`. If you have any questions or issues, let me know. Enjoy! :)
+
+### Important Note for Apple Pages Users
+
+**Apple Pages applies DRM encryption to embedded fonts** for copyright protection. This means:
+
+- ✅ **Optional font optimization can work** on eligible unencrypted TTF, OTF, WOFF and WOFF2 fonts when `--fonts` is enabled
+- ❌ **Font optimization WILL NOT work** on Pages EPUBs if you check "Embed fonts"
+- 🔒 **Why?** Apple encrypts fonts to protect font vendors from piracy (this is intentional and legal)
+
+**Your Decision: To Embed Fonts or Not?**
+
+This depends on whether preserving your book's design and typography is important to you.
+
+**Option 1: Keep "Embed fonts" checked** (Preserve design - recommended if typography matters)
+
+- ✅ Your embedded typography and intended design are preserved more consistently
+- ✅ Consistent appearance across all e-readers
+- ✅ Full control over typography
+- ❌ Fonts remain at their original size (typically 1-3 MB total, can't be optimized due to DRM encryption)
+- 📊 My image-heavy workflow still achieves about 85-90% total reduction from image/HTML/CSS optimization
+
+**Option 2: Uncheck "Embed fonts"** (Maximum optimization - recommended if design is not critical)
+
+- ✅ **Maximum file size reduction potential** - optimize images/HTML/CSS and optionally subset compatible fonts with `--fonts`
+- ✅ **Better performance** - smaller files load faster
+- ✅ **More compatible** - readers' preferred fonts are used (better accessibility)
+- ✅ **Cleaner output** - no encrypted font files that can't be processed
+- ❌ You lose control over typography - readers will see their default fonts
+- ❌ Your book's appearance becomes unpredictable across devices
+- ❌ Design integrity may be compromised
+
+**Choose based on your priority:**
+
+- **Professional publications where typography matters** → Embed fonts (accept 1-3 MB overhead)
+- **Maximum file size and performance** → Don't embed fonts (lose design control)
 
 ## Requirements
 
@@ -300,41 +274,6 @@ pnpm install --frozen-lockfile
 pnpm build
 ```
 
-### Local package and typed Node API
-
-The published package includes the typed Node API. Maintainer publication setup
-and staged approval are described in [docs/NPM.md](docs/NPM.md). The local tarball
-workflow below is useful for testing unpublished changes.
-
-Build and inspect a local package without publishing it to a registry:
-
-```bash
-# From this repository; prepack rebuilds JavaScript and declarations first.
-pnpm pack --out /tmp/epub-optimizer.tgz
-
-# From a separate Node.js project:
-pnpm add /tmp/epub-optimizer.tgz
-bash node_modules/epub-optimizer/scripts/install-epubcheck.sh ./epubcheck
-EPUBCHECK_PATH="$PWD/epubcheck/epubcheck.jar" pnpm exec epub-optimizer \
-  -i book.epub -o book-optimized.epub --strict
-```
-
-The tarball contains compiled JavaScript, TypeScript declarations, README, license and the pinned EPUBCheck installer. It excludes TypeScript implementation sources, tests, development tools, local reports and books. Java and the EPUBCheck JAR are not bundled or downloaded during package installation; configure the JAR explicitly with `EPUBCHECK_PATH` as above. Docker remains the distribution that includes Java and EPUBCheck. Creating a tarball does not publish an npm release.
-
-ESM consumers import the API and its types from the package root:
-
-```typescript
-import { optimizeEPUB, type Args, type OptimizeOptions } from "epub-optimizer";
-
-export async function optimizeBook(args: Args, hooks: OptimizeOptions = {}) {
-  return optimizeEPUB(args, hooks);
-}
-```
-
-`Args` still describes fully resolved processing options; this does not introduce a partial-options API or change defaults. Exported types also include `Preset`, `ContentProcessingOptions`, `BatchReport`, `BatchItem`, `PipelineReport`, `StepReport`, `StepStatus` and `EpubCheckReport`. Existing root and deep ESM imports remain available. The same Java/EPUBCheck validation and output protection apply to installed API calls.
-
-`pnpm test:package` packs the project and installs the tarball with production dependencies into a new temporary consumer outside the repository, without dependency lifecycle scripts. It audits that consumer's production dependencies and verifies strict TypeScript usage (including rejected invalid types), CLI/API execution from another working directory, readable JavaScript stack locations, external EPUBCheck configuration and preservation of an existing output when the validator is missing. It requires Java, the pinned validator and registry access for consumer dependencies; it only uses generated EPUB fixtures. CI runs it on Node 22 and 24.
-
 ### EPUBCheck Setup
 
 This tool requires EPUBCheck to validate EPUB files. Follow these steps:
@@ -363,54 +302,12 @@ are unavailable. A nonzero validator exit or timeout always fails validation.
 
 CI and Docker pin EPUBCheck 5.4.0 and its sha256 checksum centrally in `scripts/install-epubcheck.sh` (single source of truth); the download is verified against the checksum before installation.
 
-## Docker Alternative
+## Docker
 
-You must have [Docker installed](https://docs.docker.com/get-docker/) with Docker Compose v2. Docker Desktop includes both.
-
-### Pre-built Image (GHCR)
-
-Every release publishes a multi-arch image (amd64 and arm64, including Apple Silicon) to GitHub Container Registry. It is the fastest way to use the optimizer — no clone, no build, no Node.js or Java to install:
-
-```bash
-docker run --rm -v "$PWD:/epub-files" ghcr.io/kiki-le-singe/epub-optimizer \
-  -i your-book.epub -o your-book-optimized.epub
-```
-
-Pin a specific release with a version tag, e.g. `ghcr.io/kiki-le-singe/epub-optimizer:3.5.0` (images are published starting with v3.5.0). Building locally with Compose (below) remains fully supported and is the right choice when modifying the source.
-
-Docker Compose provides a containerized environment with all dependencies pre-installed. It automatically mounts the repository directory, so the same relative EPUB paths work on Windows, macOS, and Linux. When working from a clone, Compose builds the image locally.
-
-### Docker Requirements
-
-- Docker Desktop, or Docker Engine with Docker Compose v2
-
-### Docker Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/kiki-le-singe/epub-optimizer.git
-cd epub-optimizer
-
-# Build the local image (includes all dependencies)
-docker compose build
-```
-
-### Docker Quick Start
-
-```bash
-# Build when needed, then optimize an EPUB from the repository directory
-docker compose run --build --rm optimizer \
-  -i your-book.epub -o your-book-optimized.epub
-```
-
-**Benefits of Docker approach:**
-
-- ✅ No need to install Node.js, Java, or pnpm
-- ✅ Works consistently across all platforms (Windows, Mac, Linux)
-- ✅ Includes EPUBCheck automatically
-- ✅ Uses the dependency versions tested by the project
-- ✅ Automatically mounts the working directory and accepts relative EPUB paths
-- ✅ Runs non-root with no network, no Linux capabilities, and a read-only container filesystem
+No Node.js or Java to install: every release publishes a multi-arch image (amd64 and arm64)
+to GitHub Container Registry and Docker Hub. The [Quick Start](#quick-start) command above is
+all you need for a single book. The [Docker guide](docs/DOCKER.md) covers pinned images,
+Compose, file permissions and troubleshooting.
 
 ## Usage
 
@@ -436,202 +333,25 @@ docker compose run --build --rm optimizer \
 | `test:docker`       | Validate raw Docker and the complete Docker Compose workflow matrix with EPUBCheck            |
 | `release:check`     | Validate a requested release version against `package.json` and optional tag/ref guards       |
 | `release:prepare`   | Prepare a version PR, wait for Required CI, then merge into `main` (`--dry-run` to preview)   |
-| `lint`              | Lint TypeScript files in src and scripts directories                                          |
-| `lint:fix`          | Lint and auto-fix TypeScript files in src and scripts                                         |
+| `release:examples`  | Point installation examples and pinned watcher images at a published release                  |
+| `lint`              | Lint TypeScript files in the src, scripts and ui directories                                  |
+| `lint:fix`          | Lint and auto-fix TypeScript files in src, scripts and ui                                     |
 | `format`            | Auto-format all .ts, .json, and .md files with Prettier                                       |
 | `format:check`      | Check formatting of all .ts, .json, and .md files with Prettier                               |
 
-### Modern Workflow
-
-```bash
-# Build for development (faster, not minified)
-pnpm build:dev
-
-# Build for production (with minification)
-pnpm build
-# or
-pnpm build:prod
-
-# Then run the optimizer
-pnpm optimize -i YourBook.epub -o YourBook-optimized.epub
-
-# Or use the project author's Pages/manual-summary workflow
-pnpm optimize:author -i YourBook.epub -o YourBook-optimized.epub
-
-# Avoid lossy image changes
-pnpm optimize:lossless -i YourBook.epub -o YourBook-optimized.epub
-
-# Apply the explicit XHTML repair passes
-pnpm optimize:repair -i YourBook.epub -o YourBook-optimized.epub
-
-# Reject warnings, print timings, and write a machine-readable report
-pnpm optimize -i YourBook.epub -o YourBook-optimized.epub \
-  --strict --profile --report-json reports/optimization-report.json
-
-# Inspect an EPUB without writing an optimized output
-pnpm optimize --doctor -i YourBook.epub \
-  --report-json reports/doctor-report.json
-
-# Run tests
-pnpm test
-# or run tests once and exit
-pnpm test:run
-# run the EPUBCheck end-to-end fixture after pnpm build
-pnpm test:e2e
-
-# after docker compose build, run the raw Docker and Compose fixtures
-pnpm test:docker
-```
-
-### Command Line Options
-
-```
-Usage: epub-optimizer [options]
-
-Options:
-  -i, --input       Input EPUB file path                    [string] [default: "mybook.epub"]
-  -o, --output      Output EPUB file path                   [string] [default: "mybook_opt.epub"]
-  --config          Explicit JSON settings; CLI flags override file values
-  --jobs            Concurrent batch books (1-4; default: 1)
-  --storage         Inspect a watcher output directory without deleting anything
-  --storage-plan    Save a new JSON purge preview (requires --storage)
-  --apply-storage-plan  Reverify and apply a saved purge preview
-  --keep-revisions  Successful revisions retained per original (minimum 1; default 2)
-  --batch           Directory of EPUB files to optimize (non-recursive)
-  --watch           Continuously optimize EPUB files dropped in this directory
-  --watch-settle-ms  Quiet interval before processing a watched file [default: 3000, minimum: 1000]
-  --output-dir      Destination directory required with --batch or --watch
-  -t, --temp        Temporary directory for processing      [string] [default: unique temp_epub-<id>]
-  --jpg-quality     JPEG compression quality (0-100)        [number] [default: 70]
-  --png-quality     PNG compression quality (0-1 scale)     [number] [default: 0.6]
-  --min-image-ssim  Minimum SSIM (0-1) for lossy image re-encodes; 0 disables [number] [default: 0.85]
-  --lang            UI language for labels (e.g. fr, en)    [string] [default: "fr"]
-  --fonts           Enable experimental font subsetting      [boolean] [default: false]
-  --preset          Optimization preset: balanced, lossless, author
-  --repair          Apply potentially modifying XHTML repairs
-  --author-workflow Enable the complete author workflow, including repairs
-  --author-config   JSON overrides for the author workflow's summary, cover, and CSS class mapping
-  --convert-png     Convert large opaque PNG files to JPEG when safe
-  --convert-webp    Convert PNG and JPEG images to WebP when smaller (EPUB 3 only) [boolean] [default: false]
-  --png-background  Opt in to flattening eligible transparent PNGs onto #RRGGBB before JPEG conversion
-  --no-convert-png  Disable PNG-to-JPEG conversion
-  --lazy-loading    Add loading="lazy" to XHTML images
-  --no-lazy-loading Disable lazy loading
-  --max-image-dim   Maximum image width/height; 0 disables resizing
-  --strict          Fail when a step emits warnings or errors
-  --validation-timeout
-                    Maximum EPUBCheck runtime in milliseconds [number] [default: 120000]
-  --image-concurrency
-                    Concurrent image operations, from 1 to 64 [number] [default: CPU parallelism, capped at 8]
-  --profile         Print execution time for each pipeline step
-  --report-json     Write a structured pipeline or batch summary report to JSON
-  --report-html     Write a standalone HTML optimization or batch summary report
-  --doctor, --inspect
-                    Inspect an EPUB without optimizing or writing an output EPUB
-  --clean           Clean temporary files after processing  [boolean] [default: false]
-  -h, --help        Show help message                       [boolean]
-  -v, --version     Show version number                     [boolean]
-
-Examples:
-  pnpm optimize -i book.epub -o book-optimized.epub            Basic optimization
-  pnpm optimize:clean -i book.epub -o book-opt.epub            Optimize and clean temp files
-  pnpm optimize -i book.epub -o book-opt.epub --jpg-quality 85 Higher JPEG quality (less compression)
-  pnpm optimize -i book.epub -o book-opt.epub --png-quality 0.9 Higher PNG quality (less compression)
-  pnpm optimize -i book.epub -o book-opt.epub --fonts          Enable font subsetting
-  pnpm optimize:lossless -i book.epub -o book-opt.epub         Avoid lossy image changes
-  pnpm optimize:repair -i book.epub -o book-opt.epub           Apply XHTML repair passes
-  pnpm optimize:author -i book.epub -o book-opt.epub           Use the author's Pages/manual-summary workflow
-  pnpm optimize -i input.epub -o output.epub --jpg-quality 85 --png-quality 0.8 Custom image settings
-  pnpm optimize --doctor -i input.epub                         Inspect without modifying the EPUB
-```
-
-> **Script Differences:**
->
-> - `pnpm optimize` - Optimizes the EPUB file and keeps temporary files for inspection
-> - `pnpm optimize:lossless` - Skips lossy image conversion, recompression, and resizing
-> - `pnpm optimize:repair` - Same as optimize, plus explicit XHTML repair passes
-> - `pnpm optimize:author` - Complete author workflow: generic optimization, repairs, lazy loading, cover navigation, summary page, and chapter sections
-> - `pnpm optimize:clean` - Same as optimize but removes temporary files afterward
-> - `pnpm cleanup <directory>` - Removes a marked temporary directory from a previous run
-
-### JSON configuration
-
-Use an explicit JSON file with long, kebab-case option names. There is no automatic
-search for configuration files and no executable JavaScript, includes or environment
-interpolation. Built-in defaults apply first, file settings second, explicit CLI
-flags last (including `--no-fonts` and other negative booleans).
-
-```json
-{
-  "preset": "balanced",
-  "strict": true,
-  "clean": true,
-  "image-concurrency": 2,
-  "watch": "inbox",
-  "output-dir": "optimized"
-}
-```
-
-```bash
-pnpm optimize --config optimizer.json
-# Override one setting without editing the file:
-pnpm optimize --config optimizer.json --image-concurrency 1
-```
-
-Paths from the file are relative to that file's directory; CLI paths are relative
-to the current working directory. Unknown keys and mistyped values fail before
-processing. The file must be regular JSON, at most 64 KiB. Optimization options,
-paths, batch/watch settings and `jobs` are supported; help/version, storage/purge
-commands, nested config and short/camelCase aliases are deliberately excluded.
-Storage maintenance cannot be combined with `--config`. The settings file cannot
-alias an output/report target and must stay outside batch/watch output directories.
-
-### Storage inventory and controlled purge
-
-Stop the watcher before applying a purge. Preview is read-only; keep two successful
-revisions per original by default, or explicitly choose at least one:
-
-```bash
-pnpm optimize --storage watch/optimized --keep-revisions 2 \
-  --storage-plan /tmp/epub-storage-plan.json
-# Review that JSON file, then explicitly apply that same preview:
-pnpm optimize --apply-storage-plan /tmp/epub-storage-plan.json
-```
-
-A saved plan is created exclusively: an existing file is never overwritten.
-`verifiedRevisionBytes` counts recognized, checksum-verified successful revisions
-only; `candidateBytes` is their proposed removal size. These are apparent file
-bytes, not total filesystem usage or guaranteed reclaimed space. Unknown entries,
-failed runs, unexpected files, symlinks, hard links and altered outputs are listed
-as protected rather than deleted. Revisions are grouped by original absolute path
-and ordered by completion-record modification time. Originals are never read or
-removed by maintenance.
-
-Apply acquires the same lock as the watcher and recomputes the saved candidates;
-changed candidates require a new preview. Only recognized revision files are
-unlinked; no recursive deletion follows links. An interruption can leave an
-`.epub-prune-*` recovery directory: it is preserved as an unknown entry, so inspect
-it manually before any cleanup. A purge is irreversible; keep backups of outputs
-you need. Paths in a container must refer to that container's mounted output directory;
-create and apply a plan in the same path namespace.
-
-Temporary extraction directories are kept separately. Use `--clean` for future
-successful runs; remove an old, inspected, marked extraction directory explicitly
-with `pnpm cleanup <directory>`. Storage retention does not sweep system temporary
-folders or discard failed-run diagnostics automatically.
-
 ### Modes and Presets
 
-| Behavior                         | `balanced` | `lossless` | `author` |
-| -------------------------------- | ---------- | ---------- | -------- |
-| HTML/CSS/JavaScript minification | Yes        | Yes        | Yes      |
-| SVG optimization                 | Yes        | Yes        | Yes      |
-| PNG-to-JPEG conversion           | Yes        | No         | Yes      |
-| Raster image resize/re-encode    | Yes        | No         | Yes      |
-| Default maximum image dimension  | 1600 px    | Disabled   | 1600 px  |
-| Lazy loading                     | No         | No         | Yes      |
-| XHTML repairs                    | No         | No         | Yes      |
-| Author structure workflow        | No         | No         | Yes      |
+| Behavior                           | `balanced` | `lossless` | `author` |
+| ---------------------------------- | ---------- | ---------- | -------- |
+| HTML/CSS/JavaScript minification   | Yes        | Yes        | Yes      |
+| SVG optimization                   | Yes        | Yes        | Yes      |
+| PNG-to-JPEG conversion             | Yes        | No         | Yes      |
+| Raster image resize/re-encode      | Yes        | No         | Yes      |
+| WebP conversion (`--convert-webp`) | Opt-in     | Refused    | Opt-in   |
+| Default maximum image dimension    | 1600 px    | Disabled   | 1600 px  |
+| Lazy loading                       | No         | No         | Yes      |
+| XHTML repairs                      | No         | No         | Yes      |
+| Author structure workflow          | No         | No         | Yes      |
 
 - `balanced` is the default generic preset. It optimizes content and images without applying XHTML repairs or author structure changes.
 - `lossless` means no lossy raster processing. Text, CSS, JavaScript, and SVG files are still optimized, so the output is not byte-for-byte identical to the input.
@@ -645,496 +365,20 @@ folders or discard failed-run diagnostics automatically.
 
 Applicable CLI options override preset defaults. For example, `--preset balanced --no-convert-png` disables PNG-to-JPEG conversion. The `lossless` preset always skips lossy raster processing, and the author workflow always includes repairs and author structure updates.
 
-#### Optional background for transparent PNGs
-
-By default, PNGs with an alpha channel are kept as PNG. To allow eligible transparent PNGs to be converted to JPEG, explicitly choose an opaque background:
-
-```bash
-pnpm optimize -i book.epub -o book-white.epub --png-background '#ffffff'
-```
-
-`--png-background` accepts only a six-digit hex color (`#RRGGBB`), including the `#`; quote it in the shell. There is no default background. This option also applies to each book in batch mode and is available to Node API callers as `args.pngBackground`.
-
-Flattening permanently replaces transparency, including around captions, with the chosen color. White backgrounds can create visible white rectangles in dark reading modes. JPEG encoding is lossy; inspect text inside images, diagrams and edges in the target readers. EPUBCheck and content/text checks do not certify visual quality.
-
-The existing conversion safeguards still apply: PNGs smaller than 200 KiB and animated PNGs are skipped; the JPEG must be smaller than the original PNG, have a manifest entry and have supported, safely rewritable references. Conversion and resizing share one encoding pass; an unsuccessful conversion retains the PNG. This is not a command to recolor every PNG. Opaque PNGs retain their existing conversion behavior. `--png-background` is rejected with `--preset lossless`, `--no-convert-png`, or doctor mode, rather than silently ignored. Existing commands and presets are unchanged when the option is omitted.
-
-### Safe temporary directories and validation deadlines
-
-Each CLI run uses a unique `temp_epub-<id>` directory by default. An explicit
-`--temp <path>` must not already exist: even an empty or previously used directory
-is refused, so concurrent runs cannot overwrite one another. Existing directories
-are never cleared during extraction. The console and JSON report (`tempDir`) show
-the actual extraction path. `--clean` removes only the current run's marked
-directory after successful publication. For a retained run, use
-`pnpm cleanup <directory>`; unmarked directories and symbolic links are refused.
-The hidden ownership marker is excluded from the output EPUB.
-
-EPUBCheck has a 120-second deadline. Use `--validation-timeout 300000` for larger
-books that need up to five minutes. A timeout fails the run, discards the candidate,
-and preserves any previous output and the extracted files.
-
-HTML/XHTML text whitespace and SVG identifiers are preserved because external
-stylesheets and references can depend on them. Named character references such as
-`&nbsp;` or `&eacute;` (valid in EPUB 2) are rewritten as the equivalent numeric
-references, and CDATA text outside scripts and styles is rewritten as escaped text:
-the displayed characters are unchanged. XHTML minification keeps existing UTF-8
-text in UTF-8.
-XHTML documents are identified by their OPF media type as well as their extension
-and XML markers. Before accepting minification, the optimizer compares element
-nesting and order, identifiers, namespaces, and the position of character data. If these
-change, it keeps the original document byte for byte and logs the skipped
-optimization. Intentional inline CSS and JavaScript minification is excluded from
-this comparison; final EPUBCheck validation still applies.
-CDATA-wrapped or entity-escaped inline scripts and styles are kept as written.
-CSS `@import` rules are kept instead of being inlined. External stylesheets,
-`<style>` blocks and `style` attributes retain their CSS when the minifier reports
-an error or warning, or offers no smaller result. XHTML styles also retain their
-original CSS if minification would introduce XML delimiters. Raster recompressions
-are committed only when smaller, unless they actually change the dimensions
-requested by the user.
-
-### Font subsetting
-
-`--fonts` enables HarfBuzz/WASM subsetting of eligible TTF, OTF, WOFF and WOFF2
-fonts, preserving their container format, hinting, layout features, embedding
-permissions and copyright/license text. It is disabled by default for every
-preset. Original bytes are retained when there is no size benefit or processing
-fails. The feature does not remove fonts or change the book's text or CSS.
-
-The character pool includes nested XHTML, navigation, SVG, attributes and literal
-stylesheets across the archive, including Unicode NFC/NFD and case equivalents.
-For safety, the entire font step is skipped when it encounters scripts, MathML,
-embedded documents, imported/remote stylesheets, CSS variables, generated content,
-unsupported list markers or text transformations. This deliberately sacrifices
-some possible savings when displayed characters cannot be determined reliably.
-All fonts are preserved when encryption metadata exists. Variable, color, MathML/
-Graphite and embedding/subsetting-restricted fonts are also preserved.
-
-Fonts within each book are processed sequentially, with at most 16 fonts per book, 8 MiB per input font,
-16 MiB per expanded font, 16 MiB of text resources, 4,096 resources and 65,536
-collected code points. Each font runs in a disposable child process with a
-10-second timeout and a 128 MiB V8 heap cap. Parent-side RSS sampling every 100 ms
-terminates a worker observed above 256 MiB; this is a sampled budget, **not an OS
-hard memory limit**, and short allocation spikes can exceed it. Monitoring is
-supported on Linux (`/proc`) and macOS (`/bin/ps`); if it is unavailable, fonts
-remain unchanged. Other platforms conservatively skip this optional feature.
-These budgets apply per book/worker; concurrent API calls can run separate workers.
-
-Failures and uncertain content produce report warnings; `--strict` can reject
-these warnings while preserving an existing final EPUB. Known unsupported fonts
-and absent size benefits are informational skips. EPUBCheck validates the final
-candidate but does not certify font rendering on every reading system. A candidate
-cleanup or ownership failure aborts optimization even without `--strict`, rather
-than packaging a stray temporary font.
-
-### Image Concurrency
-
-Use `--image-concurrency 2` on memory-constrained machines, or adjust from 1 to 64.
-The default is the available CPU parallelism capped at 8. The setting applies to
-both PNG-to-JPEG conversion and image recompression. Lower values trade runtime for
-lower peak memory; compare with `--profile` on representative books before tuning.
-
-A local Node 24 measurement on the 60 MB example, for the image stage alone, gave:
-
-| Concurrent images | Time    | Peak Node RSS |
-| ----------------- | ------- | ------------- |
-| 1                 | 13.31 s | 210 MiB       |
-| 2                 | 6.99 s  | 307 MiB       |
-| 4                 | 4.53 s  | 417 MiB       |
-| 8                 | 4.39 s  | 429 MiB       |
-
-These are single measurements on one Mac, not cross-platform guarantees. All four
-runs produced identical raster bytes (SHA-256 comparison). Java memory is excluded.
-
-### Image Quality Guard
-
-Size options such as `--jpg-quality` and `--png-quality` apply to every image, but
-some images tolerate them worse than others. After each lossy encode (recompression
-or PNG-to-JPEG conversion), the optimizer measures its structural similarity (SSIM)
-with the source:
-
-- The source is first resized to the encode's dimensions, so an intended
-  `--max-image-dim` downscale is not counted as loss. Flattening onto an explicit
-  `--png-background` is also part of the reference.
-- The score is the lowest per-channel SSIM (1 = identical). Transparent images are
-  compared on white and on black. Animated images compare their first frame.
-- An encode below `--min-image-ssim` (default `0.85`) is redone at a higher-fidelity
-  setting: lossless PNG, or quality 92 for JPEG and WebP (80 for AVIF). If that is
-  still below the threshold or no smaller, the original image is kept
-  byte-for-byte, and a PNG is not converted to JPEG.
-- `--min-image-ssim 0` disables measurement and restores the previous behavior.
-
-On the 60 MB example book, all 13 lossy encodes of the default `balanced` preset
-scored between 0.895 and 0.959. The guard therefore changed no image, and the
-output content was identical to a run with the guard disabled. Measuring added
-about 1 s to the 6.6 s run (single local run, macOS ARM64, Node 25). Lower
-thresholds tolerate more loss; raise the threshold to protect detailed artwork at
-the cost of larger images.
-
-SSIM is a structural measure, not a guarantee of how an image looks in every
-reader. Open the optimized book to check important artwork. Guard decisions are
-informational, not warnings, so `--strict` does not fail on them.
-
-### WebP Conversion
-
-`--convert-webp`, available from version 3.19.0, converts PNG and JPEG images to
-WebP when the result is smaller. It is **off by default** because of reader
-compatibility:
-
-- WebP is a core image type only since EPUB 3.3. EPUBCheck accepts it in EPUB 3
-  books; EPUB 2 packages are left unchanged.
-- Older reading systems, including some e-ink devices and conversion services,
-  do not display WebP. Test the result on the readers you target before
-  distributing it, and keep the original book.
-
-What it does:
-
-- Lossy WebP at `--jpg-quality`, with transparency preserved, so transparent
-  PNGs no longer need palette quantization or `--png-background`.
-- The [image quality guard](#image-quality-guard) applies. Below the threshold,
-  a PNG falls back to lossless WebP and a JPEG to quality 92; if that is not
-  smaller or still below the threshold, the original image is kept.
-- `--max-image-dim` and JPEG EXIF orientation are applied in the same encode.
-- References in XHTML, CSS, SVG and `srcset`, and the OPF manifest item
-  (`media-type="image/webp"`), are rewritten as one transaction per image. An
-  image without a rewritable reference keeps its original file.
-- Kept in their original format: the cover image (`cover-image` property or
-  `<meta name="cover">`), animated PNGs, images under 10 KB, and images whose
-  `.webp` name is already taken. They continue through the normal PNG-to-JPEG
-  and recompression steps.
-- It cannot be combined with the lossless preset, which preserves image bytes.
-
-On the 60 MB example book (12 PNGs with transparency and 1 JPEG, `balanced`,
-single local run on macOS ARM64 with Node 25), the output was 1.96 MB with
-`--convert-webp` against 8.69 MB without, with SSIM scores of 0.91 to 0.97 and an
-EPUBCheck-clean result. Savings depend on the images; this is one book, not a
-general figure.
-
-A `type="image/png"` hint on a `<source>` element or in a CSS `image-set()` is not
-rewritten; the image still loads, but remove such hints if your book uses them.
-
-### Doctor / Inspect Mode
-
-Use `--doctor` or `--inspect` to analyze an EPUB without publishing a candidate output and without modifying the input archive:
-
-```bash
-pnpm optimize --doctor -i book.epub
-pnpm optimize --inspect -i book.epub --report-json reports/book-doctor.json
-```
-
-Doctor mode extracts the EPUB to a system temporary directory, reads `container.xml` and the OPF manifest, prints a console summary, writes JSON when `--report-json` is provided, and removes its temporary extraction directory. It does not run the optimizing processors and it does not replace EPUBCheck.
-
-For supported books, the report includes OPF path/version, manifest and spine counts, EPUB3/NCX navigation presence, internal reference counts and missing targets, image byte totals and largest images, duplicate image basenames, large raster images, opaque PNG conversion candidates, WebP images that older reading systems may not display, and other optimization-risk hints.
-
-Doctor checks internal DTD subsets and content DRM before interpreting package or content XML. When either blocks optimization, it prints the reason and writes `analysisComplete: false`, `optimization.blocked: true`, and structured blockers in `optimization.blockers` and `risks`. Detailed `opf`, `navigation`, `references`, `images`, `content`, and `accessibility` fields are omitted rather than reporting misleading metrics. Font obfuscation alone remains inspectable. Exit code 0 means the diagnosis completed, including a diagnosis that finds a blocker; optimizing a blocked book still fails.
-
-For a complete diagnosis, `analysisComplete` is true and `optimization.blocked` is false. These fields do not certify EPUB validity or replace EPUBCheck. Consumers of doctor JSON must check `analysisComplete` before reading detailed metrics.
-
-Image reporting distinguishes `images.totalBytes` (uncompressed manifest image file bytes) from `images.compressedBytes` (the compressed ZIP payload of unique image resources). `images.archivePercent` uses compressed image bytes divided by the EPUB archive size, including ZIP overhead. Multiple manifest references to the same resource count once in the compressed share. When inspecting only an extracted directory without ZIP metadata, `compressedBytes` and `archivePercent` are `null`; uncompressed bytes are never presented as a percentage of compressed archive size.
-
-#### Accessibility Checks
-
-A complete diagnosis also includes an `accessibility` object and a console section.
-EPUBCheck validates the EPUB format, not accessibility; these checks cover a few
-frequent, machine-detectable problems:
-
-| Field            | What is checked                                                                                                                                                                                                    |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `language`       | `dc:language` values of the package, and XHTML documents whose root element has no `lang` or `xml:lang`.                                                                                                           |
-| `images`         | `<img>` elements without a text alternative. An image passes with an `alt` attribute (even empty), an ARIA label, a `title`, or `role="presentation"`/`"none"`. Images with an empty `alt` are counted separately. |
-| `metadata`       | `schema:accessMode`, `accessModeSufficient`, `accessibilityFeature`, `accessibilityHazard`, `accessibilitySummary` and `dcterms:conformsTo`, in EPUB 3 or EPUB 2 (`name`/`content`) form.                          |
-| `pageNavigation` | Page break markers, a page list (EPUB 3 `nav` or NCX `pageList`) and a paginated source (`dc:source` or `pageBreakSource`).                                                                                        |
-| `issues`         | Findings as `{ level, code, message }`, with `a11y-` codes. Warnings are requirements of EPUB Accessibility 1.1 or WCAG; infos are recommendations or items to review.                                             |
-
-`images.withoutTextAlternativeImages` lists at most 1,000 images as
-`{ document, src }`; `images.withoutTextAlternative` is always the exact count.
-Accessibility findings stay in `accessibility.issues` and are not added to the
-optimization `risks`. They never change the exit code.
-
-These are heuristics, not a conformance audit. They do not judge whether an
-alternative text is meaningful, and they do not check contrast, heading order,
-reading order, tables, link text, inline SVG or media overlays. Use a dedicated
-checker such as [Ace by DAISY](https://daisy.github.io/ace/) and a manual review
-before claiming conformance. The optimizer itself does not add or change
-accessibility metadata or alternative text.
-
-#### Optional Author Workflow Configuration
-
-`pnpm optimize:author` continues to use the original Pages/manual-summary conventions by default: `chapter-2.xhtml`, `cover.xhtml`, cover spine id `cover`, chapter classes `p6`/`p8`, section class `p7`, and navigation classes `s3`/`s4`.
-
-For a different authoring workflow, create a JSON file containing only the values that differ:
-
-```json
-{
-  "summaryHref": "contents.xhtml",
-  "coverSpineId": "front-cover",
-  "chapterClasses": ["chapter-link"],
-  "sectionClasses": ["section-link"],
-  "summaryEntryClass": "chapter-link",
-  "coverNavClass": "toc-cover",
-  "sectionNavClass": "toc-section"
-}
-```
-
-Then pass it to the same author command:
-
-```bash
-pnpm optimize:author -i book.epub -o book-optimized.epub \
-  --author-config author-workflow.json
-```
-
-The configuration is validated before structure updates. Unknown keys, unsafe paths, and invalid class/id values fail the run while preserving the temporary directory for debugging.
-
-### Structured Reports and Profiling
-
-- `--strict` also fails the run on processing or EPUBCheck warnings; processing and EPUBCheck errors always fail.
-- `--report-html reports/book.html` writes a standalone, offline HTML report with archive size changes, validation/publication status, step diagnostics and a byte/content comparison of extracted resources. It is available for optimization runs; doctor mode continues to use JSON.
-- `--profile` prints each pipeline step's status and duration.
-- `--report-json reports/report.json` writes a structured report on success and on pipeline failures that occur after preflight path validation.
-- The report directory is created automatically. Local reports under `reports/` are ignored by Git.
-
-Processing diagnostics are emitted explicitly and collected within each asynchronous step; the optimizer does not replace global `console` methods or infer severity from message text. Step `messages` and strict warning/error handling retain their existing format. Custom API processing hooks should use the exported `reportWarning(...args)` and `reportError(...args)` helpers to participate in reports and strict checks. Ordinary `console` output remains display-only; thrown exceptions still fail the operation. Nested step diagnostics also reach the enclosing operation, while concurrent operations have separate collectors and completed steps stop collecting late callbacks. Batch concurrency is bounded by `--jobs` (one by default).
-
-Unless `--min-image-ssim 0` is set, optimization reports include `imageQuality`: the configured `minSsim` and, sorted by path, one entry per lossy image encode that was kept or rejected. Each entry has the root-relative `path`, its `operation` (`recompress`, `png-to-jpeg` or `to-webp`), `convertedTo` for a kept conversion, the `ssim` score and the `outcome`: `accepted` (configured settings kept), `fallback` (higher-quality encode kept) or `kept-original`. HTML reports show the same table. Images that were skipped, or not reduced in size, have no entry.
-
-Once EPUBCheck runs, optimization reports include an optional `validation` object with its native `exitCode`, diagnostic `source` (`json`, `text`, or `unavailable`), version when available, `totals` (`fatals`, `errors`, `warnings`, `infos`), and detailed `messages`. Each message contains a `code`, uppercase `severity`, `message`, `locations` (path and available line/column/context), `additionalLocations`, and an optional suggestion. The same details appear in HTML reports and per-book batch reports, including failed runs. These fields are additive; existing step statuses and messages are retained, and doctor mode is unchanged.
-
-EPUBCheck groups repeated messages and [defaults to at most 25 occurrences per code/message combination](https://www.w3.org/publishing/epubcheck/docs/cli/); totals may exceed the detailed entries returned. Unknown line/column values are omitted. Publication metadata and unrelated raw validator fields are not copied into the optimization report. JSON diagnostics are read from a unique private temporary file with a 16 MiB limit and removed after the invocation. If they are missing, malformed, unsupported or too large, `diagnosticsError` explains that details are unavailable and the native text totals are used when readable. Strict mode still rejects warnings and unavailable totals; non-strict mode retains its native-exit fallback with an explicit warning when totals cannot be read. Fatal/error diagnostics also block publication even if a validator incorrectly exits with code 0.
-
-HTML reports can be used alongside `--report-json`; all report paths must be distinct from the EPUBs and from each other, including symbolic/hard-link aliases. Reports are written on success and on processing/validation failures after preflight. A report write failure makes the command fail, while preserving any already-published validated EPUB. Resource hashing adds disk reads only when HTML reporting is requested. The report contains no external assets or scripts and escapes book-derived filenames and diagnostics. It contains local paths; review it before sharing. Added and removed resources can describe format conversion, and byte comparisons do not certify visual rendering.
-
-```bash
-pnpm optimize -i book.epub -o book-optimized.epub --clean \
-  --report-html reports/book.html --report-json reports/book.json
-```
-
-Reports contain the configured input/output paths, preset, strict mode, timestamps, total duration, size reduction when available, per-step statuses/durations/messages, before/after content metrics, integrity checks, and the final error when a run fails:
-
-```json
-{
-  "input": "/books/input.epub",
-  "output": "/books/output.epub",
-  "preset": "balanced",
-  "strict": true,
-  "success": true,
-  "durationMs": 1234,
-  "content": {
-    "before": {
-      "manifestItems": 42,
-      "spineItems": 18,
-      "contentDocuments": 20,
-      "images": 12,
-      "navigationEntries": 36,
-      "missingReferences": 0
-    },
-    "after": {
-      "manifestItems": 42,
-      "spineItems": 18,
-      "contentDocuments": 20,
-      "images": 12,
-      "navigationEntries": 36,
-      "missingReferences": 0
-    },
-    "integrity": {
-      "valid": true,
-      "newMissingReferences": [],
-      "issues": []
-    }
-  },
-  "steps": [
-    {
-      "name": "Extract EPUB",
-      "status": "success",
-      "durationMs": 42,
-      "messages": []
-    }
-  ]
-}
-```
-
-The report path must differ from the input and output EPUB paths and must be absent or a regular file. A report write failure fails the command.
-
-### Batch optimization
-
-`--jobs 2` enables two books in flight (`1` by default, maximum `4`). Output paths
-are checked for the entire batch before work starts, each book has a unique temp
-directory and report, and summary rows retain input order even when completion
-order differs. A failed book does not stop the others. Each book retains its own
-image concurrency and Java memory requirements; start with `--image-concurrency 1`
-on a constrained NAS. EPUBCheck runs asynchronously so timers and sibling books remain responsive.
-Concurrency is not a guarantee of a proportional speedup. See the reproducible
-[batch measurement](docs/BATCH-PERFORMANCE.md).
-
-Optimize the regular `.epub` files directly inside a directory (case-insensitive extension, non-recursive):
-
-```bash
-pnpm optimize --batch books --output-dir optimized --preset balanced --clean \
-  --report-json reports/batch.json --report-html reports/batch.html
-```
-
-Books are processed one at a time in filename order, using the same candidate validation and transactional output publication as single-book runs. Image concurrency still applies within each book. A failure is recorded and the remaining books continue. Exit code 0 means every book succeeded; exit code 1 means one or more books failed, or planning/report writing failed.
-
-Outputs are named `<original-stem>-optimized.epub`. Per-book JSON reports are always written under `<output-dir>/reports`; requesting an HTML summary also creates per-book HTML reports there. Without `--report-json`, the JSON summary defaults to `<output-dir>/batch-report.json`. The summary lists each book's result, whether this invocation published a validated output, and any error. A later cleanup/report failure can mark a run failed even though its validated output was already published.
-
-The entire path plan is checked before processing: input/output/report aliases, hard links, duplicate target names and file/parent collisions are rejected. EPUB input symlinks and symbolic-link directory roots are refused. Use a distinct output directory. Do not combine `--batch` with explicit `--input`, `--output`, `--temp`, or doctor mode. Empty directories fail without creating outputs. Each book receives a unique system temporary directory; `--clean` removes successful extraction directories while failed runs keep their diagnostics.
-
-The exported `runBatch(args)` API returns the structured summary without setting a process exit code. Pass resolved options, including `batch` and `outputDir`; use `optimizeEPUB(args)` for single-book calls.
-
-### Background Docker watcher
-
-For a step-by-step installation using the published 3.19.0 image, see
-[Docker / NAS setup](docs/NAS.md). The Compose default and the setup helper
-pin the published 3.19.0 release on GHCR, by digest; set
-`EPUB_OPTIMIZER_DOCKER_IMAGE` to choose another one.
-
-For a NAS or custom host directory, the setup helper creates directories and a
-private env file without starting Docker or changing existing settings:
-
-```bash
-sh scripts/setup-watch.sh /absolute/path/to/epub-library .env.watch
-docker compose --env-file .env.watch -f compose.watch.yaml config
-docker compose --env-file .env.watch -f compose.watch.yaml up -d
-```
-
-Review `WATCH_UID`/`WATCH_GID` for the NAS account allowed to access the files.
-The helper writes that pinned image to the env file; it does not install Docker, elevate
-permissions, change ownership or enable unreleased source features in that image.
-It refuses existing env files and symbolic-link storage directories. Linux NAS
-vendor interfaces and ACLs vary; validate permissions on the target device.
-
-One-time setup from the repository root (Docker Compose v2 required):
-
-```bash
-mkdir -p watch/inbox watch/optimized
-printf 'WATCH_UID=%s\nWATCH_GID=%s\n' "$(id -u)" "$(id -g)" > .env.watch
-```
-
-Start the published, digest-pinned image in the background:
-
-```bash
-docker compose --env-file .env.watch -f compose.watch.yaml up -d
-```
-
-Drop EPUBs into `watch/inbox`. Results and per-book reports appear in
-`watch/optimized`, in separate revision directories. The inbox is mounted read-only;
-both directories and `.env.watch` are ignored by Git and Docker builds. No server
-or network connection runs inside the container. The initial image download requires
-network access on the host. The existing `compose.yaml` single-book workflow is unchanged.
-
-```bash
-# Show progress (Ctrl+C stops following logs, not the watcher)
-docker compose --env-file .env.watch -f compose.watch.yaml logs -f watch
-# Stop and remove the service; books and results remain on the host
-docker compose --env-file .env.watch -f compose.watch.yaml down
-```
-
-Docker restarts the service after normal daemon/machine restarts unless explicitly
-stopped. Shutdown allows five minutes for the current book; increase
-`stop_grace_period` for longer operations. **Forced termination or power loss can
-leave a stale output lock:** stop the service, confirm no other watcher is using
-that output, remove `watch/optimized/.epub-watch.lock`, then start again. The service
-does not automatically break locks. An unchanged failed book is retried after restart.
-Logs rotate at 10 MB with three files retained.
-
-Newer Linux/Docker builds use a kernel-backed guard and can recover their own
-interrupted watch records automatically after process/container death. Releases
-before 3.16.1 predate this capability. An env file created by an older setup helper
-can still name one: update its `EPUB_OPTIMIZER_DOCKER_IMAGE` line before relying on
-automatic crash recovery.
-
-Use `EPUB_WATCH_INBOX` and `EPUB_WATCH_OUTPUT` for other host directories (create them
-first). On a NAS, set `WATCH_UID` and `WATCH_GID` in `.env.watch` to an account allowed
-to read the inbox and write the output. Override `EPUB_OPTIMIZER_DOCKER_IMAGE` only
-with the version/digest you intend to run; it is never updated implicitly by this file.
-
-### Watched folder
-
-Open `<output-dir>/index.html` in a browser for an offline overview of completed
-and failed processing attempts, size reductions, diagnostics and links to each
-optimized book and JSON/HTML report. The file updates after each recorded attempt;
-refresh the browser to see changes. Results survive restart via `watch-status.json`
-in each job directory. No web server, scripts or external assets are needed. Older
-jobs are also listed when their bounded JSON reports are readable. Invalid/oversized
-records are ignored; original reports remain available.
-
-```bash
-mkdir -p inbox optimized
-pnpm optimize --watch inbox --output-dir optimized --strict --clean
-```
-
-The process keeps running, scans the top level every second (including existing books),
-and optimizes one book at a time. Drop an EPUB into `inbox`; each successful job gets
-its own directory under `optimized`, containing `optimized.epub`, `report.json`,
-`report.html`, and `completed.json`. Original files remain in the inbox untouched.
-The directory name includes the book name and hashes of its name, contents, tool
-version and settings. Changed books or different optimization settings get new
-outputs; previous successful outputs remain available. Author configuration is
-snapshotted at startup; restart the watcher after editing that configuration. Books with the same contents
-and settings are skipped on restart using the completion record and output checksum.
-Do not edit the completion records. Reports refer to the private input snapshot;
-`completed.json` records the original inbox path.
-
-Files must remain unchanged in size, timestamps and identity for at least three
-seconds before processing. Adjust with `--watch-settle-ms 10000` (minimum 1000).
-**A quiet interval cannot prove that a copy has finished.** Prefer copying with a
-name such as `book.epub.part`, then renaming it to `book.epub` once the transfer
-finishes. The watcher ignores other extensions, nested directories, empty files,
-and symbolic links. A private snapshot is used during optimization; changes during
-snapshot copying defer processing until the file settles again.
-
-Failed books are logged and do not stop later books. An unchanged failure is tried
-once per session; change the file or restart the watcher to retry it. Existing
-successful output is protected by the same EPUBCheck-before-publication pipeline.
-`--strict`, presets, `--fonts` and image options apply normally. JSON and HTML reports
-are automatic; do not pass `--report-json` or `--report-html`. Input and output
-directories must be separate, non-nested real directories. Watch mode cannot be
-combined with batch, doctor, or explicit input/output/temp paths.
-
-For Docker, mount the parent containing both directories (build the current sources first):
-
-```bash
-docker build --target runtime -t epub-optimizer .
-docker run -d --name epub-watch --read-only --network none --tmpfs /tmp \
-  -v "$PWD:/epub-files" epub-optimizer \
-  --watch inbox --output-dir optimized --strict --clean
-docker logs -f epub-watch
-# In another terminal, allow the current book time to finish:
-docker stop --time 300 epub-watch
-docker rm epub-watch
-```
-
-The mounted output directory must be writable by the container user. Files and
-reports stay on the host; Java and EPUBCheck are included in the image.
-
-Ctrl+C or SIGTERM stops accepting new books and lets the current book finish. Exit
-status is 1 if any book failed during that session, otherwise 0. Polling works on
-mounted folders as well as local disks. Only one watcher may use an output directory;
-an exclusive `.epub-watch.lock` enforces this. With legacy exclusive-file locking, if the process was forcibly killed or
-the machine crashed, first confirm no watcher is running, then remove that stale lock
-before restarting. An output or completion record altered externally is refused;
-choose a fresh output directory to rerun it safely.
-
-#### Watch lock recovery
-
-On Linux with `/usr/bin/flock` and a mount that retains descriptor locks, the watcher
-retains an exclusive lock on a persistent
-`.epub-watch.guard` file for its entire lifetime. Process/container death releases
-the kernel lock. After reacquiring that same guard, a new watcher can remove its
-own modern interrupted `.epub-watch.lock` record and resume. No timestamp timeout
-or PID guessing is used. **Do not delete or replace the guard file.**
-
-Legacy/unknown records, changed guard identity, unsafe targets and lock errors are
-refused. macOS, Windows and Linux without the utility retain the previous exclusive
-file behavior and require manual recovery after a crash. The watcher probes lock
-retention at startup; shared mounts that do not retain descriptor locks also use
-this conservative fallback. For those cases, stop the
-service, confirm no watcher uses the output, then remove the stale record before
-restarting. Never remove another active watcher's lock. Automatic recovery is tested
-on local Linux-backed Docker mounts; remote/network filesystems and their locking
-mount options require separate validation. See [Linux flock semantics](https://man7.org/linux/man-pages/man2/flock.2.html).
-
-### Safety Model
+## Guides
+
+| Guide                                               | What it covers                                                                                                 |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| [Command-line reference](docs/CLI.md)               | Every option, JSON configuration, image quality guard, WebP conversion, font subsetting, the typed Node.js API |
+| [Doctor mode and reports](docs/REPORTS.md)          | Inspecting a book without changing it, accessibility checks, JSON and HTML reports, profiling                  |
+| [Batch, watched folders and storage](docs/WATCH.md) | Whole directories, the background watcher (native or Docker Compose), lock recovery, purging stored results    |
+| [Docker](docs/DOCKER.md)                            | Published images, Compose usage, permissions and Docker troubleshooting                                        |
+| [Local interface](docs/LOCAL-UI.md)                 | The browser interface: requirements, limits, analysis and shutdown                                             |
+| [Docker / NAS setup](docs/NAS.md)                   | Step-by-step watched-folder installation on a NAS                                                              |
+| [Development](docs/DEVELOPMENT.md)                  | Project structure, build, tests, validation and customization                                                  |
+| [Releases](docs/RELEASING.md)                       | CI, release preparation, publication and recovery                                                              |
+
+## Safety Model
 
 The exported `optimizeEPUB(args)` Node.js entry point uses the same pipeline as the CLI: content/text preservation checks, optional repair and author passes, candidate EPUBCheck validation, and transactional publication. Java and EPUBCheck must be available for API calls too; `validationTimeout`, `strict`, `reportJson`, and `clean` apply as they do in the CLI. Validation failure or timeout preserves an existing output. The supplied options object is copied before feature detection adjusts processing settings.
 
@@ -1160,376 +404,7 @@ Archive extraction rejects unsafe absolute/traversal paths and symbolic links. I
 
 `META-INF/container.xml` and the OPF package document are the source of truth for content discovery. OPF and navigation references are resolved safely and cannot escape the extracted EPUB root.
 
-### Docker Usage
-
-Docker Compose is the recommended cross-platform Docker interface. It automatically builds or reuses the local image, mounts the repository at `/epub-files`, and lets the CLI use normal relative paths.
-
-**First run or rebuild after updating the repository:**
-
-```bash
-docker compose run --build --rm optimizer \
-  -i book.epub -o book-optimized.epub
-```
-
-**Later runs:**
-
-```bash
-docker compose run --rm optimizer \
-  -i book.epub -o book-optimized.epub
-```
-
-**Custom image quality:**
-
-```bash
-docker compose run --rm optimizer \
-  -i book.epub -o book-optimized.epub \
-  --jpg-quality 50 --png-quality 0.4
-```
-
-**Complete author workflow:**
-
-```bash
-docker compose run --rm optimizer \
-  -i book.epub -o book-optimized.epub \
-  --preset author --clean
-```
-
-**Author workflow with an optional configuration file:**
-
-```bash
-docker compose run --rm optimizer \
-  -i book.epub -o book-optimized.epub \
-  --preset author --author-config author-workflow.json
-```
-
-**Compose command breakdown:**
-
-- `docker compose run` - Run the `optimizer` service defined in `compose.yaml`
-- `--build` - Build or refresh the image before running; needed on the first run and after code updates
-- `--rm` - Remove the stopped one-off container after processing
-- Arguments after `optimizer` are passed directly to the EPUB optimizer
-
-By default, Compose shares the repository directory with the container. Place EPUB files in that directory and use their normal relative names. Temporary files also appear there unless `--clean` is used.
-
-<details>
-<summary>Advanced: raw Docker</summary>
-
-Raw `docker run` remains supported, but its bind-mount syntax varies by shell. The image now works from `/epub-files`, so the EPUB arguments themselves remain relative:
-
-```bash
-docker build -t epub-optimizer .
-docker run --rm -v "$PWD:/epub-files" epub-optimizer \
-  -i book.epub -o book-optimized.epub
-```
-
-</details>
-
-### Debugging with Temporary Files
-
-**Traditional usage:**
-
-```bash
-# Keep temp files for inspection (default behavior)
-pnpm optimize -i book.epub -o book-opt.epub
-# Inspect the temp_epub-<id>/ directory reported by the command
-
-# Custom temp location
-pnpm optimize -i book.epub -o book-opt.epub -t my-debug-folder
-
-# Clean up when done
-pnpm cleanup my-debug-folder
-```
-
-**Docker usage:**
-
-```bash
-# Temp files automatically appear in your current directory
-docker compose run --rm optimizer \
-  -i book.epub -o book-optimized.epub
-# Inspect the reported temp_epub-<id>/ directory on your host
-
-# Custom temp location (still visible on host)
-docker compose run --rm optimizer \
-  -i book.epub -o book-optimized.epub \
-  -t my-debug-folder
-
-# Clean temp files after processing
-docker compose run --rm optimizer \
-  -i book.epub -o book-optimized.epub \
-  --clean
-```
-
-**What's in the temp directory?**
-
-- Extracted EPUB structure
-- Processed HTML/CSS/JavaScript files
-- Optimized images
-- Modified fonts only when `--fonts` is enabled
-- All intermediate processing artifacts
-
-This is invaluable for debugging optimization issues or understanding what the tool does to your EPUB.
-
-Failures before successful cleanup preserve temporary files even when `--clean` was requested. This keeps the failed processing state available for debugging. A later report-writing failure can occur after cleanup and publication have already succeeded.
-
-## Project Structure
-
-```
-epub-optimizer/
-├── .github/workflows/
-│   ├── ci.yml                 # Audit, shared quality/Docker checks, and Required CI gate
-│   ├── docker-check.yml       # Shared native AMD64/ARM64 Docker E2E and image scans
-│   ├── epubcheck-watch.yml    # Weekly check for new EPUBCheck releases (opens an issue)
-│   ├── npm-publish.yml        # Stage a verified release on npm for maintainer approval
-│   ├── prepare-release.yml    # Prepare and merge a checked release PR to main
-│   ├── quality.yml            # Shared Node 22/24, coverage, lint, types, and EPUBCheck checks
-│   ├── release-published.yml  # Promote tested image digests and sync main into develop by PR
-│   ├── release.yml            # Validate candidates, tag the source, and create a release draft
-│   └── security-audit.yml     # Required production audit, also available weekly/manually
-├── compose.yaml            # Recommended cross-platform Docker interface
-├── Dockerfile              # Multi-stage production container image
-├── docker-entrypoint.sh    # Docker defaults and CLI entrypoint
-├── docs/RELEASING.md        # Release preparation, publication, diagnostics, and recovery
-├── dist/                   # Compiled JavaScript (production code)
-├── package.json            # Package configuration
-├── README.md               # Documentation
-├── tsconfig.json           # TypeScript configuration
-├── vitest.config.ts        # Test configuration
-├── epubcheck/              # EPUBCheck for EPUB validation (not included in repo)
-├── scripts/                # Build and maintenance scripts
-│   ├── benchmark-batch.ts     # Generated-book concurrency and Node RSS comparison
-│   ├── setup-watch.sh         # Non-overwriting NAS/host directory and env setup
-│   ├── clean-path.ts          # Guarded cleanup helper used instead of rm -rf
-│   ├── docker-e2e.ts          # Docker fixture test runner
-│   ├── e2e-epubcheck.ts       # Local fixture test runner with EPUBCheck
-│   ├── install-epubcheck.sh   # Single source of the EPUBCheck version (CI + Docker)
-│   ├── minify-dist.ts         # Optional legacy minification, outside the default build
-│   ├── package-e2e.ts         # Installed tarball, CLI/API and TypeScript checks
-│   ├── prepare-release.ts     # Prepare and validate a release PR (pnpm release:prepare)
-│   └── validate-release.ts    # Release version/tag/ref guards (pnpm release:check)
-└── src/                    # Source code directory
-    ├── index.ts            # Validated Node.js API entry point
-    ├── watch.ts            # Stable-file polling, snapshots and durable completion records
-    ├── batch.ts            # Sequential batch planning, reports and execution
-    ├── optimization.ts     # Shared API/CLI validation and publication pipeline
-    ├── pipeline.ts         # CLI entry point for the shared optimization pipeline
-    ├── cli.ts              # yargs-based argument parser
-    ├── types.ts            # TypeScript type definitions
-    ├── types.d.ts          # Additional TypeScript declarations
-    ├── processors/         # Content-processing modules
-    │   ├── epub-processor.ts       # Extraction and content processing without publication
-    │   ├── archive-processor.ts    # EPUB extraction/compression (zip-slip safe)
-    │   ├── zip-writer.ts           # EPUB ZIP writer with verified source passthrough
-    │   ├── html-processor.ts       # HTML/CSS processing
-    │   ├── js-processor.ts         # JavaScript minification
-    │   ├── svg-optimizer.ts        # SVG optimization
-    │   ├── lazy-img.ts             # Add loading="lazy" to <img>
-    │   ├── font-processor.ts       # Optional font subsetting
-    │   ├── image-converter.ts      # PNG → JPEG conversion (parallel)
-    │   └── image-processor.ts      # Resize + re-encode (single-pass, parallel)
-    ├── scripts/            # Post-processing steps (exported run(opts) fns)
-    │   ├── create-epub.ts  # Package the final EPUB archive
-    │   ├── validate-epub.ts # Run EPUBCheck via java
-    │   ├── utils.ts        # Shared helpers (RunOpts, isEntryPoint, …)
-    │   ├── fix/            # General XHTML fix scripts (modular)
-    │   │   ├── fix-span-tags.ts
-    │   │   ├── fix-xml.ts
-    │   │   ├── remove-empty-styles.ts
-    │   │   ├── xhtml-files.ts # Shared recursive and manifest-based repair discovery
-    │   │   └── index.ts    # runFixes(): call every fix in sequence
-    │   └── ops/            # EPUB structure modifications
-    │       ├── add-cover-image-property.ts
-    │       ├── update-cover-linear.ts
-    │       ├── update-toc-with-cover.ts
-    │       ├── update-summary-page.ts
-    │       ├── add-chapter-sections-to-toc.ts
-    │       └── update-structure.ts # runStructureUpdates(): call every op
-    └── utils/              # Utility modules
-        ├── config.ts       # Application configuration
-        ├── epub-utils.ts   # OPF / TOC file discovery
-        ├── output-transaction.ts # Candidate output commit/rollback
-        ├── author-workflow-config.ts # Optional validated author workflow mapping
-        ├── epub-doctor.ts    # Non-destructive EPUB inspection and optimization-risk summary
-        ├── epub-integrity.ts # Before/after content metrics and regression checks
-        ├── epub-text.ts      # Before/after text preservation check
-        ├── path-safety.ts  # Safe path resolution inside the extracted EPUB
-        ├── pipeline-options.ts # Preset resolution
-        ├── run-report.ts   # Structured results and profiling
-        └── i18n.ts         # Localized label lookup
-```
-
-Note: Test files are colocated with their respective source files but omitted from this structure for clarity.
-
-## Development Information
-
-This project is built with TypeScript and uses modern ESM modules. Here's how the development workflow works:
-
-### Source and Build Separation
-
-- TypeScript source files are in the `src/` and `scripts/` directories
-- The compiled JavaScript output goes to the `dist/` directory
-- The production build contains:
-  - Test files (`*.test.ts`) are completely excluded
-  - TypeScript declaration files (`*.d.ts`) for the API and its referenced types
-  - No source maps are included
-  - Readable JavaScript with comments and function names, so stack locations point to inspectable code
-- You must run `pnpm build` before running any `optimize` commands
-
-### Import Structure
-
-- The project uses TypeScript's `NodeNext` module resolution, which mirrors Node.js ESM semantics exactly
-- Relative imports must include the explicit `.js` extension in source files (e.g., `import { foo } from './foo.js'`), matching what Node.js resolves at runtime
-- Type-only imports use `import type` (enforced by `verbatimModuleSyntax`) so they are fully erased at build time
-
-### Testing
-
-See the [validation corpus and manual reading-system checklist](docs/VALIDATION.md) for what automated checks cover and what still requires visual review.
-
-- Test files are colocated with the source files they test (e.g., `src/index.ts` and `src/index.test.ts`)
-- This "side-by-side" approach has several advantages:
-  - Easy to locate tests for any module
-  - Promotes keeping tests updated when changing implementation
-  - Makes it clear which parts of the codebase are covered by tests
-  - Simplifies relative imports between tests and implementation
-- Tests are written using Vitest, a modern test framework compatible with Jest syntax
-- Run tests with `pnpm test` (watch mode) or `pnpm test:run` (single run)
-- Run tests with coverage using `pnpm test:coverage`
-- `pnpm test:e2e` runs the public `optimize`, `optimize:clean`, `optimize:lossless`, `optimize:repair`, and `optimize:author` commands, including a configured author workflow
-- Every pnpm E2E output is checked for content integrity and validated with EPUBCheck; clean/keep-temp behavior and workflow-specific transformations are also verified
-- The author E2E fixture also checks before/after content integrity, sequential NCX navigation, and a maximum output-size ratio to catch compression regressions
-- `pnpm test:docker` validates raw Docker balanced/author/fonts plus Docker Compose balanced, lossless, repair, author, and configured-author workflows
-- Docker E2E verifies reports, content integrity, EPUBCheck output, workflow-specific transformations, and clean/keep-temp behavior
-- CI validates the project on Node.js 22 and 24, and runs the Docker E2E workflow on Node.js 24
-- Unit tests run in a Node.js environment and mock external dependencies where appropriate
-
-### Production Validation
-
-Use Node 24 LTS for development and release checks (`.node-version`); the minimum
-supported runtime is Node 22.12. Install with `pnpm install --frozen-lockfile`.
-CI validates Node 22 and 24, coverage, formatting, EPUBCheck and Docker workflows.
-The production dependency audit is required by every CI and release run, including
-release retries; it also runs weekly and can be started manually.
-Publishing a prerelease promotes its tested image to the version tag without changing `latest`.
-
-### Release Validation
-
-Run **Prepare release** from `main` in GitHub Actions with the next version after develop's CI passes. It prepares a PR, waits for **Required CI**, merges through branch rules and dispatches the shared validation and native AMD64/ARM64 image tests. **Release** creates a draft with the tested image digests; publishing that draft promotes the same images to their version tag and, for stable releases, `latest`, then synchronizes develop. Release retries preserve existing notes and reuse recorded images.
-
-The local `pnpm release:prepare X.Y.Z` command uses the same PR flow with authenticated Git/GitHub CLI access; follow it by dispatching **Release** from main with the printed `expected-sha`. Configure the dedicated repository-scoped release App before using the automated workflows. See [Releases and CI](docs/RELEASING.md) for setup, diagnostics, scan policy, prereleases and recovery.
-
-Before creating a release manually, run the CI quality gates plus coverage, audit, and local Docker checks:
-
-```bash
-pnpm release:check --version "$(node -p 'require("./package.json").version')"
-pnpm lint
-pnpm format:check
-pnpm build
-pnpm test:run
-pnpm test:coverage
-pnpm audit --prod
-pnpm test:e2e
-docker compose config --quiet
-docker compose build
-pnpm test:docker
-```
-
-Also validate a representative real EPUB through both execution paths:
-
-```bash
-pnpm optimize:author -i YourBook.epub -o YourBook-pnpm.epub \
-  --strict --report-json reports/YourBook-pnpm-report.json
-
-docker compose run --rm optimizer \
-  -i YourBook.epub -o YourBook-docker.epub \
-  --preset author --strict --report-json reports/YourBook-docker-report.json
-```
-
-A successful release candidate exits with code 0, passes EPUBCheck without errors or warnings in strict mode, and produces reports with `"success": true` and `"content.integrity.valid": true`.
-
-### Development and Production
-
-- For development: Make changes to TypeScript files and run `pnpm build:dev`
-- For production: Run `pnpm build` to create readable JavaScript and API declarations in `dist/`
-- The `optimize` commands run against the compiled code in `dist/`
-
-## Linting and Formatting
-
-- **Linting:**
-  - `pnpm run lint` lints all TypeScript files in the `src` and `scripts` directories.
-  - `pnpm run lint:fix` does the same, but also auto-fixes issues where possible.
-- **Formatting:**
-  - `pnpm run format` auto-formats all `.ts`, `.json`, and `.md` files in the project using Prettier.
-  - `pnpm run format:check` checks formatting without making changes (useful for CI).
-
-## Minification
-
-JavaScript embedded inside EPUBs is still minified with Terser. The optimizer's own Node.js code is compiled without application minification so stack traces retain useful file/line/column locations. Source maps are not needed to read those JavaScript locations and are not shipped by the production build.
-
-The legacy `pnpm minify:safe` command remains available as an explicit development-tool opt-in; it reduces readability and is not called by `pnpm build`. `pnpm pack` runs a clean build through `prepack`, regenerating readable JavaScript and declarations before creating the tarball.
-
-## Modular Fix Scripts
-
-Every processing step is a plain async function. `pipeline.ts` runs them all in-process (no sub-process spawns), forwarding a shared `{ tempDir, lang, output }` down the chain.
-
-- **Explicit repair passes** (span tags, XML/XHTML sanity, empty styles) live in `src/scripts/fix/`. They run only with `--repair` or the author workflow because they intentionally modify document structure.
-- **Author workflow structure modifications** (cover linear, TOC, summary page, chapter sections) live in `src/scripts/ops/`. `src/scripts/ops/update-structure.ts` exports `runStructureUpdates(opts)`, and the pipeline runs it only when `--author-workflow` is enabled.
-- To enable/disable a step, comment or uncomment the corresponding `await …(opts)` call in the matching orchestrator file.
-- To add a new step, create a script that exports `async run(opts: RunOpts)` and add an `await run(opts)` line in the orchestrator.
-- Each leaf script also auto-runs when executed directly (`node dist/src/scripts/fix/fix-xml.js`); the `isEntryPoint()` guard keeps that from firing on import.
-
-### Customizing the Optimization Process
-
-Use the default generic optimizer for EPUBs that do not need the project author's Pages/manual-summary workflow:
-
-```bash
-pnpm optimize -i book.epub -o book-opt.epub
-```
-
-If you do want the complete Pages/manual-summary workflow, enable the author preset:
-
-```bash
-pnpm optimize:author -i YourBook.epub -o YourBook-optimized.epub
-# equivalent:
-pnpm optimize -i YourBook.epub -o YourBook-optimized.epub --preset author
-```
-
-The existing project-author conventions remain the defaults. To adapt summary/cover paths or CSS classes without editing source code, use `--author-config author-workflow.json` as documented under [Optional Author Workflow Configuration](#optional-author-workflow-configuration).
-
-For deeper source-level customization, there are two levels of granularity:
-
-**Wholesale (in `src/pipeline.ts`)** — comment out an entire step to disable a whole group at once:
-
-- Omit `--repair` and the author preset to skip **all** modifying XHTML repair passes.
-- Omit `--author-workflow` / `--preset author` to skip **all** author workflow structure updates.
-- EPUBCheck validation is required for transactional publication. When a run fails, inspect the preserved temporary directory instead of disabling validation.
-
-**Granular (in the orchestrator files)** — keep some steps, skip others:
-
-- **Example: Skip adding cover to TOC** — comment out `await updateTocWithCover(opts)` in `src/scripts/ops/update-structure.ts`
-- **Example: Skip adding cover to summary page** — comment out `await updateSummaryPage(opts)` in the same file
-- **Example: Skip setting cover as first page** — comment out `await updateCoverLinear(opts)` in the same file
-- **Example: Skip chapter sections synchronization** — comment out `await addChapterSectionsToToc(opts)` in the same file (useful if you don't have subsections in your manual summary page)
-- **Example: Disable specific XML/HTML fixes** — comment out the relevant `await …(opts)` call in `src/scripts/fix/index.ts`
-
-After making any customizations, rebuild the project with `pnpm build` to apply your changes.
-
 ## Common Issues
-
-### Docker Issues
-
-**"docker: command not found"**
-
-- Install Docker first: [Download Docker](https://docs.docker.com/get-docker/)
-- Make sure Docker Desktop is running
-
-**"`docker compose` is not a docker command"**
-
-- Install Docker Compose v2 or update Docker Desktop
-- Verify with `docker compose version`
-
-**"Permission denied" or file access errors**
-
-- Ensure your EPUB file is in the project root or mounted directory
-- Check file permissions (especially on Linux/Mac)
 
 ### Traditional Installation Issues
 
@@ -1560,39 +435,21 @@ After making any customizations, rebuild the project with `pnpm build` to apply 
 - Check write permissions in the output directory
 - Try a different output filename
 
-## Troubleshooting
+For Docker problems, see [Docker Issues](docs/DOCKER.md#docker-issues).
 
 If you encounter any issues, please check the [GitHub issues page](https://github.com/kiki-le-singe/epub-optimizer/issues) for existing issues or open a new one.
 
-## Dependencies
+## Development
 
-This project uses the following dependencies:
+Use Node.js 24 and the pinned pnpm version, then run the checks:
 
-### System Requirements
+```bash
+pnpm install --frozen-lockfile
+pnpm lint && pnpm exec tsc --noEmit && pnpm test:run && pnpm build
+```
 
-- Node.js 22.12 or higher (Node.js 24 for development)
-- Java Runtime Environment (JRE) 17 or higher (for EPUBCheck validation)
-- pnpm 10.30.3
-
-### Key npm Packages
-
-- **cheerio** - For robust HTML/XHTML DOM manipulation
-- **entities** - For resolving HTML named character references in XHTML
-- **clean-css** - For CSS minification
-- **fs-extra** - Enhanced file system operations
-- **html-minifier-terser** - For HTML minification
-- **sharp** - For image optimization (JPEG, PNG, WebP, GIF, AVIF, SVG)
-- **unzipper** - For extracting EPUB files
-- **yazl** - For cross-platform EPUB archive creation (pure JavaScript ZIP implementation)
-- **yargs** - For command-line argument parsing
-
-### Development Dependencies
-
-- **typescript** - For static typing and compilation
-- **terser** - For JavaScript minification
-- **vitest** - For testing
-- **typescript-eslint** - For linting TypeScript code
-- **prettier** - For code formatting
+The [development guide](docs/DEVELOPMENT.md) describes the project structure, the E2E and
+Docker test suites and how to customize the pipeline.
 
 ## License
 

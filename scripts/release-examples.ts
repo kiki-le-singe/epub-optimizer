@@ -43,8 +43,8 @@ export const RELEASE_EXAMPLE_RULES: readonly Rule[] = [
   { file: "docs/DOCKERHUB.md", before: "`v", after: "`). It uses Skopeo" },
   { file: "README.md", before: "  boopykiki/epub-optimizer:", after: " \\" },
   { file: "README.md", before: "(`ghcr.io/kiki-le-singe/epub-optimizer:", after: "`). Both" },
-  { file: "README.md", before: "using the published ", after: " image" },
-  { file: "README.md", before: "pin the published ", after: " release" },
+  { file: "docs/WATCH.md", before: "using the published ", after: " image" },
+  { file: "docs/WATCH.md", before: "pin the published ", after: " release" },
 ];
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

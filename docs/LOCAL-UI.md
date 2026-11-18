@@ -21,10 +21,10 @@ and optional HTML/JSON reports before starting another job.
 **Convert images to WebP** is an optional checkbox, off by default. It gives much
 smaller files for EPUB 3 books, but older e-readers may not display WebP images:
 test the result on the readers you target. It is not available with the Lossless
-images preset. See [WebP Conversion](../README.md#webp-conversion).
+images preset. See [WebP Conversion](CLI.md#webp-conversion).
 
 After an optimization, the result shows how many images the
-[image quality guard](../README.md#image-quality-guard) checked, the lowest
+[image quality guard](CLI.md#image-quality-guard) checked, the lowest
 fidelity score among the images it changed (rounded down; 1 means identical), and
 how many images were converted, re-encoded at higher quality or kept unchanged.
 
@@ -36,7 +36,7 @@ optimized (DRM or internal DTD declarations). No optimized EPUB is produced; the
 complete diagnosis is available as a JSON download. The page displays only numbers
 and translated messages for known findings: text taken from the book stays in the
 JSON report. These checks are partial and do not replace an accessibility audit;
-see [Accessibility Checks](../README.md#accessibility-checks). Analysis is included
+see [Accessibility Checks](REPORTS.md#accessibility-checks). Analysis is included
 from version 3.18.0.
 
 Stop with:
