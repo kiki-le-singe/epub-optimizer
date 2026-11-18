@@ -97,7 +97,8 @@ it("uploads the selected preset once, shows real progress, then exposes validate
     "private-session",
     file,
     "lossless",
-    expect.any(Function)
+    expect.any(Function),
+    "optimize"
   );
   expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("42");
   requestMock.mockResolvedValue(success);
@@ -112,6 +113,110 @@ it("uploads the selected preset once, shows real progress, then exposes validate
   expect(screen.getByRole("link", { name: /HTML/ }).getAttribute("href")).toBe(
     "/api/jobs/fixture-job/html"
   );
+});
+it("analyzes without optimizing and explains the diagnosis in the selected language", async () => {
+  const user = userEvent.setup();
+  show();
+  const file = await choose(user);
+  const diagnosed: Job = {
+    id: "fixture-job",
+    name: "book.epub",
+    preset: "balanced",
+    mode: "inspect",
+    state: "success",
+    stage: "Complete",
+    reports: { json: true, html: false },
+    diagnosis: {
+      blocked: false,
+      codes: [
+        "image-heavy",
+        "large-raster-images",
+        "a11y-images-without-text-alternative",
+        "a11y-missing-metadata",
+      ],
+      archiveBytes: 2097152,
+      documents: 14,
+      missingReferences: 0,
+      images: { count: 13, archivePercent: 99.9, large: 11, pngCandidates: 0 },
+      accessibility: {
+        documents: 14,
+        documentsWithoutLanguage: 0,
+        images: 13,
+        imagesWithoutTextAlternative: 3,
+        emptyAlt: 0,
+        missingMetadata: ["accessMode", "accessibilityHazard"],
+        pageBreaks: 0,
+      },
+    },
+  };
+  uploadMock.mockResolvedValue(diagnosed);
+  requestMock.mockResolvedValue(diagnosed);
+  await user.click(screen.getByRole("button", { name: "Analyze without changes" }));
+  expect(uploadMock).toHaveBeenCalledWith(
+    "private-session",
+    file,
+    "balanced",
+    expect.any(Function),
+    "inspect"
+  );
+  expect(await screen.findByRole("heading", { name: "Analysis complete" })).toBeTruthy();
+  expect(screen.getByText("Your book was not modified.")).toBeTruthy();
+  expect(screen.getByText("2 MiB")).toBeTruthy();
+  expect(screen.getByText("99.9 %")).toBeTruthy();
+  expect(screen.getByText("Images larger than 1600 px that can be resized: 11.")).toBeTruthy();
+  expect(screen.getByText("Images without alternative text: 3 of 13.")).toBeTruthy();
+  expect(
+    screen.getByText("Required accessibility metadata is missing: accessMode, accessibilityHazard.")
+  ).toBeTruthy();
+  expect(screen.queryByRole("link", { name: /Download/ })).toBeNull();
+  expect(screen.getByRole("link", { name: /JSON/ }).getAttribute("href")).toBe(
+    "/api/jobs/fixture-job/json"
+  );
+  await user.selectOptions(screen.getByLabelText("Language"), "fr");
+  expect(screen.getByText("Images sans texte alternatif : 3 sur 13.")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Accessibilité" })).toBeTruthy();
+});
+it("says when an analyzed book cannot be optimized and when nothing was found", async () => {
+  const base = {
+    id: "fixture-job",
+    name: "book.epub",
+    preset: "balanced" as const,
+    mode: "inspect" as const,
+    state: "success" as const,
+    stage: "Complete",
+    reports: { json: true, html: false },
+  };
+  const diagnosis = {
+    blocked: false,
+    codes: [],
+    archiveBytes: 4096,
+    documents: 1,
+    missingReferences: 0,
+    images: { count: 0, archivePercent: null, large: 0, pngCandidates: 0 },
+    accessibility: {
+      documents: 1,
+      documentsWithoutLanguage: 0,
+      images: 0,
+      imagesWithoutTextAlternative: 0,
+      emptyAlt: 0,
+      missingMetadata: [],
+      pageBreaks: 0,
+    },
+  };
+  requestMock.mockResolvedValue({ ...base, diagnosis });
+  const view = show();
+  expect(await screen.findAllByText("Nothing to report.")).toHaveLength(2);
+  expect(screen.getByText("—")).toBeTruthy();
+  view.unmount();
+  requestMock.mockResolvedValue({
+    ...base,
+    diagnosis: { ...diagnosis, blocked: true, codes: ["drm"] },
+  });
+  show();
+  expect(
+    await screen.findByText("This book cannot be optimized: its content is DRM-protected.")
+  ).toBeTruthy();
+  expect(screen.queryByText("Nothing to report.")).toBeNull();
 });
 it("restores an active job and cancels it without offering an EPUB download", async () => {
   const user = userEvent.setup();

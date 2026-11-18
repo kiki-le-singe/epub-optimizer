@@ -18,6 +18,16 @@ Open <http://127.0.0.1:8787>. Choose or drop one EPUB, select Balanced, Lossless
 images or Author workflow, then start optimization. Download the optimized book
 and optional HTML/JSON reports before starting another job.
 
+**Analyze without changes** runs the read-only doctor instead of optimizing. It
+shows the file size, the share of images, optimization hints and a few
+accessibility checks (missing image alternative text, document languages,
+required accessibility metadata, page lists), and tells you when a book cannot be
+optimized (DRM or internal DTD declarations). No optimized EPUB is produced; the
+complete diagnosis is available as a JSON download. The page displays only numbers
+and translated messages for known findings: text taken from the book stays in the
+JSON report. These checks are partial and do not replace an accessibility audit;
+see [Accessibility Checks](../README.md#accessibility-checks).
+
 Stop with:
 
 ```bash
@@ -70,8 +80,9 @@ and downloaded reports retain their original language.
   expanded archives may exceed these limits even below the upload limit.
 - Working files and results are removed at the next job or service shutdown.
   The original file on your computer is preserved. There is no persistent history.
-- Batch processing, watched folders, inspection/repair-only modes and advanced
-  CLI options remain command-line features.
+- Batch processing, watched folders, repair-only mode and advanced CLI options
+  remain command-line features. Analysis shows a summary; the full doctor output
+  is in its JSON report.
 
 This first interface does not cover every CLI use case. Validation cannot guarantee
 visual fidelity: open the optimized book in your reader before using it for publication.
