@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 import { DEFAULT_FILE_CONCURRENCY } from "./utils/files.js";
 import { applyPipelineOptions } from "./utils/pipeline-options.js";
 import { findPackageRoot } from "./utils/package-root.js";
+import { DEFAULT_MIN_IMAGE_SSIM, resolveMinImageSsim } from "./utils/image-quality.js";
 
 const packageJson = JSON.parse(
   fs.readFileSync(path.join(findPackageRoot(import.meta.url), "package.json"), "utf8")
@@ -93,6 +94,12 @@ async function parseArguments(): Promise<Args> {
       describe: "PNG compression quality (0-1 scale, use decimal)",
       type: "number",
       default: config.pngOptions.quality,
+    })
+    .option("min-image-ssim", {
+      describe:
+        "Minimum SSIM (0-1) for lossy image re-encodes; lower-scoring images are re-encoded at higher quality or kept. 0 disables",
+      type: "number",
+      default: DEFAULT_MIN_IMAGE_SSIM,
     })
     .option("png-background", {
       describe:
@@ -290,6 +297,7 @@ async function parseArguments(): Promise<Args> {
       if (pngQuality < 0 || pngQuality > 1) {
         throw new Error("--png-quality must be between 0 and 1.");
       }
+      resolveMinImageSsim(argv["min-image-ssim"]);
       if (maxImageDim !== undefined && Number(maxImageDim) < 0) {
         throw new Error("--max-image-dim must be 0 or greater.");
       }

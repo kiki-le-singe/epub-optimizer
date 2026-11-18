@@ -1,12 +1,17 @@
 import { reportError, reportInfo } from "../utils/diagnostics.js";
 import fs from "fs-extra";
 import path from "node:path";
-import sharp from "sharp";
+import sharp, { type OutputInfo, type Sharp } from "sharp";
 import pLimit from "p-limit";
 import config from "../utils/config.js";
 import { randomUUID } from "node:crypto";
 import { DEFAULT_FILE_CONCURRENCY } from "../utils/files.js";
 import { isAnimatedPng } from "../utils/png-animation.js";
+import {
+  DEFAULT_MIN_IMAGE_SSIM,
+  imageSsim,
+  type ImageQualityRecord,
+} from "../utils/image-quality.js";
 
 // Bound libvips so parallel encodes don't oversubscribe CPU threads or retain
 // decoded-image memory. File-level parallelism is handled by p-limit below, so
@@ -25,6 +30,12 @@ export interface ImageOpts {
   maxDim?: number;
   /** Absolute paths that should be skipped (e.g. freshly converted elsewhere). */
   skip?: ReadonlySet<string>;
+  /** Minimum SSIM for a lossy re-encode; 0 disables the guard. Default 0.85. */
+  minSsim?: number;
+  /** Root for record paths; defaults to the optimized directory. */
+  root?: string;
+  /** Receives the measured quality of each lossy re-encode. */
+  onQuality?: (record: ImageQualityRecord) => void;
 }
 
 const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif|avif|svg)$/i;
@@ -57,7 +68,9 @@ async function optimizeImages(dir: string, opts: ImageOpts = {}): Promise<void> 
     const skip = opts.skip;
     const targets = skip ? files.filter((f) => !skip.has(f)) : files;
     const limit = pLimit(opts.concurrency ?? DEFAULT_FILE_CONCURRENCY);
-    await Promise.all(targets.map((file) => limit(() => compressImage(file, opts))));
+    await Promise.all(
+      targets.map((file) => limit(() => compressImage(file, { root: dir, ...opts })))
+    );
   } catch (error) {
     reportError(
       `Error processing directory ${dir}: ${error instanceof Error ? error.message : String(error)}`
@@ -122,68 +135,108 @@ async function compressImage(imagePath: string, opts: ImageOpts = {}): Promise<v
 
     // Convert PNG quality from 0-1 scale to 0-100 scale for sharp
     const pngQualityValue = Math.round(pngQuality * 100);
+    const resized = processedImage;
 
-    // Configure compression based on file type
-    switch (extension) {
-      case ".jpg":
-      case ".jpeg":
-        processedImage = processedImage.jpeg({
-          quality: jpegQuality, // Use jpegQuality from CLI args or config
-          mozjpeg: true,
-        });
-        break;
+    // "high" is the fallback when the configured encode looks too different:
+    // lossless PNG, and near-transparent quality for the lossy formats.
+    const encode = (fidelity: "configured" | "high"): Sharp | undefined => {
+      const high = fidelity === "high";
+      const image = resized.clone();
+      switch (extension) {
+        case ".jpg":
+        case ".jpeg":
+          return image.jpeg({ quality: high ? 92 : jpegQuality, mozjpeg: true });
+        case ".png":
+          return high
+            ? image.png({ compressionLevel: 9 })
+            : image.png({ quality: pngQualityValue, compressionLevel: 9, palette: true });
+        case ".webp":
+          return image.webp({ quality: high ? 92 : jpegQuality, lossless: false });
+        case ".gif":
+          return high ? undefined : image.gif();
+        case ".avif":
+          return image.avif({ quality: high ? 80 : jpegQuality });
+        default:
+          return undefined;
+      }
+    };
+    if (!encode("configured")) return;
 
-      case ".png":
-        processedImage = processedImage.png({
-          quality: pngQualityValue,
-          compressionLevel: 9,
-          palette: true,
-        });
-        break;
-
-      case ".webp":
-        processedImage = processedImage.webp({
-          quality: jpegQuality, // Use jpegQuality from CLI args or config
-          lossless: false,
-        });
-        break;
-
-      case ".gif":
-        processedImage = processedImage.gif();
-        break;
-
-      case ".avif":
-        processedImage = processedImage.avif({
-          quality: jpegQuality, // Use jpegQuality from CLI args or config
-        });
-        break;
-
-      default:
-        // Unknown format, skip processing
-        return;
-    }
-
-    // Write optimized image back to the same path
-    tempPath = `${imagePath}.${randomUUID()}.tmp`;
-    const outputInfo = await processedImage.toFile(tempPath);
-    const newSize = outputInfo.size;
+    let resizeChecked = false;
     let wasResized = false;
-    if (opts.maxDim && extension !== ".gif") {
-      const metadata = await sharp(
-        imagePath,
-        isMultiFrame ? { animated: true } : undefined
-      ).metadata();
-      const dimensions = isJpeg
-        ? metadata.autoOrient
-        : { width: metadata.width, height: metadata.pageHeight ?? metadata.height };
-      const outputHeight = outputInfo.pageHeight ?? outputInfo.height;
-      wasResized = dimensions.width > outputInfo.width || dimensions.height > outputHeight;
+    const changesDimensions = async (outputInfo: OutputInfo) => {
+      if (!opts.maxDim || extension === ".gif") return false;
+      if (!resizeChecked) {
+        const metadata = await sharp(
+          imagePath,
+          isMultiFrame ? { animated: true } : undefined
+        ).metadata();
+        const dimensions = isJpeg
+          ? metadata.autoOrient
+          : { width: metadata.width, height: metadata.pageHeight ?? metadata.height };
+        const outputHeight = outputInfo.pageHeight ?? outputInfo.height;
+        wasResized = dimensions.width > outputInfo.width || dimensions.height > outputHeight;
+        resizeChecked = true;
+      }
+      return wasResized;
+    };
+    const minSsim = opts.minSsim ?? DEFAULT_MIN_IMAGE_SSIM;
+    const record = (ssim: number, outcome: ImageQualityRecord["outcome"]) =>
+      opts.onQuality?.({
+        path: path
+          .relative(opts.root ?? path.dirname(imagePath), imagePath)
+          .split(path.sep)
+          .join("/"),
+        operation: "recompress",
+        ssim,
+        outcome,
+      });
+    const reference = () => {
+      const image = sharp(imagePath);
+      return isJpeg ? image.autoOrient() : image;
+    };
+
+    let newSize = 0;
+    let accepted = false;
+    let rejectedSsim: number | undefined;
+    for (const fidelity of ["configured", "high"] as const) {
+      const encoder = encode(fidelity);
+      if (!encoder) break;
+      tempPath = `${imagePath}.${randomUUID()}.tmp`;
+      const outputInfo = await encoder.toFile(tempPath);
+      newSize = outputInfo.size;
+      if (newSize >= originalSize && !(await changesDimensions(outputInfo))) {
+        if (rejectedSsim !== undefined) record(rejectedSsim, "kept-original");
+        reportInfo(`Keeping original ${filename}: recompression would not reduce size`);
+        return;
+      }
+      if (minSsim === 0) {
+        accepted = true;
+        break;
+      }
+      const ssim = await imageSsim(reference, tempPath);
+      if (ssim >= minSsim) {
+        record(ssim, fidelity === "configured" ? "accepted" : "fallback");
+        if (fidelity === "high")
+          reportInfo(
+            `Re-encoded ${filename} at higher quality: the configured settings fell below SSIM ${minSsim}`
+          );
+        accepted = true;
+        break;
+      }
+      rejectedSsim = Math.max(rejectedSsim ?? 0, ssim);
+      await fs.remove(tempPath);
+      tempPath = undefined;
     }
-    if (newSize >= originalSize && !wasResized) {
-      reportInfo(`Keeping original ${filename}: recompression would not reduce size`);
+    if (!accepted) {
+      record(rejectedSsim ?? 0, "kept-original");
+      reportInfo(
+        `Keeping original ${filename}: recompression fell below SSIM ${minSsim} (${(rejectedSsim ?? 0).toFixed(3)})`
+      );
       return;
     }
-    await fs.rename(tempPath, imagePath);
+    await fs.rename(tempPath!, imagePath);
+    tempPath = undefined;
 
     // Log optimization result
     const savings = (((originalSize - newSize) / originalSize) * 100).toFixed(1);
