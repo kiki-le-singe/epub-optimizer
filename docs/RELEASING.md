@@ -68,6 +68,24 @@ The dedicated App token triggers ordinary `pull_request` CI without the approval
 
 Publishing the draft through the GitHub UI triggers finalization. If another workflow publishes it with `GITHUB_TOKEN`, explicitly dispatch the finalization workflow too.
 
+## Update release examples
+
+After a stable release is published and its images are promoted, point the
+installation examples at it in an ordinary PR to develop:
+
+```bash
+gh release download vX.Y.Z --pattern release-image.json --dir /tmp/release-record
+pnpm release:examples X.Y.Z sha256:<the record's "digest">
+```
+
+The script rewrites the version, and the tested index digest where an image is
+pinned, in `README.md`, `docs/NAS.md`, `docs/DOCKERHUB.md`, the default image of
+`compose.watch.yaml` and the image written by `scripts/setup-watch.sh`. It fails if
+one of these references is no longer found, and a test requires all of them to
+name the same release. It publishes nothing and contacts no registry: check that
+both registries serve that digest before merging. Statements about when a feature
+was introduced are not changed.
+
 ## Retry safely
 
 - Preparation verifies develop's push CI with the same App token used by the coordinator. Missing runs, pending runs and incomplete conclusions are reread every 10 seconds for up to three minutes; a completed unsuccessful run fails immediately. Only the newest matching push run for the pinned develop SHA is eligible, and develop is checked again before creating the preparation branch. Logs identify the SHA, run ID, status and conclusion. Dry runs use this same check.

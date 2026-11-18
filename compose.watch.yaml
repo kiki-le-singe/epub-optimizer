@@ -1,7 +1,7 @@
 name: epub-optimizer-watch
 services:
   watch:
-    image: ${EPUB_OPTIMIZER_DOCKER_IMAGE:-ghcr.io/kiki-le-singe/epub-optimizer:3.13.0@sha256:acc2854cc9102eef1721ca6f699d7d4831d71d819a072a7ed1f3b685bdd7e625}
+    image: ${EPUB_OPTIMIZER_DOCKER_IMAGE:-ghcr.io/kiki-le-singe/epub-optimizer:3.19.0@sha256:8818070446c02c6f3951782e6266969213389369d46461857aba466911c77509}
     user: "${WATCH_UID:-1000}:${WATCH_GID:-1000}"
     init: true
     restart: unless-stopped

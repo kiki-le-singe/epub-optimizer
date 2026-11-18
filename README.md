@@ -983,8 +983,9 @@ The exported `runBatch(args)` API returns the structured summary without setting
 ### Background Docker watcher
 
 For a step-by-step installation using the published 3.19.0 image, see
-[Docker / NAS setup](docs/NAS.md). The instructions below also describe older pinned
-defaults; set the image explicitly when choosing a newer release.
+[Docker / NAS setup](docs/NAS.md). The Compose default and the setup helper
+pin the published 3.19.0 release on GHCR, by digest; set
+`EPUB_OPTIMIZER_DOCKER_IMAGE` to choose another one.
 
 For a NAS or custom host directory, the setup helper creates directories and a
 private env file without starting Docker or changing existing settings:
@@ -996,7 +997,7 @@ docker compose --env-file .env.watch -f compose.watch.yaml up -d
 ```
 
 Review `WATCH_UID`/`WATCH_GID` for the NAS account allowed to access the files.
-The helper pins the published 3.15.0 digest; it does not install Docker, elevate
+The helper writes that pinned image to the env file; it does not install Docker, elevate
 permissions, change ownership or enable unreleased source features in that image.
 It refuses existing env files and symbolic-link storage directories. Linux NAS
 vendor interfaces and ACLs vary; validate permissions on the target device.
@@ -1036,9 +1037,10 @@ does not automatically break locks. An unchanged failed book is retried after re
 Logs rotate at 10 MB with three files retained.
 
 Newer Linux/Docker builds use a kernel-backed guard and can recover their own
-interrupted watch records automatically after process/container death. The pinned
-3.13.0 Compose image predates this capability: select a release that includes it
-(or build the current sources) before relying on automatic crash recovery.
+interrupted watch records automatically after process/container death. Releases
+before 3.16.1 predate this capability. An env file created by an older setup helper
+can still name one: update its `EPUB_OPTIMIZER_DOCKER_IMAGE` line before relying on
+automatic crash recovery.
 
 Use `EPUB_WATCH_INBOX` and `EPUB_WATCH_OUTPUT` for other host directories (create them
 first). On a NAS, set `WATCH_UID` and `WATCH_GID` in `.env.watch` to an account allowed
