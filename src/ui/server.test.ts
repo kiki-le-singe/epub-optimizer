@@ -144,10 +144,12 @@ it("uses fixed owned paths, exposes progress, runs only one book, and streams va
     expect(response.headers.get("content-disposition")).toContain(
       `filename="<book>-report.${report}"`
     );
+    expect(await response.text()).toBe(report === "html" ? "<p>report</p>" : "{}");
   }
   expect((await request("/api/jobs/../../etc/passwd/download")).status).toBe(404);
   const previous = work().directory;
-  expect((await upload()).status).toBe(202);
+  // A finished response can reach the client just before the server releases the download.
+  await vi.waitFor(async () => expect((await upload()).status).toBe(202));
   await expect(fs.stat(previous)).rejects.toMatchObject({ code: "ENOENT" });
 });
 it("never downloads a failed output, but preserves available diagnostic reports", async () => {
