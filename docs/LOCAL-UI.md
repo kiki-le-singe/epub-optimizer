@@ -18,6 +18,16 @@ Open <http://127.0.0.1:8787>. Choose or drop one EPUB, select Balanced, Lossless
 images or Author workflow, then start optimization. Download the optimized book
 and optional HTML/JSON reports before starting another job.
 
+**Convert images to WebP** is an optional checkbox, off by default. It gives much
+smaller files for EPUB 3 books, but older e-readers may not display WebP images:
+test the result on the readers you target. It is not available with the Lossless
+images preset. See [WebP Conversion](CLI.md#webp-conversion).
+
+After an optimization, the result shows how many images the
+[image quality guard](CLI.md#image-quality-guard) checked, the lowest
+fidelity score among the images it changed (rounded down; 1 means identical), and
+how many images were converted, re-encoded at higher quality or kept unchanged.
+
 **Analyze without changes** runs the read-only doctor instead of optimizing. It
 shows the file size, the share of images, optimization hints and a few
 accessibility checks (missing image alternative text, document languages,
@@ -26,7 +36,7 @@ optimized (DRM or internal DTD declarations). No optimized EPUB is produced; the
 complete diagnosis is available as a JSON download. The page displays only numbers
 and translated messages for known findings: text taken from the book stays in the
 JSON report. These checks are partial and do not replace an accessibility audit;
-see [Accessibility Checks](../README.md#accessibility-checks). Analysis is included
+see [Accessibility Checks](REPORTS.md#accessibility-checks). Analysis is included
 from version 3.18.0.
 
 Stop with:
@@ -81,8 +91,8 @@ and downloaded reports retain their original language.
   expanded archives may exceed these limits even below the upload limit.
 - Working files and results are removed at the next job or service shutdown.
   The original file on your computer is preserved. There is no persistent history.
-- Batch processing, watched folders, repair-only mode and advanced CLI options
-  remain command-line features. Analysis shows a summary; the full doctor output
+- Batch processing, watched folders, repair-only mode and advanced CLI options such
+  as image quality settings remain command-line features. Analysis shows a summary; the full doctor output
   is in its JSON report.
 
 This first interface does not cover every CLI use case. Validation cannot guarantee

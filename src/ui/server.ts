@@ -27,6 +27,7 @@ interface Job {
   name: string;
   preset: Preset;
   mode: UiMode;
+  webp: boolean;
   directory: string;
   owner: Stats;
   state: "uploading" | "running" | "cancelling" | "cancelled" | "success" | "failed";
@@ -95,6 +96,7 @@ export async function startLocalUi(
           name: job.name,
           preset: job.preset,
           mode: job.mode,
+          webp: job.webp,
           state: job.state,
           stage: job.stage,
           summary: job.result?.summary,
@@ -112,7 +114,8 @@ export async function startLocalUi(
     req: IncomingMessage,
     res: ServerResponse,
     preset: Preset,
-    mode: UiMode
+    mode: UiMode,
+    webp: boolean
   ) => {
     if (busy || current?.downloads) throw new HttpError(409, "busy");
     if (req.headers["content-type"] !== "application/epub+zip")
@@ -138,6 +141,7 @@ export async function startLocalUi(
         name,
         preset,
         mode,
+        webp,
         directory: next,
         owner: await fs.lstat(next),
         state: "uploading",
@@ -170,6 +174,7 @@ export async function startLocalUi(
           directory: next,
           preset,
           mode,
+          webp,
           onStage: (stage) => {
             if (runningJob.state === "running") runningJob.stage = stage;
           },
@@ -284,7 +289,13 @@ export async function startLocalUi(
       const mode = url.searchParams.get("mode") ?? "optimize";
       if (!["optimize", "inspect"].includes(mode) || url.searchParams.getAll("mode").length > 1)
         throw new HttpError(400, "unknownMode");
-      await upload(req, res, preset as Preset, mode as UiMode);
+      const webpValues = url.searchParams.getAll("webp");
+      if (webpValues.length > 1 || (webpValues.length === 1 && webpValues[0] !== "1"))
+        throw new HttpError(400, "invalidOption");
+      const webp = webpValues.length === 1 && mode === "optimize";
+      // The lossless preset preserves image bytes; the CLI refuses this combination too.
+      if (webp && preset === "lossless") throw new HttpError(400, "webpLossless");
+      await upload(req, res, preset as Preset, mode as UiMode, webp);
       return;
     }
     const match = /^\/api\/jobs\/([a-f0-9-]{36})\/(download|json|html|cancel)$/.exec(url.pathname);
