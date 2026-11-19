@@ -10,7 +10,7 @@ import type { ImageRecord } from "./release-helpers.js";
 // @ts-expect-error Native Node TypeScript requires the source extension.
 import { mergeCheckedPullRequest, prepareBranch, repository } from "./release-pr.ts";
 // @ts-expect-error Native Node TypeScript requires the source extension.
-import { waitForPublishedRelease } from "./release-state.ts";
+import { waitForPublishedRelease, waitForRegistryIndex } from "./release-state.ts";
 
 interface Release {
   id: number;
@@ -269,7 +269,8 @@ async function main(): Promise<void> {
     version,
     sha,
     image,
-    digest: imageManifest(candidate).digest,
+    // The index was created a moment ago and may not be readable yet.
+    digest: (await waitForRegistryIndex(candidate, () => imageManifest(candidate))).digest,
     platforms,
   };
   validateRecord(record, version, sha, image);

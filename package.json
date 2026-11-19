@@ -48,6 +48,7 @@
     "test:docker": "node --experimental-strip-types scripts/docker-e2e.ts",
     "release:check": "node --experimental-strip-types scripts/validate-release.ts",
     "release:prepare": "node --experimental-strip-types scripts/prepare-release.ts",
+    "release:examples": "node --experimental-strip-types scripts/release-examples.ts",
     "lint": "eslint src scripts ui --ext .ts,.tsx",
     "lint:fix": "eslint src scripts ui --ext .ts,.tsx --fix",
     "format": "prettier --write \"**/*.{ts,tsx,css,json,md}\"",

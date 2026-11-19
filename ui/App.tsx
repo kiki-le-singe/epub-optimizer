@@ -72,6 +72,7 @@ export function App({ token, maxUpload }: { token: string; maxUpload: number }):
   const [theme, setTheme] = useState(initialTheme);
   const [file, setFile] = useState<File | null>(null);
   const [preset, setPreset] = useState<Preset>("balanced");
+  const [webp, setWebp] = useState(false);
   const [job, setJob] = useState<Job | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadPercent, setUploadPercent] = useState(0);
@@ -144,6 +145,7 @@ export function App({ token, maxUpload }: { token: string; maxUpload: number }):
         setJob(value);
         if (isActive(value)) {
           setPreset(value!.preset);
+          setWebp(value!.webp === true);
           timer = setTimeout(() => {
             void refresh();
           }, 700);
@@ -183,7 +185,9 @@ export function App({ token, maxUpload }: { token: string; maxUpload: number }):
     setUploading(true);
     setUploadPercent(0);
     try {
-      setJob(await upload(token, file, preset, setUploadPercent, mode));
+      setJob(
+        await upload(token, file, preset, setUploadPercent, mode, webp && preset !== "lossless")
+      );
     } catch (value) {
       showError(value);
     } finally {
@@ -439,6 +443,36 @@ export function App({ token, maxUpload }: { token: string; maxUpload: number }):
                     </Label>
                   ))}
                 </RadioGroup>
+                <label
+                  htmlFor="webp"
+                  className={cn(
+                    "mt-2.5 flex cursor-pointer items-start gap-3 rounded-lg border p-3.5 transition-colors",
+                    webp && preset !== "lossless" && "border-primary bg-accent",
+                    (busy || preset === "lossless") && "cursor-not-allowed opacity-60"
+                  )}
+                >
+                  <input
+                    id="webp"
+                    type="checkbox"
+                    className="mt-0.5 size-4 shrink-0 accent-[var(--primary-text)]"
+                    checked={webp && preset !== "lossless"}
+                    disabled={busy || preset === "lossless"}
+                    aria-labelledby="webp-label"
+                    aria-describedby="webp-description"
+                    onChange={(event) => setWebp(event.target.checked)}
+                  />
+                  <span>
+                    <span id="webp-label" className="block text-xs font-semibold">
+                      {t("webpOption")}
+                    </span>
+                    <span
+                      id="webp-description"
+                      className="mt-1 block text-[11px] leading-relaxed font-normal text-muted-foreground"
+                    >
+                      {t(preset === "lossless" ? "webpUnavailable" : "webpDescription")}
+                    </span>
+                  </span>
+                </label>
                 {preset === "author" && (
                   <Alert className="mt-3 border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200">
                     <AlertDescription className="text-xs">{t("authorNote")}</AlertDescription>
@@ -539,6 +573,9 @@ export function App({ token, maxUpload }: { token: string; maxUpload: number }):
                     />
                     {t("validation")}
                   </p>
+                  {job.summary.images && (
+                    <ImageQualityNote images={job.summary.images} t={t} language={language} />
+                  )}
                 </>
               )}
               {inspecting && job?.state === "success" && job.diagnosis && (
@@ -626,6 +663,7 @@ function DiagnosisPanel({
     ...(has("png-conversion-candidates")
       ? [finding(false, t("findPngCandidates", { count: images.pngCandidates }))]
       : []),
+    ...(has("webp-images") ? [finding(false, t("findWebp", { count: images.webp }))] : []),
   ];
   const accessibility: Finding[] = [
     ...(has("a11y-images-without-text-alternative")
@@ -703,6 +741,42 @@ function DiagnosisPanel({
       </div>
       <p className="mt-5 text-[11px] text-muted-foreground">{t("a11yNote")}</p>
     </div>
+  );
+}
+
+function ImageQualityNote({
+  images,
+  t,
+  language,
+}: {
+  images: NonNullable<NonNullable<Job["summary"]>["images"]>;
+  t: Translate;
+  language: string;
+}): ReactNode {
+  const lines = [
+    ...(images.lowestSsim === null
+      ? []
+      : [
+          t("qualityChecked", {
+            count: images.checked,
+            // Round down: the displayed score must never overstate fidelity.
+            score: (Math.floor(images.lowestSsim * 100) / 100).toLocaleString(language, {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            }),
+          }),
+        ]),
+    ...(images.toWebp > 0 ? [t("qualityWebp", { count: images.toWebp })] : []),
+    ...(images.fallback > 0 ? [t("qualityFallback", { count: images.fallback })] : []),
+    ...(images.keptOriginal > 0 ? [t("qualityKept", { count: images.keptOriginal })] : []),
+  ];
+  if (lines.length === 0) return null;
+  return (
+    <ul id="image-quality" className="mt-3 space-y-1 text-[11px] text-muted-foreground">
+      {lines.map((line) => (
+        <li key={line}>{line}</li>
+      ))}
+    </ul>
   );
 }
 
