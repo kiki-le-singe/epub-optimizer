@@ -34,6 +34,14 @@ describe("font character collection", () => {
     for (const c of "άα\u0301ΆЖ中文ΩéÉ") expect(chars).toContain(c);
     expect(new Set(chars).size).toBe([...chars].length);
   });
+  it("keeps both readings of numeric references in the Windows-1252 range", async () => {
+    // XML reads &#150; as U+0096; HTML parsers display an en dash.
+    const root = await book({
+      "OPS/nested/ch.xhtml": "<html><body>a&#150;b &#x80; &#X9F;</body></html>",
+    });
+    const chars = await collectFontCharacters(root);
+    for (const c of "\u0096\u2013\u0080\u20ac\u009f\u0178") expect(chars).toContain(c);
+  });
   it.each([
     ["script tag", '<html><body><script>document.write("☃")</script></body></html>'],
     ["event handler", '<html><body onload="x()">text</body></html>'],
