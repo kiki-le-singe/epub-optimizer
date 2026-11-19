@@ -75,14 +75,14 @@ process. Memory depends mainly on image dimensions and
 
 ```bash
 docker run --rm --network none --user "$(id -u):$(id -g)" -v "$PWD:/epub-files" \
-  boopykiki/epub-optimizer:3.20.0 \
+  boopykiki/epub-optimizer:3.20.1 \
   -i YourBook.epub -o YourBook-optimized.epub --strict --clean
 ```
 
 This command uses a macOS/Linux shell and runs with your host UID/GID so the output folder stays writable.
 The image ships Node.js, Java, and EPUBCheck pre-installed and supports amd64 and arm64 (Apple Silicon).
 It is published on [Docker Hub](https://hub.docker.com/r/boopykiki/epub-optimizer)
-and GHCR (`ghcr.io/kiki-le-singe/epub-optimizer:3.20.0`). Both registries serve the
+and GHCR (`ghcr.io/kiki-le-singe/epub-optimizer:3.20.1`). Both registries serve the
 same tested release digest. No npm, Java or EPUBCheck installation is needed on
 the host when using Docker. For a background drop folder, see [Docker / NAS setup](docs/NAS.md).
 
@@ -147,7 +147,7 @@ See [the local interface guide](docs/LOCAL-UI.md) for requirements, limits and s
 - JPEG recompression applies EXIF orientation to the pixels before encoding, preserving the displayed rotation and mirroring.
 - PNG to JPEG conversion for non-transparent images (significantly reduces file size)
 - **Optional WebP conversion** via `--convert-webp` for EPUB 3 books: much smaller images, transparency preserved, for reading systems that support WebP. See [WebP Conversion](docs/CLI.md#webp-conversion).
-- JavaScript minification (reduces script size)
+- JavaScript minification (reduces script size; license comments such as `/*! … */` are kept, and a script is left unchanged when minification would not shrink it)
 - **Optional font subsetting** via `--fonts`, using the included HarfBuzz WebAssembly engine with conservative content and font checks
 - **SVG optimization** (minifies SVG files using SVGO)
 - **Image downscaling** (optionally resizes large images to a max dimension for e-reader compatibility)
