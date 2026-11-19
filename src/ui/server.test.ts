@@ -191,7 +191,7 @@ it("runs a read-only analysis job that exposes a diagnosis but never an EPUB dow
     archiveBytes: 10,
     documents: 1,
     missingReferences: 0,
-    images: { count: 1, archivePercent: 80, large: 0, pngCandidates: 0 },
+    images: { count: 1, archivePercent: 80, large: 0, pngCandidates: 0, webp: 0 },
     accessibility: {
       documents: 1,
       documentsWithoutLanguage: 0,
@@ -218,6 +218,45 @@ it("runs a read-only analysis job that exposes a diagnosis but never an EPUB dow
   const report = await request(`/api/jobs/${job.id}/json`);
   expect(report.headers.get("content-disposition")).toContain('filename="book-diagnosis.json"');
   expect(await report.text()).toBe('{"analysisComplete":true}');
+});
+it("accepts WebP conversion as an explicit option, except with lossless images", async () => {
+  const { request, work, worker } = await setup();
+  const post = (query: string) =>
+    request("/api/jobs?" + query, {
+      method: "POST",
+      headers: { "Content-Type": "application/epub+zip", "X-Epub-Name": "book.epub" },
+      body: "epub bytes",
+    });
+  for (const [query, code] of [
+    ["preset=balanced&webp=yes", "invalidOption"],
+    ["preset=balanced&webp=1&webp=1", "invalidOption"],
+    ["preset=lossless&webp=1", "webpLossless"],
+  ] as const) {
+    const refused = await post(query);
+    expect(refused.status).toBe(400);
+    expect((await refused.json()).code).toBe(code);
+  }
+  expect(worker).not.toHaveBeenCalled();
+
+  const job = await (await post("preset=author&webp=1")).json();
+  expect(job).toMatchObject({ preset: "author", mode: "optimize", webp: true });
+  expect(work().webp).toBe(true);
+});
+it("ignores WebP conversion for an analysis and defaults it to off", async () => {
+  const { request, upload, work } = await setup();
+  const analysis = await (
+    await request("/api/jobs?preset=balanced&mode=inspect&webp=1", {
+      method: "POST",
+      headers: { "Content-Type": "application/epub+zip", "X-Epub-Name": "book.epub" },
+      body: "epub bytes",
+    })
+  ).json();
+  expect(analysis).toMatchObject({ mode: "inspect", webp: false });
+  expect(work().webp).toBe(false);
+  await request(`/api/jobs/${analysis.id}/cancel`, { method: "POST" });
+  const plain = await (await upload()).json();
+  expect(plain.webp).toBe(false);
+  expect(work().webp).toBe(false);
 });
 it("never downloads a failed output, but preserves available diagnostic reports", async () => {
   const { upload, request, complete } = await setup();
