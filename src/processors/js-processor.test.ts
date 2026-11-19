@@ -59,6 +59,27 @@ describe("minifyJavaScript", () => {
     }
   });
 
+  it("keeps license comments and removes the others", async () => {
+    const file = await write(
+      "OPS/vendor.js",
+      `/*! Example lib v1.0 | MIT License */
+      /** @license Apache-2.0 */
+      // A note for developers
+      /* Implementation detail */
+      function   add(first,   second) {   return first + second;   }
+      `
+    );
+
+    await run();
+
+    const minified = await fs.readFile(file, "utf8");
+    expect(minified).toContain("/*! Example lib v1.0 | MIT License */");
+    expect(minified).toContain("@license Apache-2.0");
+    expect(minified).not.toContain("A note for developers");
+    expect(minified).not.toContain("Implementation detail");
+    expect(minified).toContain("function add(");
+  });
+
   it("keeps a script that minification would not make smaller", async () => {
     // Terser adds a statement terminator: 3 bytes would become 4.
     const file = await write("OPS/tiny.js", "a=1");

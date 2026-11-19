@@ -147,7 +147,7 @@ See [the local interface guide](docs/LOCAL-UI.md) for requirements, limits and s
 - JPEG recompression applies EXIF orientation to the pixels before encoding, preserving the displayed rotation and mirroring.
 - PNG to JPEG conversion for non-transparent images (significantly reduces file size)
 - **Optional WebP conversion** via `--convert-webp` for EPUB 3 books: much smaller images, transparency preserved, for reading systems that support WebP. See [WebP Conversion](docs/CLI.md#webp-conversion).
-- JavaScript minification (reduces script size)
+- JavaScript minification (reduces script size; license comments such as `/*! … */` are kept, and a script is left unchanged when minification would not shrink it)
 - **Optional font subsetting** via `--fonts`, using the included HarfBuzz WebAssembly engine with conservative content and font checks
 - **SVG optimization** (minifies SVG files using SVGO)
 - **Image downscaling** (optionally resizes large images to a max dimension for e-reader compatibility)
