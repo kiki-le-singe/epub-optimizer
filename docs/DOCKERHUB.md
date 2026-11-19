@@ -28,7 +28,7 @@ Hub account is needed by users pulling a public image, subject to registry limit
 
 After this automation is merged into main, run **Mirror tested release to Docker
 Hub** from main with the latest published stable GitHub release tag (currently
-`v3.20.1`). It uses Skopeo to copy the recorded index and all child manifests with
+`v3.20.2`). It uses Skopeo to copy the recorded index and all child manifests with
 `--all --preserve-digests`; it never rebuilds or selects only the runner architecture.
 
 The script verifies the release/tag/source, index digest, exact tested child image

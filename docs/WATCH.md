@@ -32,9 +32,9 @@ The exported `runBatch(args)` API returns the structured summary without setting
 
 ## Background Docker watcher
 
-For a step-by-step installation using the published 3.20.1 image, see
+For a step-by-step installation using the published 3.20.2 image, see
 [Docker / NAS setup](NAS.md). The Compose default and the setup helper
-pin the published 3.20.1 release on GHCR, by digest; set
+pin the published 3.20.2 release on GHCR, by digest; set
 `EPUB_OPTIMIZER_DOCKER_IMAGE` to choose another one.
 
 For a NAS or custom host directory, the setup helper creates directories and a
