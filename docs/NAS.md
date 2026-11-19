@@ -24,10 +24,10 @@ owns the data folders (`id -u` and `id -g`). Set this exact published image, rep
 any older `EPUB_OPTIMIZER_DOCKER_IMAGE` line rather than adding a duplicate:
 
 ```dotenv
-EPUB_OPTIMIZER_DOCKER_IMAGE=docker.io/boopykiki/epub-optimizer:3.20.0@sha256:e651a01f491aa4bd3acc75dbbf71003df0a602e967c210adc1e3a02b1a7459ec
+EPUB_OPTIMIZER_DOCKER_IMAGE=docker.io/boopykiki/epub-optimizer:3.20.1@sha256:63b9e8c6eaf945a66161e3410fff985a2d4bc39287be913f8d112f30eae2564c
 ```
 
-The setup helper and the Compose default pin release 3.20.0 from GHCR. An env file
+The setup helper and the Compose default pin release 3.20.1 from GHCR. An env file
 created by an older helper keeps the image it names, so check this line after an upgrade.
 The explicit setting above selects the same release from [Docker Hub](https://hub.docker.com/r/boopykiki/epub-optimizer) and its tested multi-platform digest.
 GHCR is also available: replace `docker.io/boopykiki/epub-optimizer` with

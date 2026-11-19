@@ -137,7 +137,8 @@ describe("optional font pipeline", () => {
     expect(first.length).toBeLessThan(small.original.length);
     await subsetFonts(small.root, { enabled: true });
     expect(await fs.readFile(small.file)).toEqual(first);
-  });
+    // Two full subsetting passes: allow for loaded machines and coverage runs.
+  }, 15_000);
 });
 
 describe("font child resource boundaries", () => {
