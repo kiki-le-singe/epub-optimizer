@@ -45,18 +45,21 @@ async function minifyJavaScript(dir: string): Promise<void> {
           },
         });
 
-        if (result.code) {
-          // Write minified file
-          await fs.writeFile(jsFile, result.code);
-          const newSize = Buffer.from(result.code).length;
-          const reduction = Math.round(((originalSize - newSize) / originalSize) * 100);
-
-          reportInfo(
-            `Minified ${path.basename(jsFile)}: ${originalSize} bytes → ${newSize} bytes (${reduction}% smaller)`
-          );
-        } else {
+        if (!result.code) {
           reportInfo(`Skipping ${path.basename(jsFile)}: No output from minifier`);
+          return;
         }
+        const newSize = Buffer.from(result.code).length;
+        // Already compact code can grow, for example by a statement terminator.
+        if (newSize >= originalSize) {
+          reportInfo(`Keeping ${path.basename(jsFile)}: minification would not reduce size`);
+          return;
+        }
+        await fs.writeFile(jsFile, result.code);
+        const reduction = Math.round(((originalSize - newSize) / originalSize) * 100);
+        reportInfo(
+          `Minified ${path.basename(jsFile)}: ${originalSize} bytes → ${newSize} bytes (${reduction}% smaller)`
+        );
       } catch (error) {
         reportWarning(
           `Skipping ${path.basename(jsFile)}: ${error instanceof Error ? error.message : String(error)}`

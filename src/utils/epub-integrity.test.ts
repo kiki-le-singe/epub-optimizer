@@ -59,6 +59,60 @@ describe("EPUB content integrity", () => {
     expect(metrics.internalReferences).toBeGreaterThanOrEqual(5);
   });
 
+  it("checks srcset candidates, CSS imports, unsafe paths and spine entries", async () => {
+    const root = await createFixture();
+    await fs.writeFile(
+      path.join(root, "OPS", "content.opf"),
+      `<package><manifest>
+        <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+        <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+        <item id="style" href="style.css" media-type="text/css"/>
+        <item id="image" href="images/photo.jpg" media-type="image/jpeg"/>
+        <item id="escape" href="../../outside.css" media-type="text/css"/>
+      </manifest><spine toc="ncx"><itemref idref="chapter"/><itemref idref="gone"/><itemref/></spine></package>`
+    );
+    await fs.writeFile(
+      path.join(root, "OPS", "toc.ncx"),
+      `<ncx><navMap><navPoint><content src="chapter.xhtml"/></navPoint><navPoint><content src="chapter.xhtml#b"/></navPoint></navMap></ncx>`
+    );
+    await fs.writeFile(
+      path.join(root, "OPS", "chapter.xhtml"),
+      `<html><body>
+        <img src="images/photo.jpg" srcset="images/photo.jpg 1x, images/large.jpg 2x,images/small.jpg"/>
+        <video poster="images/poster.jpg" src="https://example.org/v.mp4"/>
+        <a href="#top">top</a><a href="../../../secret.xhtml">escape</a>
+      </body></html>`
+    );
+    await fs.writeFile(
+      path.join(root, "OPS", "style.css"),
+      `@import "missing.css"; @import url('images/also-missing.css');
+       .a { background: url(images/photo.jpg); } .b { background: url("data:image/png;base64,AA=="); }`
+    );
+
+    const metrics = await collectEpubContentMetrics(root);
+
+    expect(metrics.navigationEntries).toBe(2);
+    expect(metrics.missingReferenceTargets).toEqual([
+      "OPS/chapter.xhtml -> ../../../secret.xhtml (unsafe)",
+      "OPS/chapter.xhtml -> images/large.jpg",
+      "OPS/chapter.xhtml -> images/poster.jpg",
+      "OPS/chapter.xhtml -> images/small.jpg",
+      "OPS/content.opf -> ../../outside.css (unsafe)",
+      "OPS/content.opf spine -> (missing idref)",
+      "OPS/content.opf spine -> gone",
+      "OPS/style.css -> images/also-missing.css",
+      "OPS/style.css -> missing.css",
+    ]);
+
+    // An optimization that drops the only image referenced from srcset alone is caught.
+    await fs.outputFile(path.join(root, "OPS", "images", "large.jpg"), "image");
+    const before = await collectEpubContentMetrics(root);
+    await fs.remove(path.join(root, "OPS", "images", "large.jpg"));
+    const comparison = compareEpubContentMetrics(before, await collectEpubContentMetrics(root));
+    expect(comparison.newMissingReferences).toEqual(["OPS/chapter.xhtml -> images/large.jpg"]);
+    expect(() => assertEpubContentIntegrity(comparison)).toThrow("images/large.jpg");
+  });
+
   it("rejects newly missing resources and decreased content counts", async () => {
     const root = await createFixture();
     const before = await collectEpubContentMetrics(root);
