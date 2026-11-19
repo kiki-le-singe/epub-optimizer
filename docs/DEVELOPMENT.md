@@ -137,7 +137,9 @@ See the [validation corpus and manual reading-system checklist](VALIDATION.md) f
 ### Production Validation
 
 Use Node 24 LTS for development and release checks (`.node-version`); the minimum
-supported runtime is Node 22.12. Install with `pnpm install --frozen-lockfile`.
+supported runtime is Node 22.12. The interface tests use jsdom, which needs Node
+22.22.2 or 24.15 and newer to run the test suite; this does not apply to the
+published package. Install with `pnpm install --frozen-lockfile`.
 CI validates Node 22 and 24, coverage, formatting, EPUBCheck and Docker workflows.
 The production dependency audit is required by every CI and release run, including
 release retries; it also runs weekly and can be started manually.
