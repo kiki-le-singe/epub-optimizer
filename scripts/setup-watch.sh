@@ -31,6 +31,6 @@ case "$store" in *"'"*|*"$carriage_return"*|*'
 (set -C; {
   printf 'WATCH_UID=%s\nWATCH_GID=%s\n' "$(id -u)" "$(id -g)"
   printf "EPUB_WATCH_INBOX='%s/inbox'\nEPUB_WATCH_OUTPUT='%s/optimized'\n" "$store" "$store"
-  printf '%s\n' 'EPUB_OPTIMIZER_DOCKER_IMAGE=ghcr.io/kiki-le-singe/epub-optimizer:3.19.0@sha256:8818070446c02c6f3951782e6266969213389369d46461857aba466911c77509'
+  printf '%s\n' 'EPUB_OPTIMIZER_DOCKER_IMAGE=ghcr.io/kiki-le-singe/epub-optimizer:3.20.0@sha256:e651a01f491aa4bd3acc75dbbf71003df0a602e967c210adc1e3a02b1a7459ec'
 } > "$env_file")
 printf 'Prepared %s and %s. Check UID/GID for your NAS account before starting Compose.\n' "$store" "$env_file"
