@@ -277,7 +277,8 @@ describe("PNG to JPEG converter", () => {
     expect(await fs.readFile(path.join(epubDir, "OPS/chapters/chapter-1.xhtml"), "utf8")).toContain(
       'src="../images/cat.png"'
     );
-  });
+    // Quality-100 encodes of a 512×512 noise image: allow for loaded machines and coverage runs.
+  }, 15_000);
 
   it("commits only exact resolved PNG references across nested XHTML, CSS, srcset, and SVG", async () => {
     const epubDir = path.join(tempDir, "commit");

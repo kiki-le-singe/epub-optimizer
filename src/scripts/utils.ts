@@ -92,7 +92,7 @@ export function getLang(): string {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === undefined) continue;
-    if (arg.startsWith("--lang=")) return arg.split("=")[1] ?? config.lang;
+    if (arg.startsWith("--lang=")) return arg.slice("--lang=".length);
     if (arg === "--lang" && i + 1 < args.length) return args[i + 1] ?? config.lang;
   }
   return config.lang;
@@ -113,7 +113,8 @@ export function getTempDir(): string {
 
     // Check for --temp=value or -t=value
     if (arg.startsWith("--temp=") || arg.startsWith("-t=")) {
-      const tempPath = arg.split("=")[1] ?? "";
+      // Keep any further "=" characters: they belong to the path.
+      const tempPath = arg.slice(arg.indexOf("=") + 1);
       return path.isAbsolute(tempPath) ? tempPath : path.join(process.cwd(), tempPath);
     }
 

@@ -16,10 +16,10 @@ export default defineConfig({
       // differences. Generated-book tests exercise the author workflow too;
       // the separate EPUBCheck E2E suite does not count toward these numbers.
       thresholds: {
-        statements: 82,
-        branches: 72,
+        statements: 86,
+        branches: 78,
         functions: 90,
-        lines: 83,
+        lines: 88,
       },
     },
   },
