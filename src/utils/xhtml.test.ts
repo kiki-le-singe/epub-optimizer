@@ -97,6 +97,12 @@ describe("normalizeNamedEntities", () => {
     expect(normalizeNamedEntities(input)).toBe(input);
   });
 
+  it("keeps an unknown name that extends a known one as written", () => {
+    // entities 7 decoded &Yumlx; to U+0E6F; any such name must stay literal.
+    const input = "<p>&Yumlx; &eacutex; &nbspx; &Yuml;</p>";
+    expect(normalizeNamedEntities(input)).toBe("<p>&Yumlx; &eacutex; &nbspx; &#x178;</p>");
+  });
+
   it("never emits a raw markup character for an entity that decodes to one", () => {
     expect(normalizeNamedEntities("<p>&LT;&AMP;</p>")).toBe("<p>&#x3c;&#x26;</p>");
   });
