@@ -41,7 +41,9 @@ async function minifyJavaScript(dir: string): Promise<void> {
           compress: true,
           mangle: true,
           output: {
-            comments: false,
+            // Keep license notices (/*! … */, @license, @preserve), as CSS and
+            // inline scripts already do; other comments are removed.
+            comments: "some",
           },
         });
 
